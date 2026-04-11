@@ -67,3 +67,15 @@ sangram-profile.md
 beatriz-profile.md
 shared-conversation.md
 test_plate.csv
+
+# Terraform
+*.tfstate
+*.tfstate.*
+*.tfvars
+.terraform/
+.terraform.lock.hcl
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
