@@ -397,6 +397,15 @@ def _default_tools() -> list[ToolSchema]:
                 ToolParameter(name="filename", type="string", description="Filename to search for", required=False),
             ],
         ),
+        ToolSchema(
+            name="read_file_contents",
+            description="Read the actual text contents of an uploaded file (CSV, TSV, TXT). Returns the raw file data so you can parse and analyze it.",
+            category="general",
+            parameters=[
+                ToolParameter(name="file_id", type="string", description="File ID to read", required=False),
+                ToolParameter(name="filename", type="string", description="Filename to search for and read", required=False),
+            ],
+        ),
 
         # -- eln --
         ToolSchema(

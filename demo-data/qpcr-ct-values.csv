@@ -1,0 +1,13 @@
+Sample,Gene,Ct
+Untreated,GAPDH,18.2
+Untreated,GAPDH,18.4
+Untreated,GFP,29.1
+Untreated,GFP,29.3
+Treated-1uM,GAPDH,18.3
+Treated-1uM,GAPDH,18.1
+Treated-1uM,GFP,24.5
+Treated-1uM,GFP,24.8
+Treated-10uM,GAPDH,18.5
+Treated-10uM,GAPDH,18.2
+Treated-10uM,GFP,21.2
+Treated-10uM,GFP,21.5

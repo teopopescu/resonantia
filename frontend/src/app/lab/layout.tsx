@@ -34,10 +34,10 @@ export default function LabLayout({ children }: { children: React.ReactNode }) {
 
   // Fetch conversations once org context is ready
   useEffect(() => {
-    if (!isOnboardingRoute && !checking) {
-      fetchConversations();
+    if (!isOnboardingRoute && !checking && user?.id) {
+      fetchConversations(user.id);
     }
-  }, [isOnboardingRoute, checking, fetchConversations]);
+  }, [isOnboardingRoute, checking, user, fetchConversations]);
 
   useEffect(() => {
     // Skip the check if we're already on the onboarding page

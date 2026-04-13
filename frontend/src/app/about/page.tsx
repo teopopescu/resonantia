@@ -213,22 +213,6 @@ export default function AboutPage() {
               </div>
             </AnimatedSection>
 
-            <AnimatedSection delay={0.2}>
-              <div className="mt-14 p-6 rounded-2xl bg-surface border border-border inline-block">
-                <p className="text-base font-medium text-charcoal mb-2">
-                  We&apos;re hiring
-                </p>
-                <p className="text-sm text-muted mb-4">
-                  Interested in building the future of lab informatics?
-                </p>
-                <a
-                  href="mailto:hello@resonantia.io"
-                  className="inline-flex items-center gap-2 px-5 py-2.5 bg-charcoal text-cream text-sm font-medium rounded-full hover:bg-charcoal-light transition-colors duration-300"
-                >
-                  Get in touch
-                </a>
-              </div>
-            </AnimatedSection>
           </div>
         </section>
       </main>

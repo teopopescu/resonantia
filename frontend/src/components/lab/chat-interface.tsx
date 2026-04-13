@@ -29,6 +29,7 @@ import {
   Mic,
 } from "lucide-react";
 import VoiceMode from "./voice-mode";
+import { ElabFTWLogo, BenchlingLogo, DotmaticsLogo } from "@/components/icons/integration-logos";
 
 /* ---------- Attachment type ---------- */
 interface Attachment {
@@ -57,10 +58,10 @@ function formatFileSize(bytes: number): string {
 const ACCEPTED_TYPES = ".csv,.xlsx,.tsv,.fcs,.tiff,.png,.jpg,.jpeg,.pdf,.txt";
 
 /* ---------- Mentionable items for @ mentions ---------- */
-const mentionItems = [
-  { category: "Integrations", label: "eLabFTW" },
-  { category: "Integrations", label: "Benchling", comingSoon: true },
-  { category: "Integrations", label: "Dotmatics", comingSoon: true },
+const mentionItems: Array<{ category: string; label: string; icon?: React.ReactNode; comingSoon?: boolean }> = [
+  { category: "Integrations", label: "eLabFTW", icon: <ElabFTWLogo size={16} /> },
+  { category: "Integrations", label: "Benchling", icon: <BenchlingLogo size={16} />, comingSoon: true },
+  { category: "Integrations", label: "Dotmatics", icon: <DotmaticsLogo size={16} />, comingSoon: true },
   { category: "Resources", label: "Plate Maps" },
   { category: "Resources", label: "Sample Inventory" },
   { category: "Resources", label: "Microscopy Images" },
@@ -636,8 +637,9 @@ export default function ChatInterface() {
                                 onClick={() => handleMentionSelect(item.label)}
                                 className="flex items-center gap-2 w-full px-3 py-2 text-xs text-charcoal hover:bg-cream transition-colors text-left"
                               >
+                                {item.icon && <span className="shrink-0 flex items-center">{item.icon}</span>}
                                 <span className="font-medium">{item.label}</span>
-                                {"comingSoon" in item && item.comingSoon && (
+                                {item.comingSoon && (
                                   <span className="ml-auto text-[10px] text-muted/50 italic">coming soon</span>
                                 )}
                               </button>

@@ -14,6 +14,7 @@ import {
   Bell,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { ElabFTWLogo, BenchlingLogo, DotmaticsLogo } from "@/components/icons/integration-logos";
 
 type ConnectionStatus = "connected" | "error" | "unconfigured";
 
@@ -137,7 +138,7 @@ export default function SettingsPage() {
               <div className="flex items-center justify-between px-5 py-4 border-b border-border">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
-                    <span className="text-sm font-bold text-blue-600">eL</span>
+                    <ElabFTWLogo size={28} />
                   </div>
                   <div>
                     <h3 className="text-sm font-semibold text-charcoal">eLabFTW</h3>
@@ -232,7 +233,7 @@ export default function SettingsPage() {
               <div className="flex items-center justify-between px-5 py-4 border-b border-border">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-xl bg-[#4B6EF5]/10 flex items-center justify-center">
-                    <span className="text-sm font-bold text-[#4B6EF5]">B</span>
+                    <BenchlingLogo size={28} />
                   </div>
                   <div>
                     <h3 className="text-sm font-semibold text-charcoal">Benchling</h3>
@@ -282,8 +283,8 @@ export default function SettingsPage() {
             <div className="rounded-2xl border border-border bg-surface overflow-hidden opacity-60 relative">
               <div className="flex items-center justify-between px-5 py-4 border-b border-border">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-[#7C3AED]/10 flex items-center justify-center">
-                    <span className="text-sm font-bold text-[#7C3AED]">D</span>
+                  <div className="w-10 h-10 rounded-xl bg-[#00897B]/10 flex items-center justify-center">
+                    <DotmaticsLogo size={28} />
                   </div>
                   <div>
                     <h3 className="text-sm font-semibold text-charcoal">Dotmatics</h3>
