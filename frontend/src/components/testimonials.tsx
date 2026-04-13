@@ -8,26 +8,26 @@ const testimonials = [
   {
     quote:
       "We design 384-well plate maps and generate Echo worklists in minutes now. What used to be a full afternoon of spreadsheet wrangling is a single chat prompt.",
-    author: "Dr. Sarah Chen",
-    role: "Principal Scientist",
-    org: "Vertex Therapeutics",
-    initials: "SC",
+    author: "Principal Scientist",
+    role: "Drug Discovery",
+    org: "Top 20 Pharma",
+    initials: "PS",
   },
   {
     quote:
       "The dose-response fitting is spot on. I paste in my raw reads, get IC50 curves back with Z-prime scores and percent-of-control normalization — no more juggling GraphPad and Excel.",
-    author: "Dr. Marcus Rivera",
-    role: "Head of Screening",
-    org: "Novaris Biotech",
-    initials: "MR",
+    author: "Head of Screening",
+    role: "HTS & Assay Development",
+    org: "Series B Biotech",
+    initials: "HS",
   },
   {
     quote:
       "Browsing microscopy FOVs by well, plate, and channel in one place replaced three separate tools for us. The barcode-linked sample inventory is the cherry on top.",
-    author: "Dr. Anya Petrov",
-    role: "Imaging Core Lead",
-    org: "Cambridge Research Institute",
-    initials: "AP",
+    author: "Imaging Core Lead",
+    role: "High-Content Screening",
+    org: "Academic Research Institute",
+    initials: "IC",
   },
 ];
 
@@ -67,7 +67,7 @@ function TestimonialCard({
             {testimonial.author}
           </p>
           <p className="text-xs text-muted">
-            {testimonial.role}, {testimonial.org}
+            {testimonial.role} &middot; {testimonial.org}
           </p>
         </div>
       </div>

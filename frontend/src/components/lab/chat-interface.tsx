@@ -56,6 +56,19 @@ function formatFileSize(bytes: number): string {
 
 const ACCEPTED_TYPES = ".csv,.xlsx,.tsv,.fcs,.tiff,.png,.jpg,.jpeg,.pdf,.txt";
 
+/* ---------- Mentionable items for @ mentions ---------- */
+const mentionItems = [
+  { category: "Integrations", label: "eLabFTW" },
+  { category: "Integrations", label: "Benchling", comingSoon: true },
+  { category: "Integrations", label: "Dotmatics", comingSoon: true },
+  { category: "Resources", label: "Plate Maps" },
+  { category: "Resources", label: "Sample Inventory" },
+  { category: "Resources", label: "Microscopy Images" },
+  { category: "Resources", label: "ELN Notebook" },
+  { category: "Resources", label: "Protocols" },
+  { category: "Resources", label: "Processing Results" },
+];
+
 /* ---------- Skills for the dropdown ---------- */
 const agentSkills = [
   { label: "Plate Mapping", desc: "Design and configure plate layouts", prompt: "Design a plate map: ", icon: LayoutGrid },
@@ -202,6 +215,10 @@ export default function ChatInterface() {
   const [isUploading, setIsUploading] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [voiceModeActive, setVoiceModeActive] = useState(false);
+  const [showMentions, setShowMentions] = useState(false);
+  const [mentionFilter, setMentionFilter] = useState("");
+  const [mentionStartIndex, setMentionStartIndex] = useState(-1);
+  const mentionRef = useRef<HTMLDivElement>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -354,7 +371,19 @@ export default function ChatInterface() {
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
+    if (showMentions && e.key === "Escape") {
+      e.preventDefault();
+      setShowMentions(false);
+      setMentionFilter("");
+      return;
+    }
     if (e.key === "Enter" && !e.shiftKey) {
+      if (showMentions) {
+        // If mentions are open, close them instead of sending
+        setShowMentions(false);
+        setMentionFilter("");
+        return;
+      }
       e.preventDefault();
       handleSend();
     }
@@ -366,6 +395,56 @@ export default function ChatInterface() {
     setShowSkills(false);
     textareaRef.current?.focus();
   }, []);
+
+  // Filtered mention items
+  const filteredMentions = mentionItems.filter((item) =>
+    item.label.toLowerCase().includes(mentionFilter.toLowerCase())
+  );
+
+  // Group filtered mentions by category
+  const groupedMentions = filteredMentions.reduce<Record<string, typeof mentionItems>>((acc, item) => {
+    if (!acc[item.category]) acc[item.category] = [];
+    acc[item.category].push(item);
+    return acc;
+  }, {});
+
+  function handleMentionSelect(label: string) {
+    // Replace @filterText with @Label
+    const before = input.slice(0, mentionStartIndex);
+    const after = input.slice(textareaRef.current?.selectionStart ?? input.length);
+    setInput(before + "@" + label + " " + after);
+    setShowMentions(false);
+    setMentionFilter("");
+    setMentionStartIndex(-1);
+    textareaRef.current?.focus();
+  }
+
+  function handleInputChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    const val = e.target.value;
+    const cursorPos = e.target.selectionStart;
+    setInput(val);
+
+    // Detect @ mentions
+    if (cursorPos > 0) {
+      // Find the last @ before cursor
+      const textBeforeCursor = val.slice(0, cursorPos);
+      const lastAtIndex = textBeforeCursor.lastIndexOf("@");
+
+      if (lastAtIndex !== -1) {
+        const textAfterAt = textBeforeCursor.slice(lastAtIndex + 1);
+        // Only show if no spaces in the filter (or it's empty)
+        if (!textAfterAt.includes("\n")) {
+          setShowMentions(true);
+          setMentionFilter(textAfterAt);
+          setMentionStartIndex(lastAtIndex);
+          return;
+        }
+      }
+    }
+    setShowMentions(false);
+    setMentionFilter("");
+    setMentionStartIndex(-1);
+  }
 
   // Auto-resize textarea
   useEffect(() => {
@@ -535,10 +614,45 @@ export default function ChatInterface() {
                   </div>
                 )}
 
+                {/* @ Mention dropdown */}
+                <div ref={mentionRef} className="relative">
+                  <AnimatePresence>
+                    {showMentions && filteredMentions.length > 0 && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 4, scale: 0.97 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 4, scale: 0.97 }}
+                        transition={{ duration: 0.15 }}
+                        className="absolute bottom-full left-4 mb-1 w-64 max-h-64 overflow-y-auto rounded-xl border border-border bg-surface shadow-lg z-50"
+                      >
+                        {Object.entries(groupedMentions).map(([category, items]) => (
+                          <div key={category}>
+                            <div className="px-3 pt-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted/60">
+                              @{category}
+                            </div>
+                            {items.map((item) => (
+                              <button
+                                key={item.label}
+                                onClick={() => handleMentionSelect(item.label)}
+                                className="flex items-center gap-2 w-full px-3 py-2 text-xs text-charcoal hover:bg-cream transition-colors text-left"
+                              >
+                                <span className="font-medium">{item.label}</span>
+                                {"comingSoon" in item && item.comingSoon && (
+                                  <span className="ml-auto text-[10px] text-muted/50 italic">coming soon</span>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        ))}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+
                 <textarea
                   ref={textareaRef}
                   value={input}
-                  onChange={(e) => setInput(e.target.value)}
+                  onChange={handleInputChange}
                   onKeyDown={handleKeyDown}
                   placeholder="What lab task can I help you with today?"
                   rows={1}
