@@ -79,7 +79,11 @@ async def voice_chat(
         os.makedirs(voice_dir, exist_ok=True)
         audio_id = uuid.uuid4().hex
         audio_path = os.path.join(voice_dir, f"{audio_id}.mp3")
-        tts_response.stream_to_file(audio_path)
+        # Write audio bytes to file (stream_to_file may not work in async context)
+        audio_bytes = tts_response.content
+        with open(audio_path, "wb") as f:
+            f.write(audio_bytes)
+        logger.info("TTS audio saved: %s (%d bytes)", audio_path, len(audio_bytes))
 
         _audio_registry[audio_id] = audio_path
 
@@ -110,4 +114,12 @@ async def get_audio(audio_id: str):
         if not os.path.exists(path):
             raise HTTPException(status_code=404, detail="Audio not found")
 
-    return FileResponse(path, media_type="audio/mpeg", filename=f"{audio_id}.mp3")
+    return FileResponse(
+        path,
+        media_type="audio/mpeg",
+        filename=f"{audio_id}.mp3",
+        headers={
+            "Accept-Ranges": "bytes",
+            "Cache-Control": "public, max-age=3600",
+        },
+    )

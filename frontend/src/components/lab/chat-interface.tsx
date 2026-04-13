@@ -10,7 +10,6 @@ import {
   Box,
   Sparkles,
   SendHorizontal,
-  Bot,
   User,
   X,
   Upload,
@@ -364,7 +363,7 @@ export default function ChatInterface() {
               >
                 {msg.role === "assistant" && (
                   <div className="shrink-0 w-8 h-8 rounded-lg bg-amber/15 flex items-center justify-center mt-0.5">
-                    <Bot size={16} className="text-amber" />
+                    <span className="text-xs font-serif font-bold text-amber">R</span>
                   </div>
                 )}
                 <div
@@ -387,8 +386,8 @@ export default function ChatInterface() {
             ))}
             {isLoading && (
               <div className="flex gap-3 justify-start">
-                <div className="shrink-0 w-8 h-8 rounded-lg bg-amber/15 flex items-center justify-center mt-0.5">
-                  <Bot size={16} className="text-amber" />
+                <div className="shrink-0 w-8 h-8 rounded-lg bg-amber/10 flex items-center justify-center mt-0.5 overflow-hidden">
+                  <img src="/resonantia-logo.png" alt="Resonantia" className="w-6 h-6 object-contain" />
                 </div>
                 <div className="px-4 py-3 rounded-2xl bg-cream border border-border rounded-bl-md">
                   <div className="flex gap-1">

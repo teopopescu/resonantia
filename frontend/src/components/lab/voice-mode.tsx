@@ -89,11 +89,16 @@ export default function VoiceMode({ onExit }: VoiceModeProps) {
         // Play TTS audio
         if (data.audio_url && activeRef.current) {
           setStatus("speaking");
+          const audioUrl = `${API_URL}${data.audio_url}`;
+          console.log("[Voice] Playing TTS audio:", audioUrl);
           try {
-            await player.play(`${API_URL}${data.audio_url}`);
-          } catch {
-            // Audio playback failed, continue anyway
+            await player.play(audioUrl);
+            console.log("[Voice] TTS playback finished");
+          } catch (playErr) {
+            console.warn("[Voice] TTS playback error:", playErr);
           }
+        } else {
+          console.log("[Voice] No audio_url in response or voice mode deactivated");
         }
 
         // Resume listening if still active
