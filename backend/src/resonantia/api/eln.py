@@ -12,6 +12,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from resonantia.db.session import get_db
+from resonantia.dependencies import get_org_context
 from resonantia.models.eln_entry import ELNAppendix, ELNEntry
 from resonantia.models.experiment import Experiment
 from resonantia.schemas.eln_entry import (
@@ -27,14 +28,14 @@ from resonantia.schemas.eln_entry import (
 router = APIRouter()
 
 
-async def _next_entry_number(db: AsyncSession) -> str:
+async def _next_entry_number(db: AsyncSession, org_id: str = "org_default") -> str:
     """Generate the next sequential ELN entry number."""
     year = datetime.utcnow().year
     prefix = f"ELN-{year}-"
     stmt = (
         select(func.count())
         .select_from(ELNEntry)
-        .where(ELNEntry.entry_number.like(f"{prefix}%"))
+        .where(ELNEntry.org_id == org_id, ELNEntry.entry_number.like(f"{prefix}%"))
     )
     count = await db.scalar(stmt) or 0
     return f"{prefix}{count + 1:04d}"
@@ -43,9 +44,10 @@ async def _next_entry_number(db: AsyncSession) -> str:
 @router.post("/", response_model=ELNEntryResponse, status_code=201)
 async def create_eln_entry(
     body: ELNEntryCreate,
+    org_id: str = Depends(get_org_context),
     db: AsyncSession = Depends(get_db),
 ) -> ELNEntry:
-    entry_number = await _next_entry_number(db)
+    entry_number = await _next_entry_number(db, org_id)
     entry = ELNEntry(
         title=body.title,
         entry_number=entry_number,
@@ -57,6 +59,7 @@ async def create_eln_entry(
         embedded_figures=body.embedded_figures,
         linked_references=body.linked_references,
         tags=body.tags,
+        org_id=org_id,
     )
     db.add(entry)
     await db.flush()
@@ -71,14 +74,14 @@ async def list_eln_entries(
     status: str | None = None,
     experiment_id: uuid.UUID | None = None,
     tag: str | None = None,
+    org_id: str = Depends(get_org_context),
     db: AsyncSession = Depends(get_db),
 ) -> list[ELNEntry]:
-    stmt = select(ELNEntry).order_by(ELNEntry.created_at.desc())
+    stmt = select(ELNEntry).where(ELNEntry.org_id == org_id).order_by(ELNEntry.created_at.desc())
     if status:
         stmt = stmt.where(ELNEntry.status == status)
     if experiment_id:
         stmt = stmt.where(ELNEntry.experiment_id == experiment_id)
-    # Tag filtering via JSON contains is DB-specific; simple approach:
     if tag:
         stmt = stmt.where(ELNEntry.tags.contains([tag]))
     result = await db.execute(stmt.offset(skip).limit(limit))
@@ -88,10 +91,11 @@ async def list_eln_entries(
 @router.get("/{entry_id}", response_model=ELNEntryResponse)
 async def get_eln_entry(
     entry_id: uuid.UUID,
+    org_id: str = Depends(get_org_context),
     db: AsyncSession = Depends(get_db),
 ) -> ELNEntry:
     entry = await db.get(ELNEntry, entry_id)
-    if not entry:
+    if not entry or entry.org_id != org_id:
         raise HTTPException(status_code=404, detail="ELN entry not found")
     return entry
 
@@ -100,10 +104,11 @@ async def get_eln_entry(
 async def update_eln_entry(
     entry_id: uuid.UUID,
     body: ELNEntryUpdate,
+    org_id: str = Depends(get_org_context),
     db: AsyncSession = Depends(get_db),
 ) -> ELNEntry:
     entry = await db.get(ELNEntry, entry_id)
-    if not entry:
+    if not entry or entry.org_id != org_id:
         raise HTTPException(status_code=404, detail="ELN entry not found")
     if entry.status == "submitted":
         raise HTTPException(
@@ -120,10 +125,11 @@ async def update_eln_entry(
 @router.delete("/{entry_id}", status_code=204)
 async def delete_eln_entry(
     entry_id: uuid.UUID,
+    org_id: str = Depends(get_org_context),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     entry = await db.get(ELNEntry, entry_id)
-    if not entry:
+    if not entry or entry.org_id != org_id:
         raise HTTPException(status_code=404, detail="ELN entry not found")
     if entry.status == "submitted":
         raise HTTPException(status_code=409, detail="Cannot delete a submitted entry")
@@ -133,10 +139,11 @@ async def delete_eln_entry(
 @router.post("/{entry_id}/submit", response_model=ELNEntryResponse)
 async def submit_eln_entry(
     entry_id: uuid.UUID,
+    org_id: str = Depends(get_org_context),
     db: AsyncSession = Depends(get_db),
 ) -> ELNEntry:
     entry = await db.get(ELNEntry, entry_id)
-    if not entry:
+    if not entry or entry.org_id != org_id:
         raise HTTPException(status_code=404, detail="ELN entry not found")
     if entry.status == "submitted":
         raise HTTPException(status_code=409, detail="Entry is already submitted")
@@ -150,10 +157,11 @@ async def submit_eln_entry(
 async def add_appendix(
     entry_id: uuid.UUID,
     body: AppendixCreate,
+    org_id: str = Depends(get_org_context),
     db: AsyncSession = Depends(get_db),
 ) -> ELNAppendix:
     entry = await db.get(ELNEntry, entry_id)
-    if not entry:
+    if not entry or entry.org_id != org_id:
         raise HTTPException(status_code=404, detail="ELN entry not found")
     # Count existing appendices
     stmt = (
@@ -177,11 +185,12 @@ async def add_appendix(
 @router.post("/auto-generate", response_model=ELNEntryResponse, status_code=201)
 async def auto_generate_eln_entry(
     body: ELNAutoGenerate,
+    org_id: str = Depends(get_org_context),
     db: AsyncSession = Depends(get_db),
 ) -> ELNEntry:
     """Auto-generate an ELN entry from an experiment's data."""
     exp = await db.get(Experiment, body.experiment_id)
-    if not exp:
+    if not exp or exp.org_id != org_id:
         raise HTTPException(status_code=404, detail="Experiment not found")
 
     # Build markdown content from experiment data
@@ -214,7 +223,7 @@ async def auto_generate_eln_entry(
     content = "\n".join(sections)
     summary = f"Auto-generated ELN entry for experiment: {exp.name} (status: {exp.status})"
 
-    entry_number = await _next_entry_number(db)
+    entry_number = await _next_entry_number(db, org_id)
     entry = ELNEntry(
         title=f"ELN — {exp.name}",
         entry_number=entry_number,
@@ -225,6 +234,7 @@ async def auto_generate_eln_entry(
         author_id=body.author_id,
         linked_references={"experiments": [str(body.experiment_id)]},
         tags=["auto-generated"],
+        org_id=org_id,
     )
     db.add(entry)
     await db.flush()
@@ -235,10 +245,11 @@ async def auto_generate_eln_entry(
 @router.get("/{entry_id}/export/markdown")
 async def export_markdown(
     entry_id: uuid.UUID,
+    org_id: str = Depends(get_org_context),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     entry = await db.get(ELNEntry, entry_id)
-    if not entry:
+    if not entry or entry.org_id != org_id:
         raise HTTPException(status_code=404, detail="ELN entry not found")
 
     md = f"# {entry.title}\n\n"
@@ -263,10 +274,11 @@ async def export_markdown(
 @router.get("/{entry_id}/export/pdf")
 async def export_pdf(
     entry_id: uuid.UUID,
+    org_id: str = Depends(get_org_context),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     entry = await db.get(ELNEntry, entry_id)
-    if not entry:
+    if not entry or entry.org_id != org_id:
         raise HTTPException(status_code=404, detail="ELN entry not found")
 
     try:

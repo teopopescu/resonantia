@@ -1,11 +1,12 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { api, API_URL, getActiveOrgId } from "@/lib/api";
 
-export interface Task {
+export interface Conversation {
   id: string;
   title: string;
   createdAt: string;
-  status: "active" | "completed" | "archived";
+  updatedAt: string;
 }
 
 export interface ChatMessage {
@@ -16,23 +17,27 @@ export interface ChatMessage {
 }
 
 interface LabState {
-  tasks: Task[];
-  activeTaskId: string | null;
+  conversations: Conversation[];
+  activeConversationId: string | null;
   chatMessages: ChatMessage[];
   sidebarCollapsed: boolean;
   activeTool: string;
-  activeTab: "tasks" | "files";
   pendingPrompt: string | null;
   voiceModeActive: boolean;
 
-  addTask: (title: string) => void;
-  setActiveTask: (id: string | null) => void;
+  fetchConversations: () => Promise<void>;
+  setActiveConversation: (id: string | null) => void;
+  loadConversationMessages: (id: string) => Promise<void>;
+  startNewConversation: () => void;
+  deleteConversation: (id: string) => Promise<void>;
+  renameConversation: (id: string, title: string) => Promise<void>;
   addMessage: (role: ChatMessage["role"], content: string) => void;
+  clearMessages: () => void;
   toggleSidebar: () => void;
   setActiveTool: (tool: string) => void;
-  setActiveTab: (tab: "tasks" | "files") => void;
   setPendingPrompt: (prompt: string | null) => void;
   setVoiceModeActive: (active: boolean) => void;
+  addConversation: (conv: Conversation) => void;
 }
 
 function generateId() {
@@ -41,49 +46,72 @@ function generateId() {
 
 export const useLabStore = create<LabState>()(
   persist(
-    (set) => ({
-      tasks: [
-        {
-          id: "default-1",
-          title: "Plate mapping for experiment A",
-          createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
-          status: "active",
-        },
-        {
-          id: "default-2",
-          title: "Microscopy image analysis",
-          createdAt: new Date(Date.now() - 86400000).toISOString(),
-          status: "active",
-        },
-        {
-          id: "default-3",
-          title: "Sample inventory check",
-          createdAt: new Date(Date.now() - 3600000 * 5).toISOString(),
-          status: "completed",
-        },
-      ],
-      activeTaskId: null,
+    (set, get) => ({
+      conversations: [],
+      activeConversationId: null,
       chatMessages: [],
       sidebarCollapsed: false,
       activeTool: "chat",
-      activeTab: "tasks",
       pendingPrompt: null,
       voiceModeActive: false,
 
-      addTask: (title) =>
-        set((state) => ({
-          tasks: [
-            {
-              id: generateId(),
-              title,
-              createdAt: new Date().toISOString(),
-              status: "active",
-            },
-            ...state.tasks,
-          ],
-        })),
+      fetchConversations: async () => {
+        try {
+          const data = await api<Conversation[]>("/api/v1/chat/conversations");
+          set({ conversations: data });
+        } catch (err) {
+          console.error("Failed to fetch conversations:", err);
+        }
+      },
 
-      setActiveTask: (id) => set({ activeTaskId: id }),
+      setActiveConversation: (id) => set({ activeConversationId: id }),
+
+      loadConversationMessages: async (id: string) => {
+        try {
+          const data = await api<ChatMessage[]>(
+            `/api/v1/chat/conversations/${id}/messages`
+          );
+          set({ chatMessages: data, activeConversationId: id });
+        } catch (err) {
+          console.error("Failed to load conversation messages:", err);
+        }
+      },
+
+      startNewConversation: () => {
+        set({ activeConversationId: null, chatMessages: [] });
+      },
+
+      deleteConversation: async (id: string) => {
+        try {
+          await api(`/api/v1/chat/conversations/${id}`, { method: "DELETE" });
+          const state = get();
+          const updated = state.conversations.filter((c) => c.id !== id);
+          set({
+            conversations: updated,
+            ...(state.activeConversationId === id
+              ? { activeConversationId: null, chatMessages: [] }
+              : {}),
+          });
+        } catch (err) {
+          console.error("Failed to delete conversation:", err);
+        }
+      },
+
+      renameConversation: async (id: string, title: string) => {
+        try {
+          await api(`/api/v1/chat/conversations/${id}`, {
+            method: "PATCH",
+            body: JSON.stringify({ title }),
+          });
+          set((state) => ({
+            conversations: state.conversations.map((c) =>
+              c.id === id ? { ...c, title } : c
+            ),
+          }));
+        } catch (err) {
+          console.error("Failed to rename conversation:", err);
+        }
+      },
 
       addMessage: (role, content) =>
         set((state) => ({
@@ -98,21 +126,26 @@ export const useLabStore = create<LabState>()(
           ],
         })),
 
+      clearMessages: () => set({ chatMessages: [] }),
+
       toggleSidebar: () =>
         set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
 
       setActiveTool: (tool) => set({ activeTool: tool }),
 
-      setActiveTab: (tab) => set({ activeTab: tab }),
-
       setPendingPrompt: (prompt) => set({ pendingPrompt: prompt }),
 
       setVoiceModeActive: (active) => set({ voiceModeActive: active }),
+
+      addConversation: (conv) =>
+        set((state) => ({
+          conversations: [conv, ...state.conversations],
+          activeConversationId: conv.id,
+        })),
     }),
     {
       name: "resonantia-lab",
       partialize: (state) => ({
-        tasks: state.tasks,
         sidebarCollapsed: state.sidebarCollapsed,
       }),
     }

@@ -5,53 +5,45 @@ describe('useLabStore', () => {
   beforeEach(() => {
     // Reset store to initial state before each test
     useLabStore.setState({
-      tasks: [
-        {
-          id: 'default-1',
-          title: 'Plate mapping for experiment A',
-          createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
-          status: 'active',
-        },
-        {
-          id: 'default-2',
-          title: 'Microscopy image analysis',
-          createdAt: new Date(Date.now() - 86400000).toISOString(),
-          status: 'active',
-        },
-        {
-          id: 'default-3',
-          title: 'Sample inventory check',
-          createdAt: new Date(Date.now() - 3600000 * 5).toISOString(),
-          status: 'completed',
-        },
-      ],
-      activeTaskId: null,
+      conversations: [],
+      activeConversationId: null,
       chatMessages: [],
       sidebarCollapsed: false,
       activeTool: 'chat',
-      activeTab: 'tasks',
       pendingPrompt: null,
+      voiceModeActive: false,
     })
   })
 
-  it('initial state has default tasks', () => {
+  it('initial state has empty conversations', () => {
     const state = useLabStore.getState()
-    expect(state.tasks).toHaveLength(3)
-    expect(state.tasks[0].title).toBe('Plate mapping for experiment A')
-    expect(state.tasks[1].title).toBe('Microscopy image analysis')
-    expect(state.tasks[2].title).toBe('Sample inventory check')
+    expect(state.conversations).toHaveLength(0)
+    expect(state.activeConversationId).toBeNull()
   })
 
-  it('addTask adds a task with correct fields', () => {
-    useLabStore.getState().addTask('New experiment task')
+  it('startNewConversation clears active conversation and messages', () => {
+    useLabStore.setState({
+      activeConversationId: 'some-id',
+      chatMessages: [{ id: '1', role: 'user', content: 'hi', timestamp: new Date().toISOString() }],
+    })
+    useLabStore.getState().startNewConversation()
     const state = useLabStore.getState()
-    expect(state.tasks).toHaveLength(4)
-    // New task is prepended
-    const newTask = state.tasks[0]
-    expect(newTask.title).toBe('New experiment task')
-    expect(newTask.status).toBe('active')
-    expect(newTask.id).toBeDefined()
-    expect(newTask.createdAt).toBeDefined()
+    expect(state.activeConversationId).toBeNull()
+    expect(state.chatMessages).toHaveLength(0)
+  })
+
+  it('addConversation prepends and sets active', () => {
+    const conv = {
+      id: 'conv-1',
+      title: 'Test conversation',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+    useLabStore.getState().addConversation(conv)
+    const state = useLabStore.getState()
+    expect(state.conversations).toHaveLength(1)
+    expect(state.conversations[0].id).toBe('conv-1')
+    expect(state.activeConversationId).toBe('conv-1')
   })
 
   it('addMessage adds a chat message', () => {
@@ -87,5 +79,13 @@ describe('useLabStore', () => {
     expect(useLabStore.getState().pendingPrompt).toBe('Run analysis')
     useLabStore.getState().setPendingPrompt(null)
     expect(useLabStore.getState().pendingPrompt).toBeNull()
+  })
+
+  it('clearMessages empties chat messages', () => {
+    useLabStore.getState().addMessage('user', 'Hello')
+    useLabStore.getState().addMessage('assistant', 'Hi there')
+    expect(useLabStore.getState().chatMessages).toHaveLength(2)
+    useLabStore.getState().clearMessages()
+    expect(useLabStore.getState().chatMessages).toHaveLength(0)
   })
 })

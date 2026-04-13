@@ -1,10 +1,22 @@
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+/* ── Active org context (set from Clerk on app load) ── */
+let _activeOrgId = "org_default";
+
+export function setActiveOrgId(orgId: string) {
+  _activeOrgId = orgId;
+}
+
+export function getActiveOrgId(): string {
+  return _activeOrgId;
+}
+
 export async function api<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
+      "X-Org-Id": _activeOrgId,
       ...options?.headers,
     },
   });
@@ -23,6 +35,7 @@ export async function apiRaw(path: string, options?: RequestInit): Promise<Respo
     ...options,
     headers: {
       "Content-Type": "application/json",
+      "X-Org-Id": _activeOrgId,
       ...options?.headers,
     },
   });
@@ -48,7 +61,9 @@ export async function apiUpload<T>(path: string, file: File, extraFields?: Recor
   const res = await fetch(`${API_URL}${path}`, {
     method: "POST",
     body: formData,
-    // Do NOT set Content-Type — browser sets it with boundary for multipart
+    headers: {
+      "X-Org-Id": _activeOrgId,
+    },
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));

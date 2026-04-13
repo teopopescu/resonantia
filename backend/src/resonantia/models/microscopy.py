@@ -12,6 +12,7 @@ from resonantia.models.base import Base, TimestampMixin, UUIDPrimaryKey
 class MicroscopyImage(Base, UUIDPrimaryKey, TimestampMixin):
     __tablename__ = "microscopy_images"
 
+    org_id: Mapped[str] = mapped_column(String(255), index=True, default="org_default")
     experiment_id: Mapped[str | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("experiments.id", ondelete="SET NULL"),

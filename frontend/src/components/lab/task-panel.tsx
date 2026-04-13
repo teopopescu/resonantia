@@ -1,15 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useLabStore } from "@/stores/lab-store";
 import {
   ChevronLeft,
-  Settings,
   Search,
   Plus,
-  ChevronDown,
-  FolderOpen,
+  X,
+  MessageSquare,
+  Pencil,
+  Check,
 } from "lucide-react";
 
 function relativeDate(isoString: string) {
@@ -26,29 +27,63 @@ function relativeDate(isoString: string) {
 
 export default function TaskPanel() {
   const {
-    tasks,
-    activeTaskId,
+    conversations,
+    activeConversationId,
     sidebarCollapsed,
-    activeTab,
-    setActiveTask,
+    fetchConversations,
+    setActiveConversation,
+    loadConversationMessages,
+    startNewConversation,
+    deleteConversation,
+    renameConversation,
     toggleSidebar,
-    addTask,
-    setActiveTab,
   } = useLabStore();
 
   const [searchQuery, setSearchQuery] = useState("");
-  const [isCreating, setIsCreating] = useState(false);
-  const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const editInputRef = useRef<HTMLInputElement>(null);
 
-  const filteredTasks = tasks.filter((t) =>
-    t.title.toLowerCase().includes(searchQuery.toLowerCase())
+  useEffect(() => {
+    fetchConversations();
+  }, [fetchConversations]);
+
+  useEffect(() => {
+    if (editingId && editInputRef.current) {
+      editInputRef.current.focus();
+      editInputRef.current.select();
+    }
+  }, [editingId]);
+
+  const filteredConversations = conversations.filter((c) =>
+    c.title.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  function handleCreateTask() {
-    if (newTaskTitle.trim()) {
-      addTask(newTaskTitle.trim());
-      setNewTaskTitle("");
-      setIsCreating(false);
+  function handleSelectConversation(id: string) {
+    if (editingId) return;
+    setActiveConversation(id);
+    loadConversationMessages(id);
+  }
+
+  function handleStartRename(id: string, currentTitle: string) {
+    setEditingId(id);
+    setEditTitle(currentTitle);
+  }
+
+  function handleFinishRename() {
+    if (editingId && editTitle.trim()) {
+      renameConversation(editingId, editTitle.trim());
+    }
+    setEditingId(null);
+    setEditTitle("");
+  }
+
+  function handleRenameKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Enter") {
+      handleFinishRename();
+    } else if (e.key === "Escape") {
+      setEditingId(null);
+      setEditTitle("");
     }
   }
 
@@ -67,17 +102,10 @@ export default function TaskPanel() {
             <div className="flex items-center justify-between mb-3">
               <div>
                 <p className="text-[10px] font-semibold tracking-widest text-muted uppercase">
-                  Project
+                  Conversations
                 </p>
-                <button className="flex items-center gap-1 text-sm font-medium text-charcoal hover:text-amber transition-colors mt-0.5">
-                  Quick Tasks
-                  <ChevronDown size={14} />
-                </button>
               </div>
               <div className="flex items-center gap-1">
-                <button className="p-1.5 rounded-md text-muted hover:text-charcoal hover:bg-cream transition-colors">
-                  <Settings size={16} />
-                </button>
                 <button
                   onClick={toggleSidebar}
                   className="p-1.5 rounded-md text-muted hover:text-charcoal hover:bg-cream transition-colors"
@@ -86,134 +114,127 @@ export default function TaskPanel() {
                 </button>
               </div>
             </div>
-
-            {/* Tabs */}
-            <div className="flex border-b border-border">
-              <button
-                onClick={() => setActiveTab("tasks")}
-                className={`flex-1 pb-2 text-xs font-medium transition-colors border-b-2 ${
-                  activeTab === "tasks"
-                    ? "text-charcoal border-amber"
-                    : "text-muted border-transparent hover:text-charcoal"
-                }`}
-              >
-                Tasks
-              </button>
-              <button
-                onClick={() => setActiveTab("files")}
-                className={`flex-1 pb-2 text-xs font-medium transition-colors border-b-2 ${
-                  activeTab === "files"
-                    ? "text-charcoal border-amber"
-                    : "text-muted border-transparent hover:text-charcoal"
-                }`}
-              >
-                Files
-              </button>
-            </div>
           </div>
 
           {/* Content */}
-          {activeTab === "tasks" ? (
-            <div className="flex-1 flex flex-col overflow-hidden">
-              {/* Search */}
-              <div className="px-4 py-2">
-                <div className="relative">
-                  <Search
-                    size={14}
-                    className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Search tasks..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border border-border bg-surface text-charcoal focus:outline-none focus:border-amber/40 transition-colors placeholder:text-muted"
-                  />
-                </div>
+          <div className="flex-1 flex flex-col overflow-hidden">
+            {/* Search */}
+            <div className="px-4 py-2">
+              <div className="relative">
+                <Search
+                  size={14}
+                  className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted"
+                />
+                <input
+                  type="text"
+                  placeholder="Search conversations..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border border-border bg-surface text-charcoal focus:outline-none focus:border-amber/40 transition-colors placeholder:text-muted"
+                />
               </div>
+            </div>
 
-              {/* Task list */}
-              <div className="flex-1 overflow-y-auto px-2">
-                {filteredTasks.map((task) => (
-                  <button
-                    key={task.id}
-                    onClick={() => setActiveTask(task.id)}
-                    className={`w-full text-left px-3 py-2.5 rounded-lg mb-0.5 transition-all duration-100 group ${
-                      activeTaskId === task.id
-                        ? "bg-amber/10 border border-amber/20"
-                        : "hover:bg-cream border border-transparent"
-                    }`}
-                  >
-                    <p
-                      className={`text-sm leading-snug truncate ${
-                        activeTaskId === task.id
-                          ? "text-charcoal font-medium"
-                          : "text-charcoal/80"
-                      }`}
-                    >
-                      {task.title}
-                    </p>
-                    <p className="text-[10px] text-muted mt-0.5">
-                      {relativeDate(task.createdAt)}
-                    </p>
-                  </button>
-                ))}
-              </div>
-
-              {/* New task */}
-              <div className="px-3 py-3 border-t border-border">
-                {isCreating ? (
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={newTaskTitle}
-                      onChange={(e) => setNewTaskTitle(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && handleCreateTask()}
-                      placeholder="Task name..."
-                      autoFocus
-                      className="flex-1 px-2.5 py-1.5 text-xs rounded-xl border border-border bg-surface text-charcoal focus:outline-none focus:border-amber/40 transition-colors"
-                    />
-                    <button
-                      onClick={handleCreateTask}
-                      className="px-3 py-1.5 text-xs font-medium bg-amber text-charcoal rounded-md hover:bg-amber-light transition-colors"
-                    >
-                      Add
-                    </button>
-                    <button
-                      onClick={() => {
-                        setIsCreating(false);
-                        setNewTaskTitle("");
-                      }}
-                      className="px-2 py-1.5 text-xs text-muted hover:text-charcoal transition-colors"
-                    >
-                      Cancel
-                    </button>
+            {/* Conversation list */}
+            <div className="flex-1 overflow-y-auto px-2">
+              {filteredConversations.length === 0 && (
+                <div className="flex flex-col items-center justify-center text-center px-4 py-12">
+                  <div className="w-10 h-10 rounded-xl bg-cream flex items-center justify-center mb-3">
+                    <MessageSquare size={20} className="text-muted" />
                   </div>
-                ) : (
-                  <button
-                    onClick={() => setIsCreating(true)}
-                    className="flex items-center gap-2 w-full px-3 py-2 text-xs font-medium text-muted hover:text-charcoal rounded-lg border border-dashed border-border hover:border-amber/40 transition-all"
-                  >
-                    <Plus size={14} />
-                    New Task
-                  </button>
-                )}
-              </div>
+                  <p className="text-sm text-muted">No conversations yet</p>
+                  <p className="text-xs text-muted/60 mt-1">
+                    Start a new chat to begin
+                  </p>
+                </div>
+              )}
+              {filteredConversations.map((conv) => (
+                <div
+                  key={conv.id}
+                  className={`group relative w-full text-left px-3 py-2.5 rounded-lg mb-0.5 transition-all duration-100 cursor-pointer ${
+                    activeConversationId === conv.id
+                      ? "bg-amber/10 border border-amber/20"
+                      : "hover:bg-cream border border-transparent"
+                  }`}
+                  onClick={() => handleSelectConversation(conv.id)}
+                >
+                  {editingId === conv.id ? (
+                    <div className="flex items-center gap-1">
+                      <input
+                        ref={editInputRef}
+                        type="text"
+                        value={editTitle}
+                        onChange={(e) => setEditTitle(e.target.value)}
+                        onKeyDown={handleRenameKeyDown}
+                        onBlur={handleFinishRename}
+                        className="flex-1 text-sm px-1.5 py-0.5 rounded border border-amber/40 bg-surface text-charcoal focus:outline-none"
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleFinishRename();
+                        }}
+                        className="p-0.5 text-amber hover:text-amber-dark"
+                      >
+                        <Check size={14} />
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <p
+                        className={`text-sm leading-snug truncate pr-12 ${
+                          activeConversationId === conv.id
+                            ? "text-charcoal font-medium"
+                            : "text-charcoal/80"
+                        }`}
+                      >
+                        {conv.title}
+                      </p>
+                      <p className="text-[10px] text-muted mt-0.5">
+                        {relativeDate(conv.updatedAt || conv.createdAt)}
+                      </p>
+
+                      {/* Hover actions */}
+                      <div className="absolute right-2 top-1/2 -translate-y-1/2 hidden group-hover:flex items-center gap-0.5">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleStartRename(conv.id, conv.title);
+                          }}
+                          className="p-1 rounded text-muted hover:text-charcoal hover:bg-cream transition-colors"
+                          title="Rename"
+                        >
+                          <Pencil size={12} />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteConversation(conv.id);
+                          }}
+                          className="p-1 rounded text-muted hover:text-red-500 hover:bg-red-50 transition-colors"
+                          title="Delete"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ))}
             </div>
-          ) : (
-            /* Files tab */
-            <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
-              <div className="w-12 h-12 rounded-xl bg-cream flex items-center justify-center mb-3">
-                <FolderOpen size={24} className="text-muted" />
-              </div>
-              <p className="text-sm font-medium text-charcoal/70">
-                No files yet
-              </p>
-              <p className="text-xs text-muted mt-1">
-                Files generated by tasks will appear here
-              </p>
+
+            {/* New Chat button */}
+            <div className="px-3 py-3 border-t border-border">
+              <button
+                onClick={startNewConversation}
+                className="flex items-center gap-2 w-full px-3 py-2 text-xs font-medium text-muted hover:text-charcoal rounded-lg border border-dashed border-border hover:border-amber/40 transition-all"
+              >
+                <Plus size={14} />
+                New Chat
+              </button>
             </div>
-          )}
+          </div>
         </motion.aside>
       )}
     </AnimatePresence>

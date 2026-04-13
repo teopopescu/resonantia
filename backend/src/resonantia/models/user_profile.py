@@ -10,6 +10,7 @@ from resonantia.models.base import Base, UUIDPrimaryKey, TimestampMixin
 class UserProfile(Base, UUIDPrimaryKey, TimestampMixin):
     __tablename__ = "user_profiles"
 
+    org_id: Mapped[str] = mapped_column(String(255), index=True, default="org_default")
     clerk_user_id: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     name: Mapped[str | None] = mapped_column(String(255), nullable=True)

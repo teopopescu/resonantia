@@ -170,7 +170,6 @@ export default function OnboardingPage() {
           name: user.fullName ?? user.firstName ?? null,
           role: selectedRole,
           focus_areas: Array.from(selectedFocus),
-          organization: null,
         }),
       });
       setOnboardingCompleted(true);
@@ -209,7 +208,7 @@ export default function OnboardingPage() {
               Welcome to Resonantia Lab
             </h1>
             <p className="text-muted text-lg mb-10 leading-relaxed">
-              Let&apos;s set up your workspace. This takes about 30 seconds.
+              Let&apos;s set up your experience. This takes about 30 seconds.
             </p>
 
             <button

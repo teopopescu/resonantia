@@ -2,26 +2,44 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { useUser } from "@clerk/nextjs";
+import { useUser, useOrganization } from "@clerk/nextjs";
 import Sidebar from "@/components/lab/sidebar";
 import TaskPanel from "@/components/lab/task-panel";
 import { useLabStore } from "@/stores/lab-store";
 import { useOnboardingStore } from "@/stores/onboarding-store";
-import { api } from "@/lib/api";
+import { api, setActiveOrgId } from "@/lib/api";
 import { ChevronRight } from "lucide-react";
 
 export default function LabLayout({ children }: { children: React.ReactNode }) {
   const sidebarCollapsed = useLabStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useLabStore((s) => s.toggleSidebar);
+  const fetchConversations = useLabStore((s) => s.fetchConversations);
   const onboardingCompleted = useOnboardingStore((s) => s.onboardingCompleted);
   const setOnboardingCompleted = useOnboardingStore((s) => s.setOnboardingCompleted);
 
   const { user, isLoaded } = useUser();
+  const { organization } = useOrganization();
   const router = useRouter();
   const pathname = usePathname();
   const [checking, setChecking] = useState(true);
 
   const isOnboardingRoute = pathname.startsWith("/lab/onboarding");
+
+  // Set active org from Clerk (or fall back to default)
+  useEffect(() => {
+    if (organization?.id) {
+      setActiveOrgId(organization.id);
+    } else {
+      setActiveOrgId("org_default");
+    }
+  }, [organization]);
+
+  // Fetch conversations once org context is ready
+  useEffect(() => {
+    if (!isOnboardingRoute && !checking) {
+      fetchConversations();
+    }
+  }, [isOnboardingRoute, checking, fetchConversations]);
 
   useEffect(() => {
     // Skip the check if we're already on the onboarding page

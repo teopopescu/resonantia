@@ -2,6 +2,8 @@
 
 When the LLM decides to call a tool, this module runs it and returns
 structured results that get fed back into the conversation.
+
+All handlers accept an org_id parameter for multi-tenant isolation.
 """
 
 from __future__ import annotations
@@ -38,14 +40,14 @@ def _serialize(obj: Any) -> Any:
     return obj
 
 
-async def execute_tool(tool_name: str, tool_input: dict[str, Any]) -> str:
+async def execute_tool(tool_name: str, tool_input: dict[str, Any], org_id: str = "org_default") -> str:
     """Execute a tool by name and return a JSON string result."""
     handler = TOOL_HANDLERS.get(tool_name)
     if not handler:
         return json.dumps({"error": f"Unknown tool: {tool_name}"})
 
     try:
-        result = await handler(tool_input)
+        result = await handler(tool_input, org_id)
         return json.dumps(_serialize(result), default=str)
     except Exception as e:
         logger.exception("Tool execution failed: %s", tool_name)
@@ -53,21 +55,21 @@ async def execute_tool(tool_name: str, tool_input: dict[str, Any]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Tool handlers — each queries the real database
+# Tool handlers — each queries the real database, scoped by org_id
 # ---------------------------------------------------------------------------
 
-async def _lookup_sample(params: dict) -> dict:
+async def _lookup_sample(params: dict, org_id: str = "org_default") -> dict:
     """Look up samples by barcode, name, or lot number."""
     query = params.get("query", "")
     search_by = params.get("search_by", "barcode")
 
     async with async_session_factory() as session:
         if search_by == "barcode":
-            stmt = select(Sample).where(Sample.barcode.ilike(f"%{query}%"))
+            stmt = select(Sample).where(Sample.org_id == org_id, Sample.barcode.ilike(f"%{query}%"))
         elif search_by == "lot":
-            stmt = select(Sample).where(Sample.lot_number.ilike(f"%{query}%"))
+            stmt = select(Sample).where(Sample.org_id == org_id, Sample.lot_number.ilike(f"%{query}%"))
         else:
-            stmt = select(Sample).where(Sample.name.ilike(f"%{query}%"))
+            stmt = select(Sample).where(Sample.org_id == org_id, Sample.name.ilike(f"%{query}%"))
 
         result = await session.execute(stmt.limit(20))
         samples = result.scalars().all()
@@ -94,13 +96,13 @@ async def _lookup_sample(params: dict) -> dict:
         }
 
 
-async def _check_inventory(params: dict) -> dict:
+async def _check_inventory(params: dict, org_id: str = "org_default") -> dict:
     """Check stock levels and expiry for a reagent."""
     name = params.get("reagent_name", "")
     check_expiry = params.get("check_expiry", True)
 
     async with async_session_factory() as session:
-        stmt = select(Sample).where(Sample.name.ilike(f"%{name}%"))
+        stmt = select(Sample).where(Sample.org_id == org_id, Sample.name.ilike(f"%{name}%"))
         result = await session.execute(stmt.limit(10))
         samples = result.scalars().all()
 
@@ -126,12 +128,13 @@ async def _check_inventory(params: dict) -> dict:
         return {"found": len(items), "items": items}
 
 
-async def _query_experiments(params: dict) -> dict:
+async def _query_experiments(params: dict, org_id: str = "org_default") -> dict:
     """Query experiments — supports filtering by name, status, compound."""
     query = params.get("query", "")
 
     async with async_session_factory() as session:
         stmt = select(Experiment).where(
+            Experiment.org_id == org_id,
             or_(
                 Experiment.name.ilike(f"%{query}%"),
                 Experiment.description.ilike(f"%{query}%"),
@@ -161,12 +164,13 @@ async def _query_experiments(params: dict) -> dict:
         }
 
 
-async def _query_plate_maps(params: dict) -> dict:
+async def _query_plate_maps(params: dict, org_id: str = "org_default") -> dict:
     """Query plate maps by name or description."""
     query = params.get("query", "")
 
     async with async_session_factory() as session:
         stmt = select(PlateMap).where(
+            PlateMap.org_id == org_id,
             or_(
                 PlateMap.name.ilike(f"%{query}%"),
                 PlateMap.description.ilike(f"%{query}%"),
@@ -194,13 +198,13 @@ async def _query_plate_maps(params: dict) -> dict:
         }
 
 
-async def _get_ic50_values(params: dict) -> dict:
+async def _get_ic50_values(params: dict, org_id: str = "org_default") -> dict:
     """Get IC50/EC50 values across experiments for a compound."""
     compound = params.get("compound", "")
 
     async with async_session_factory() as session:
-        # Search experiments whose results or name reference the compound
         stmt = select(Experiment).where(
+            Experiment.org_id == org_id,
             or_(
                 Experiment.name.ilike(f"%{compound}%"),
                 Experiment.description.ilike(f"%{compound}%"),
@@ -239,7 +243,7 @@ async def _get_ic50_values(params: dict) -> dict:
         return {"found": len(ic50_results), "results": ic50_results}
 
 
-async def _get_expiring_samples(params: dict) -> dict:
+async def _get_expiring_samples(params: dict, org_id: str = "org_default") -> dict:
     """Get all samples expiring within N days."""
     days = params.get("days", 30)
 
@@ -249,6 +253,7 @@ async def _get_expiring_samples(params: dict) -> dict:
         future = cutoff + timedelta(days=days)
 
         stmt = select(Sample).where(
+            Sample.org_id == org_id,
             Sample.expiry_date.isnot(None),
             Sample.expiry_date <= future,
         ).order_by(Sample.expiry_date)
@@ -274,14 +279,18 @@ async def _get_expiring_samples(params: dict) -> dict:
         }
 
 
-async def _get_sample_stats(params: dict) -> dict:
+async def _get_sample_stats(params: dict, org_id: str = "org_default") -> dict:
     """Get summary statistics about the sample inventory."""
     async with async_session_factory() as session:
-        total = await session.scalar(select(func.count()).select_from(Sample))
+        total = await session.scalar(
+            select(func.count()).select_from(Sample).where(Sample.org_id == org_id)
+        )
 
         # Count by type
         type_counts_q = await session.execute(
-            select(Sample.sample_type, func.count()).group_by(Sample.sample_type)
+            select(Sample.sample_type, func.count())
+            .where(Sample.org_id == org_id)
+            .group_by(Sample.sample_type)
         )
         type_counts = {row[0]: row[1] for row in type_counts_q.all()}
 
@@ -290,6 +299,7 @@ async def _get_sample_stats(params: dict) -> dict:
         cutoff = date.today() + timedelta(days=30)
         expiring = await session.scalar(
             select(func.count()).select_from(Sample).where(
+                Sample.org_id == org_id,
                 Sample.expiry_date.isnot(None),
                 Sample.expiry_date <= cutoff,
                 Sample.expiry_date >= date.today(),
@@ -299,6 +309,7 @@ async def _get_sample_stats(params: dict) -> dict:
         # Already expired
         expired = await session.scalar(
             select(func.count()).select_from(Sample).where(
+                Sample.org_id == org_id,
                 Sample.expiry_date.isnot(None),
                 Sample.expiry_date < date.today(),
             )
@@ -316,7 +327,7 @@ async def _get_sample_stats(params: dict) -> dict:
 # File access tools
 # ---------------------------------------------------------------------------
 
-async def _list_files(params: dict) -> dict:
+async def _list_files(params: dict, org_id: str = "org_default") -> dict:
     """List all uploaded files."""
     from resonantia.api.files import _file_registry
     files = list(_file_registry.values())
@@ -330,7 +341,7 @@ async def _list_files(params: dict) -> dict:
     }
 
 
-async def _get_file_info(params: dict) -> dict:
+async def _get_file_info(params: dict, org_id: str = "org_default") -> dict:
     """Get details about a specific uploaded file."""
     from resonantia.api.files import _file_registry
     file_id = params.get("file_id", "")
@@ -348,10 +359,10 @@ async def _get_file_info(params: dict) -> dict:
 # Microscopy tools
 # ---------------------------------------------------------------------------
 
-async def _list_microscopy_images(params: dict) -> dict:
+async def _list_microscopy_images(params: dict, org_id: str = "org_default") -> dict:
     """List microscopy images with optional filters."""
     async with async_session_factory() as session:
-        stmt = select(MicroscopyImage)
+        stmt = select(MicroscopyImage).where(MicroscopyImage.org_id == org_id)
         if params.get("well"):
             stmt = stmt.where(MicroscopyImage.well == params["well"])
         if params.get("channel"):
@@ -378,11 +389,11 @@ async def _list_microscopy_images(params: dict) -> dict:
 # Plate map detail tools
 # ---------------------------------------------------------------------------
 
-async def _get_plate_map_details(params: dict) -> dict:
+async def _get_plate_map_details(params: dict, org_id: str = "org_default") -> dict:
     """Get full details of a plate map including well mappings."""
     query = params.get("plate_map_name", "") or params.get("query", "")
     async with async_session_factory() as session:
-        stmt = select(PlateMap).where(PlateMap.name.ilike(f"%{query}%")).limit(5)
+        stmt = select(PlateMap).where(PlateMap.org_id == org_id, PlateMap.name.ilike(f"%{query}%")).limit(5)
         result = await session.execute(stmt)
         plates = result.scalars().all()
 
@@ -412,10 +423,11 @@ async def _get_plate_map_details(params: dict) -> dict:
 # Processing results tools
 # ---------------------------------------------------------------------------
 
-async def _get_processing_results(params: dict) -> dict:
+async def _get_processing_results(params: dict, org_id: str = "org_default") -> dict:
     """Get processing results from completed experiments."""
     async with async_session_factory() as session:
         stmt = select(Experiment).where(
+            Experiment.org_id == org_id,
             Experiment.status == "completed",
             Experiment.results.isnot(None),
         ).order_by(Experiment.created_at.desc()).limit(20)
@@ -448,7 +460,7 @@ async def _get_processing_results(params: dict) -> dict:
 # ELN tools
 # ---------------------------------------------------------------------------
 
-async def _create_eln_entry(params: dict) -> dict:
+async def _create_eln_entry(params: dict, org_id: str = "org_default") -> dict:
     """Create an ELN entry, optionally auto-generating from an experiment."""
     title = params.get("title", "Untitled Entry")
     experiment_id = params.get("experiment_id")
@@ -459,7 +471,10 @@ async def _create_eln_entry(params: dict) -> dict:
         # Generate entry number
         year = date.today().year
         prefix = f"ELN-{year}-"
-        count_stmt = select(func.count()).select_from(ELNEntry).where(ELNEntry.entry_number.like(f"{prefix}%"))
+        count_stmt = select(func.count()).select_from(ELNEntry).where(
+            ELNEntry.org_id == org_id,
+            ELNEntry.entry_number.like(f"{prefix}%"),
+        )
         count = await session.scalar(count_stmt) or 0
         entry_number = f"{prefix}{count + 1:04d}"
 
@@ -483,6 +498,7 @@ async def _create_eln_entry(params: dict) -> dict:
             content_markdown=content,
             status="draft",
             tags=tags,
+            org_id=org_id,
         )
         if experiment_id:
             import uuid as _uuid
@@ -501,13 +517,14 @@ async def _create_eln_entry(params: dict) -> dict:
         }
 
 
-async def _query_eln_entries(params: dict) -> dict:
+async def _query_eln_entries(params: dict, org_id: str = "org_default") -> dict:
     """Search ELN entries."""
     query = params.get("query", "")
     status = params.get("status")
 
     async with async_session_factory() as session:
         stmt = select(ELNEntry).where(
+            ELNEntry.org_id == org_id,
             or_(
                 ELNEntry.title.ilike(f"%{query}%"),
                 ELNEntry.content_markdown.ilike(f"%{query}%"),
@@ -540,7 +557,7 @@ async def _query_eln_entries(params: dict) -> dict:
         }
 
 
-async def _get_eln_entry(params: dict) -> dict:
+async def _get_eln_entry(params: dict, org_id: str = "org_default") -> dict:
     """Get full ELN entry with appendices."""
     entry_id = params.get("entry_id", "")
 
@@ -554,11 +571,11 @@ async def _get_eln_entry(params: dict) -> dict:
             pass
 
         if not entry:
-            stmt = select(ELNEntry).where(ELNEntry.entry_number == entry_id)
+            stmt = select(ELNEntry).where(ELNEntry.org_id == org_id, ELNEntry.entry_number == entry_id)
             result = await session.execute(stmt)
             entry = result.scalar_one_or_none()
 
-        if not entry:
+        if not entry or entry.org_id != org_id:
             return {"found": False, "message": f"No ELN entry found for '{entry_id}'"}
 
         return {
@@ -578,7 +595,7 @@ async def _get_eln_entry(params: dict) -> dict:
         }
 
 
-async def _submit_eln_entry(params: dict) -> dict:
+async def _submit_eln_entry(params: dict, org_id: str = "org_default") -> dict:
     """Submit an ELN entry (make immutable)."""
     entry_id = params.get("entry_id", "")
 
@@ -589,7 +606,7 @@ async def _submit_eln_entry(params: dict) -> dict:
         except (ValueError, AttributeError):
             return {"success": False, "message": f"Invalid entry ID: {entry_id}"}
 
-        if not entry:
+        if not entry or entry.org_id != org_id:
             return {"success": False, "message": f"ELN entry {entry_id} not found"}
         if entry.status == "submitted":
             return {"success": False, "message": "Entry is already submitted"}
@@ -610,7 +627,7 @@ async def _submit_eln_entry(params: dict) -> dict:
 # Protocol tools
 # ---------------------------------------------------------------------------
 
-async def _create_protocol_tool(params: dict) -> dict:
+async def _create_protocol_tool(params: dict, org_id: str = "org_default") -> dict:
     """Create a protocol, optionally generating steps from experiment type."""
     name = params.get("name", "New Protocol")
     description = params.get("description", "")
@@ -624,6 +641,7 @@ async def _create_protocol_tool(params: dict) -> dict:
             status="draft",
             is_template=bool(experiment_type),
             tags=[experiment_type] if experiment_type else [],
+            org_id=org_id,
         )
         session.add(protocol)
         await session.flush()
@@ -677,13 +695,14 @@ async def _create_protocol_tool(params: dict) -> dict:
         }
 
 
-async def _query_protocols(params: dict) -> dict:
+async def _query_protocols(params: dict, org_id: str = "org_default") -> dict:
     """Search protocols by name or description."""
     query = params.get("query", "")
     status = params.get("status")
 
     async with async_session_factory() as session:
         stmt = select(Protocol).where(
+            Protocol.org_id == org_id,
             or_(
                 Protocol.name.ilike(f"%{query}%"),
                 Protocol.description.ilike(f"%{query}%"),
@@ -717,7 +736,7 @@ async def _query_protocols(params: dict) -> dict:
         }
 
 
-async def _check_protocol_inventory(params: dict) -> dict:
+async def _check_protocol_inventory(params: dict, org_id: str = "org_default") -> dict:
     """Check reagent availability for a protocol."""
     protocol_id = params.get("protocol_id", "")
 
@@ -728,7 +747,7 @@ async def _check_protocol_inventory(params: dict) -> dict:
         except (ValueError, AttributeError):
             return {"success": False, "message": f"Invalid protocol ID: {protocol_id}"}
 
-        if not protocol:
+        if not protocol or protocol.org_id != org_id:
             return {"success": False, "message": f"Protocol {protocol_id} not found"}
 
         results = []
@@ -741,7 +760,7 @@ async def _check_protocol_inventory(params: dict) -> dict:
                 name = reagent.get("name", "")
                 if not name:
                     continue
-                stmt = select(Sample).where(Sample.name.ilike(f"%{name}%")).limit(5)
+                stmt = select(Sample).where(Sample.org_id == org_id, Sample.name.ilike(f"%{name}%")).limit(5)
                 res = await session.execute(stmt)
                 samples = res.scalars().all()
 
@@ -764,7 +783,7 @@ async def _check_protocol_inventory(params: dict) -> dict:
         }
 
 
-async def _calculate_dilution(params: dict) -> dict:
+async def _calculate_dilution(params: dict, org_id: str = "org_default") -> dict:
     """C1V1 = C2V2 calculator."""
     c1 = params.get("c1", 0)
     v1 = params.get("v1")

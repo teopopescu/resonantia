@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from resonantia.db.session import get_db
+from resonantia.dependencies import get_org_context
 from resonantia.models.user_profile import UserProfile
 from resonantia.schemas.user_profile import (
     OnboardingRequest,
@@ -15,7 +16,11 @@ router = APIRouter()
 
 
 @router.get("/check/{clerk_user_id}", response_model=OnboardingCheckResponse)
-async def check_onboarding(clerk_user_id: str, db: AsyncSession = Depends(get_db)):
+async def check_onboarding(
+    clerk_user_id: str,
+    org_id: str = Depends(get_org_context),
+    db: AsyncSession = Depends(get_db),
+):
     result = await db.execute(
         select(UserProfile).where(UserProfile.clerk_user_id == clerk_user_id)
     )
@@ -26,7 +31,11 @@ async def check_onboarding(clerk_user_id: str, db: AsyncSession = Depends(get_db
 
 
 @router.post("/complete", response_model=OnboardingResponse)
-async def complete_onboarding(body: OnboardingRequest, db: AsyncSession = Depends(get_db)):
+async def complete_onboarding(
+    body: OnboardingRequest,
+    org_id: str = Depends(get_org_context),
+    db: AsyncSession = Depends(get_db),
+):
     result = await db.execute(
         select(UserProfile).where(UserProfile.clerk_user_id == body.clerk_user_id)
     )
@@ -39,6 +48,7 @@ async def complete_onboarding(body: OnboardingRequest, db: AsyncSession = Depend
         profile.email = body.email
         profile.name = body.name
         profile.onboarding_completed = True
+        profile.org_id = org_id
     else:
         profile = UserProfile(
             clerk_user_id=body.clerk_user_id,
@@ -48,6 +58,7 @@ async def complete_onboarding(body: OnboardingRequest, db: AsyncSession = Depend
             focus_areas=body.focus_areas,
             organization=body.organization,
             onboarding_completed=True,
+            org_id=org_id,
         )
         db.add(profile)
 
@@ -60,7 +71,11 @@ async def complete_onboarding(body: OnboardingRequest, db: AsyncSession = Depend
 
 
 @router.get("/profile/{clerk_user_id}", response_model=OnboardingResponse)
-async def get_profile(clerk_user_id: str, db: AsyncSession = Depends(get_db)):
+async def get_profile(
+    clerk_user_id: str,
+    org_id: str = Depends(get_org_context),
+    db: AsyncSession = Depends(get_db),
+):
     result = await db.execute(
         select(UserProfile).where(UserProfile.clerk_user_id == clerk_user_id)
     )
