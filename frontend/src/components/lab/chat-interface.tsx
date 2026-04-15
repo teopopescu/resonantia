@@ -27,7 +27,11 @@ import {
   Loader2,
   Download,
   Mic,
+  ChevronDown,
+  ChevronRight,
+  Wrench,
 } from "lucide-react";
+import type { ToolCall } from "@/stores/lab-store";
 import VoiceMode from "./voice-mode";
 import { ElabFTWLogo, BenchlingLogo, DotmaticsLogo } from "@/components/icons/integration-logos";
 
@@ -48,6 +52,112 @@ interface UploadedFile {
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+/* ---------- Tool name → friendly label ---------- */
+const TOOL_LABELS: Record<string, string> = {
+  lookup_sample: "Looking up sample",
+  check_inventory: "Checking inventory",
+  query_experiments: "Querying experiments",
+  get_ic50_values: "Fetching IC50 values",
+  fit_dose_response: "Fitting dose-response curve",
+  normalize_plate: "Normalizing plate data",
+  calculate_z_prime: "Calculating Z-prime",
+  qpcr_analysis: "Running qPCR analysis",
+  create_plate_map: "Creating plate map",
+  cherry_pick: "Cherry-picking wells",
+  serial_dilution: "Setting up serial dilution",
+  generate_worklist: "Generating worklist",
+  get_plate_map_details: "Loading plate map details",
+  query_plate_maps: "Querying plate maps",
+  browse_microscopy: "Browsing microscopy images",
+  generate_montage: "Generating montage",
+  create_eln_entry: "Creating ELN entry",
+  query_eln_entries: "Searching ELN entries",
+  get_eln_entry: "Loading ELN entry",
+  submit_eln_entry: "Submitting ELN entry",
+  create_protocol: "Creating protocol",
+  query_protocols: "Searching protocols",
+  check_protocol_inventory: "Checking protocol reagents",
+  calculate_dilution: "Calculating dilution",
+  design_next_experiment: "Designing next experiment",
+  get_expiring_samples: "Finding expiring samples",
+  get_sample_stats: "Getting inventory stats",
+  search_literature: "Searching literature",
+  list_files: "Listing files",
+  read_file_contents: "Reading file",
+};
+
+/* ---------- Thinking Trace component ---------- */
+function ThinkingTrace({ toolCalls }: { toolCalls: ToolCall[] }) {
+  const [expanded, setExpanded] = useState(false);
+
+  if (!toolCalls || toolCalls.length === 0) return null;
+
+  return (
+    <div className="mb-1.5">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-1.5 text-xs text-muted/70 hover:text-muted transition-colors group"
+      >
+        {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        <Wrench size={11} className="opacity-60" />
+        <span>
+          Used {toolCalls.length} tool{toolCalls.length > 1 ? "s" : ""}
+        </span>
+        <span className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px]">
+          {expanded ? "hide" : "show"}
+        </span>
+      </button>
+      <AnimatePresence>
+        {expanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="overflow-hidden"
+          >
+            <div className="mt-1.5 ml-4 space-y-1.5 border-l-2 border-amber/20 pl-3">
+              {toolCalls.map((tc, i) => (
+                <ToolCallStep key={tc.id || i} tc={tc} index={i} />
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function ToolCallStep({ tc, index }: { tc: ToolCall; index: number }) {
+  const [showInput, setShowInput] = useState(false);
+  const label = TOOL_LABELS[tc.name] || tc.name.replace(/_/g, " ");
+  const hasInput = tc.input && Object.keys(tc.input).length > 0;
+
+  return (
+    <div className="text-xs">
+      <div className="flex items-center gap-1.5">
+        <span className="w-4 h-4 rounded-full bg-amber/10 flex items-center justify-center text-[9px] font-medium text-amber shrink-0">
+          {index + 1}
+        </span>
+        <span className="text-charcoal/70">{label}</span>
+        {hasInput && (
+          <button
+            onClick={() => setShowInput(!showInput)}
+            className="text-[10px] text-muted/50 hover:text-muted/80 transition-colors ml-1"
+          >
+            {showInput ? "hide params" : "params"}
+          </button>
+        )}
+      </div>
+      {showInput && hasInput && (
+        <pre className="mt-1 ml-5.5 text-[10px] text-muted/60 bg-charcoal/[0.03] rounded px-2 py-1 overflow-x-auto max-h-24 font-mono">
+          {JSON.stringify(tc.input, null, 2)}
+        </pre>
+      )}
+    </div>
+  );
+}
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return bytes + "B";
@@ -349,7 +459,7 @@ export default function ChatInterface() {
       });
       if (res.ok) {
         const data = await res.json();
-        addMessage("assistant", data.message);
+        addMessage("assistant", data.message, data.tool_calls || undefined);
         // If the backend returned a new conversation, add it to the list
         if (data.conversation_id && !activeConversationId) {
           const newConv = {
@@ -477,16 +587,21 @@ export default function ChatInterface() {
                     <span className="text-xs font-serif font-bold text-amber">R</span>
                   </div>
                 )}
-                <div
-                  className={`max-w-[75%] px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap ${
-                    msg.role === "user"
-                      ? "bg-charcoal text-white rounded-br-md"
-                      : msg.role === "system"
-                      ? "bg-red-50 border border-red-200 text-red-700 rounded-bl-md"
-                      : "bg-cream border border-border rounded-bl-md"
-                  }`}
-                >
-                  <MessageContent content={msg.content} role={msg.role} />
+                <div className="max-w-[75%]">
+                  {msg.role === "assistant" && msg.toolCalls && msg.toolCalls.length > 0 && (
+                    <ThinkingTrace toolCalls={msg.toolCalls} />
+                  )}
+                  <div
+                    className={`px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap ${
+                      msg.role === "user"
+                        ? "bg-charcoal text-white rounded-br-md"
+                        : msg.role === "system"
+                        ? "bg-red-50 border border-red-200 text-red-700 rounded-bl-md"
+                        : "bg-cream border border-border rounded-bl-md"
+                    }`}
+                  >
+                    <MessageContent content={msg.content} role={msg.role} />
+                  </div>
                 </div>
                 {msg.role === "user" && (
                   <div className="shrink-0 w-8 h-8 rounded-lg bg-charcoal/10 flex items-center justify-center mt-0.5">
@@ -496,18 +611,21 @@ export default function ChatInterface() {
               </motion.div>
             ))}
             {isLoading && (
-              <div className="flex gap-3 justify-start">
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="flex gap-3 justify-start"
+              >
                 <div className="shrink-0 w-8 h-8 rounded-lg bg-amber/10 flex items-center justify-center mt-0.5 overflow-hidden">
                   <img src="/resonantia-logo.png" alt="Resonantia" className="w-6 h-6 object-contain" />
                 </div>
                 <div className="px-4 py-3 rounded-2xl bg-cream border border-border rounded-bl-md">
-                  <div className="flex gap-1">
-                    <span className="w-2 h-2 bg-muted/40 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-                    <span className="w-2 h-2 bg-muted/40 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-                    <span className="w-2 h-2 bg-muted/40 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                  <div className="flex items-center gap-2 text-xs text-muted/60">
+                    <Loader2 size={12} className="animate-spin text-amber" />
+                    <span>Thinking...</span>
                   </div>
                 </div>
-              </div>
+              </motion.div>
             )}
             <div ref={messagesEndRef} />
           </div>
