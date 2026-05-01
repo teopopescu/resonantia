@@ -18,7 +18,7 @@ Verdict: the marketing surface is polished and the agent thesis is clear. The la
 - Typography and spacing land. Beatriz's first impression is favourable.
 - **Finding (NIT):** the body copy says "design worklists, browse microscopy data, and manage reagent inventory" — the **decommission list** (PR #8) shrinks the microscopy viewer; this copy will need to follow the cut so we don't pitch a feature we're sunsetting.
 
-Screenshot: `beatriz-01-marketing-home.png`.
+_Local capture: `docs/walkthroughs/beatriz-01-marketing-home.png` (not committed; PNGs are gitignored)._
 
 ### 2. Sign-in (`/lab` → Clerk)
 
@@ -26,7 +26,7 @@ Screenshot: `beatriz-01-marketing-home.png`.
 - **Finding (MAJOR for an enterprise prospect):** the Clerk dev-mode banner is visible at `accounts.dev`. Production deploys must be on the `*.resonantia.io` Clerk domain or the banner becomes a credibility problem on a sales call.
 - **Finding (MINOR):** sign-in copy is generic; missing reassurance that the lab is org-scoped (Beatriz's team will care: "if I sign up with my work email, do my colleagues see my data?"). One sentence under the heading would handle it.
 
-Screenshot: `beatriz-02-clerk-signin.png`.
+_Local capture: `docs/walkthroughs/beatriz-02-clerk-signin.png`._
 
 ### 3. Pricing (`/pricing`)
 
@@ -38,14 +38,14 @@ The page ships **Free $0 / Pro $99 / Enterprise Custom**. This is the most concr
 - **Finding (MAJOR — both editorial and economic):** reconcile the public pricing page with the internal pricing model. Either lift the Pro tier to $149 with explicit allowance language ("500 agent turns / month, overage $0.25/turn"), or keep $99 but cap turns and call it the Free-with-BYOK path the audit recommends. Add SOC 2 in-progress + EU/US data residency to the Enterprise column.
 - **Finding (MAJOR):** missing FAQ. "Where is my data hosted?", "Can I bring my own LLM key?", "What happens to my data when I cancel?" — three questions every regulated buyer asks, none answered.
 
-Screenshot: `beatriz-03-pricing.png`.
+_Local capture: `docs/walkthroughs/beatriz-03-pricing.png`._
 
 ### 4. About (`/about`)
 
 - Hero copy is good ("Built by scientists, for scientists" — the framing matches Beatriz's pain).
 - **Finding (BLOCKER for marketing — visible bug):** the page renders an "Our mission" heading with a completely **empty** section underneath. Multiple subsequent sections appear to have empty container areas too. This is a public-page bug that will be one of the first things Beatriz sees if she clicks About from the nav.
 
-Screenshot: `beatriz-04-about.png`.
+_Local capture: `docs/walkthroughs/beatriz-04-about.png`._
 
 ---
 
