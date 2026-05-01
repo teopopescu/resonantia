@@ -1,13 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { useUser } from "@clerk/nextjs";
+import { useUser, useOrganization } from "@clerk/nextjs";
 import { RedirectToSignIn } from "@clerk/nextjs";
 import Link from "next/link";
 import { ArrowLeft, Send, CheckCircle2, AlertCircle } from "lucide-react";
 
 export default function InvitePage() {
   const { isLoaded, isSignedIn } = useUser();
+  const { organization } = useOrganization();
+  const orgName = organization?.name || "Resonantia Team";
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<
     "idle" | "loading" | "success" | "error"
@@ -82,6 +84,9 @@ export default function InvitePage() {
               Invite to Resonantia Lab
             </h1>
             <p className="text-muted text-sm leading-relaxed max-w-sm mx-auto">
+              Inviting to: <span className="font-medium text-charcoal">{orgName}</span>
+            </p>
+            <p className="text-muted text-sm leading-relaxed max-w-sm mx-auto mt-1">
               Resonantia Lab is currently invite-only. Enter an email address to
               send an invitation.
             </p>

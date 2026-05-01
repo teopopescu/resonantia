@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from resonantia.db.session import get_db
+from resonantia.dependencies import get_org_context
 from resonantia.models.protocol import Protocol, ProtocolStep
 from resonantia.models.sample import Sample
 from resonantia.schemas.protocol import (
@@ -30,6 +31,7 @@ router = APIRouter()
 @router.post("/", response_model=ProtocolResponse, status_code=201)
 async def create_protocol(
     body: ProtocolCreate,
+    org_id: str = Depends(get_org_context),
     db: AsyncSession = Depends(get_db),
 ) -> Protocol:
     protocol = Protocol(
@@ -39,6 +41,7 @@ async def create_protocol(
         experiment_id=body.experiment_id,
         author_id=body.author_id,
         tags=body.tags,
+        org_id=org_id,
     )
     db.add(protocol)
     await db.flush()
@@ -72,9 +75,10 @@ async def list_protocols(
     status: str | None = None,
     is_template: bool | None = None,
     tag: str | None = None,
+    org_id: str = Depends(get_org_context),
     db: AsyncSession = Depends(get_db),
 ) -> list[Protocol]:
-    stmt = select(Protocol).order_by(Protocol.created_at.desc())
+    stmt = select(Protocol).where(Protocol.org_id == org_id).order_by(Protocol.created_at.desc())
     if status:
         stmt = stmt.where(Protocol.status == status)
     if is_template is not None:
@@ -88,10 +92,11 @@ async def list_protocols(
 @router.get("/{protocol_id}", response_model=ProtocolResponse)
 async def get_protocol(
     protocol_id: uuid.UUID,
+    org_id: str = Depends(get_org_context),
     db: AsyncSession = Depends(get_db),
 ) -> Protocol:
     protocol = await db.get(Protocol, protocol_id)
-    if not protocol:
+    if not protocol or protocol.org_id != org_id:
         raise HTTPException(status_code=404, detail="Protocol not found")
     return protocol
 
@@ -100,10 +105,11 @@ async def get_protocol(
 async def update_protocol(
     protocol_id: uuid.UUID,
     body: ProtocolUpdate,
+    org_id: str = Depends(get_org_context),
     db: AsyncSession = Depends(get_db),
 ) -> Protocol:
     protocol = await db.get(Protocol, protocol_id)
-    if not protocol:
+    if not protocol or protocol.org_id != org_id:
         raise HTTPException(status_code=404, detail="Protocol not found")
     if protocol.status == "published":
         raise HTTPException(
@@ -120,10 +126,11 @@ async def update_protocol(
 @router.delete("/{protocol_id}", status_code=204)
 async def delete_protocol(
     protocol_id: uuid.UUID,
+    org_id: str = Depends(get_org_context),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     protocol = await db.get(Protocol, protocol_id)
-    if not protocol:
+    if not protocol or protocol.org_id != org_id:
         raise HTTPException(status_code=404, detail="Protocol not found")
     await db.delete(protocol)
 
@@ -131,10 +138,11 @@ async def delete_protocol(
 @router.post("/{protocol_id}/publish", response_model=ProtocolResponse)
 async def publish_protocol(
     protocol_id: uuid.UUID,
+    org_id: str = Depends(get_org_context),
     db: AsyncSession = Depends(get_db),
 ) -> Protocol:
     protocol = await db.get(Protocol, protocol_id)
-    if not protocol:
+    if not protocol or protocol.org_id != org_id:
         raise HTTPException(status_code=404, detail="Protocol not found")
     if protocol.status == "published":
         raise HTTPException(status_code=409, detail="Protocol is already published")
@@ -147,11 +155,12 @@ async def publish_protocol(
 @router.post("/{protocol_id}/new-version", response_model=ProtocolResponse, status_code=201)
 async def new_version(
     protocol_id: uuid.UUID,
+    org_id: str = Depends(get_org_context),
     db: AsyncSession = Depends(get_db),
 ) -> Protocol:
     """Clone a protocol into a new draft version."""
     original = await db.get(Protocol, protocol_id)
-    if not original:
+    if not original or original.org_id != org_id:
         raise HTTPException(status_code=404, detail="Protocol not found")
 
     new_proto = Protocol(
@@ -164,6 +173,7 @@ async def new_version(
         author_id=original.author_id,
         experiment_id=original.experiment_id,
         tags=original.tags,
+        org_id=org_id,
     )
     db.add(new_proto)
     await db.flush()
@@ -191,11 +201,12 @@ async def new_version(
 @router.get("/{protocol_id}/versions", response_model=list[ProtocolListResponse])
 async def get_versions(
     protocol_id: uuid.UUID,
+    org_id: str = Depends(get_org_context),
     db: AsyncSession = Depends(get_db),
 ) -> list[Protocol]:
     """Get version history for a protocol."""
     protocol = await db.get(Protocol, protocol_id)
-    if not protocol:
+    if not protocol or protocol.org_id != org_id:
         raise HTTPException(status_code=404, detail="Protocol not found")
 
     # Find the root protocol by walking up parent chain
@@ -210,13 +221,13 @@ async def get_versions(
 
     # Find all versions descending from root
     versions = [current]
-    stmt = select(Protocol).where(Protocol.parent_protocol_id == root_id)
+    stmt = select(Protocol).where(Protocol.org_id == org_id, Protocol.parent_protocol_id == root_id)
     result = await db.execute(stmt)
     versions.extend(result.scalars().all())
 
     # Also find descendants of descendants (simple 2-level)
     child_ids = [v.id for v in versions]
-    stmt2 = select(Protocol).where(Protocol.parent_protocol_id.in_(child_ids))
+    stmt2 = select(Protocol).where(Protocol.org_id == org_id, Protocol.parent_protocol_id.in_(child_ids))
     result2 = await db.execute(stmt2)
     versions.extend(result2.scalars().all())
 
@@ -236,10 +247,11 @@ async def get_versions(
 async def add_step(
     protocol_id: uuid.UUID,
     body: StepCreate,
+    org_id: str = Depends(get_org_context),
     db: AsyncSession = Depends(get_db),
 ) -> ProtocolStep:
     protocol = await db.get(Protocol, protocol_id)
-    if not protocol:
+    if not protocol or protocol.org_id != org_id:
         raise HTTPException(status_code=404, detail="Protocol not found")
     step = ProtocolStep(
         protocol_id=protocol_id,
@@ -264,8 +276,12 @@ async def update_step(
     protocol_id: uuid.UUID,
     step_id: uuid.UUID,
     body: StepUpdate,
+    org_id: str = Depends(get_org_context),
     db: AsyncSession = Depends(get_db),
 ) -> ProtocolStep:
+    protocol = await db.get(Protocol, protocol_id)
+    if not protocol or protocol.org_id != org_id:
+        raise HTTPException(status_code=404, detail="Protocol not found")
     step = await db.get(ProtocolStep, step_id)
     if not step or step.protocol_id != protocol_id:
         raise HTTPException(status_code=404, detail="Step not found")
@@ -280,8 +296,12 @@ async def update_step(
 async def delete_step(
     protocol_id: uuid.UUID,
     step_id: uuid.UUID,
+    org_id: str = Depends(get_org_context),
     db: AsyncSession = Depends(get_db),
 ) -> None:
+    protocol = await db.get(Protocol, protocol_id)
+    if not protocol or protocol.org_id != org_id:
+        raise HTTPException(status_code=404, detail="Protocol not found")
     step = await db.get(ProtocolStep, step_id)
     if not step or step.protocol_id != protocol_id:
         raise HTTPException(status_code=404, detail="Step not found")
@@ -293,11 +313,12 @@ async def delete_step(
 @router.post("/{protocol_id}/inventory-check", response_model=InventoryCheckResponse)
 async def inventory_check(
     protocol_id: uuid.UUID,
+    org_id: str = Depends(get_org_context),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Check reagent availability for all steps in a protocol."""
     protocol = await db.get(Protocol, protocol_id)
-    if not protocol:
+    if not protocol or protocol.org_id != org_id:
         raise HTTPException(status_code=404, detail="Protocol not found")
 
     reagent_results = []
@@ -310,8 +331,11 @@ async def inventory_check(
             reagent_name = reagent.get("name", "")
             if not reagent_name:
                 continue
-            # Check against Sample table
-            stmt = select(Sample).where(Sample.name.ilike(f"%{reagent_name}%")).limit(5)
+            # Check against Sample table, scoped to org
+            stmt = select(Sample).where(
+                Sample.org_id == org_id,
+                Sample.name.ilike(f"%{reagent_name}%"),
+            ).limit(5)
             result = await db.execute(stmt)
             samples = result.scalars().all()
 
@@ -354,15 +378,12 @@ async def dilution_calculator(body: DilutionRequest) -> dict:
     c1, v1, c2, v2 = body.c1, body.v1, body.c2, body.v2
 
     if v1 is None and v2 is not None:
-        # Solve for V1
         v1 = (c2 * v2) / c1
         formula = f"V1 = (C2 x V2) / C1 = ({c2} x {v2}) / {c1} = {v1:.4f}"
     elif v2 is None and v1 is not None:
-        # Solve for V2
         v2 = (c1 * v1) / c2
         formula = f"V2 = (C1 x V1) / C2 = ({c1} x {v1}) / {c2} = {v2:.4f}"
     elif v1 is not None and v2 is not None:
-        # Verify
         formula = f"C1V1 = {c1 * v1:.4f}, C2V2 = {c2 * v2:.4f}"
     else:
         raise HTTPException(
@@ -387,10 +408,10 @@ async def dilution_calculator(body: DilutionRequest) -> dict:
 async def generate_protocol(
     experiment_type: str = "general",
     cell_line: str | None = None,
+    org_id: str = Depends(get_org_context),
     db: AsyncSession = Depends(get_db),
 ) -> Protocol:
     """Generate a protocol scaffold from experiment type description."""
-    # Build a template protocol based on experiment type
     templates = {
         "cytotoxicity": {
             "name": f"Cytotoxicity Assay Protocol{f' — {cell_line}' if cell_line else ''}",
@@ -433,6 +454,7 @@ async def generate_protocol(
         status="draft",
         is_template=True,
         tags=["auto-generated", experiment_type],
+        org_id=org_id,
     )
     db.add(protocol)
     await db.flush()

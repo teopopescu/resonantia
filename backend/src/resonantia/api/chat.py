@@ -3,6 +3,8 @@
 Supports two execution modes:
 - **Temporal** (default): starts an ``AgentRunWorkflow`` for durable execution.
 - **Direct** (fallback): calls the LLM inline when Temporal is unreachable.
+
+Includes conversation CRUD for persistent chat history.
 """
 
 from __future__ import annotations
@@ -11,11 +13,24 @@ import logging
 import uuid
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
-from resonantia.schemas.chat import ChatRequest, ChatResponse, ChatHistoryResponse
+from resonantia.db.session import get_db
+from resonantia.dependencies import get_org_context
+from resonantia.models.conversation import Conversation, ConversationMessage
+from resonantia.schemas.chat import (
+    ChatRequest,
+    ChatResponse,
+    ChatHistoryResponse,
+    ConversationListItem,
+    ConversationRenameRequest,
+    ConversationResponse,
+    ConversationMessageResponse,
+)
 from resonantia.services import agent
 
 logger = logging.getLogger(__name__)
@@ -54,6 +69,8 @@ async def send_message(body: ChatRequest) -> ChatResponse:
     development and demos work without infrastructure.
     """
     conversation_id = body.conversation_id or uuid.uuid4().hex
+    clerk_user_id = body.clerk_user_id or "anonymous"
+    org_id = body.org_id or "org_default"
 
     # --- Try Temporal first ---
     try:
@@ -62,7 +79,7 @@ async def send_message(body: ChatRequest) -> ChatResponse:
         handle = await start_agent_workflow(
             message=body.message,
             conversation_id=conversation_id,
-            user_id="anonymous",  # replaced by auth middleware in production
+            user_id=clerk_user_id,
             context=body.context,
         )
 
@@ -85,6 +102,8 @@ async def send_message(body: ChatRequest) -> ChatResponse:
         message=body.message,
         conversation_id=conversation_id,
         context=body.context,
+        clerk_user_id=clerk_user_id,
+        org_id=org_id,
     )
     return ChatResponse(**result)
 
@@ -100,6 +119,8 @@ async def stream_message(body: ChatRequest) -> EventSourceResponse:
             message=body.message,
             conversation_id=body.conversation_id,
             context=body.context,
+            clerk_user_id=body.clerk_user_id,
+            org_id=body.org_id,
         )
     )
 
@@ -118,7 +139,7 @@ async def get_workflow_status(workflow_id: str) -> WorkflowStatusResponse:
 
 
 # ---------------------------------------------------------------------------
-# GET /history/{conversation_id}
+# GET /history/{conversation_id}  — legacy endpoint
 # ---------------------------------------------------------------------------
 
 @router.get("/history/{conversation_id}", response_model=ChatHistoryResponse)
@@ -128,3 +149,99 @@ async def get_history(conversation_id: str) -> ChatHistoryResponse:
         conversation_id=conversation_id,
         messages=messages,
     )
+
+
+# ---------------------------------------------------------------------------
+# Conversation CRUD endpoints
+# ---------------------------------------------------------------------------
+
+@router.get("/conversations", response_model=list[ConversationListItem])
+async def list_conversations(
+    clerk_user_id: str = Query(...),
+    org_id: str = Depends(get_org_context),
+    db: AsyncSession = Depends(get_db),
+) -> list[ConversationListItem]:
+    """List all conversations for a user in an org."""
+    stmt = (
+        select(Conversation)
+        .where(Conversation.clerk_user_id == clerk_user_id, Conversation.org_id == org_id)
+        .order_by(Conversation.updated_at.desc())
+    )
+    result = await db.execute(stmt)
+    convs = result.scalars().all()
+    return [
+        ConversationListItem(
+            id=str(c.id),
+            title=c.title,
+            created_at=c.created_at,
+            updated_at=c.updated_at,
+        )
+        for c in convs
+    ]
+
+
+@router.get("/conversations/{conversation_id}", response_model=ConversationResponse)
+async def get_conversation(
+    conversation_id: uuid.UUID,
+    org_id: str = Depends(get_org_context),
+    db: AsyncSession = Depends(get_db),
+) -> ConversationResponse:
+    """Get a conversation with all its messages."""
+    conv = await db.get(Conversation, conversation_id)
+    if not conv or conv.org_id != org_id:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return ConversationResponse(
+        id=str(conv.id),
+        clerk_user_id=conv.clerk_user_id,
+        org_id=conv.org_id,
+        title=conv.title,
+        created_at=conv.created_at,
+        updated_at=conv.updated_at,
+        messages=[
+            ConversationMessageResponse(
+                id=str(m.id),
+                role=m.role,
+                content=m.content,
+                tool_calls=m.tool_calls,
+                tool_call_id=m.tool_call_id,
+                token_usage=m.token_usage,
+                created_at=m.created_at,
+            )
+            for m in conv.messages
+        ],
+    )
+
+
+@router.patch("/conversations/{conversation_id}", response_model=ConversationListItem)
+async def rename_conversation(
+    conversation_id: uuid.UUID,
+    body: ConversationRenameRequest,
+    org_id: str = Depends(get_org_context),
+    db: AsyncSession = Depends(get_db),
+) -> ConversationListItem:
+    """Rename a conversation."""
+    conv = await db.get(Conversation, conversation_id)
+    if not conv or conv.org_id != org_id:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    conv.title = body.title
+    await db.flush()
+    await db.refresh(conv)
+    return ConversationListItem(
+        id=str(conv.id),
+        title=conv.title,
+        created_at=conv.created_at,
+        updated_at=conv.updated_at,
+    )
+
+
+@router.delete("/conversations/{conversation_id}", status_code=204)
+async def delete_conversation(
+    conversation_id: uuid.UUID,
+    org_id: str = Depends(get_org_context),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Delete a conversation and all its messages."""
+    conv = await db.get(Conversation, conversation_id)
+    if not conv or conv.org_id != org_id:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    await db.delete(conv)

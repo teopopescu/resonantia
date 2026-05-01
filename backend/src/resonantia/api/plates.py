@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from resonantia.db.session import get_db
+from resonantia.dependencies import get_org_context
 from resonantia.models.plate import PlateMap
 from resonantia.schemas.plate import (
     AutoMapRequest,
@@ -30,6 +31,7 @@ router = APIRouter()
 @router.post("/", response_model=PlateMapResponse, status_code=201)
 async def create_plate_map(
     body: PlateMapCreate,
+    org_id: str = Depends(get_org_context),
     db: AsyncSession = Depends(get_db),
 ) -> PlateMap:
     pm = PlateMap(
@@ -40,6 +42,7 @@ async def create_plate_map(
         destination_plate=body.destination_plate,
         well_mappings=[m.model_dump() for m in body.well_mappings] if body.well_mappings else None,
         experiment_id=body.experiment_id,
+        org_id=org_id,
     )
     db.add(pm)
     await db.flush()
@@ -51,10 +54,15 @@ async def create_plate_map(
 async def list_plate_maps(
     skip: int = 0,
     limit: int = 50,
+    org_id: str = Depends(get_org_context),
     db: AsyncSession = Depends(get_db),
 ) -> list[PlateMap]:
     result = await db.execute(
-        select(PlateMap).order_by(PlateMap.created_at.desc()).offset(skip).limit(limit)
+        select(PlateMap)
+        .where(PlateMap.org_id == org_id)
+        .order_by(PlateMap.created_at.desc())
+        .offset(skip)
+        .limit(limit)
     )
     return list(result.scalars().all())
 
@@ -62,10 +70,11 @@ async def list_plate_maps(
 @router.get("/{plate_map_id}", response_model=PlateMapResponse)
 async def get_plate_map(
     plate_map_id: uuid.UUID,
+    org_id: str = Depends(get_org_context),
     db: AsyncSession = Depends(get_db),
 ) -> PlateMap:
     pm = await db.get(PlateMap, plate_map_id)
-    if not pm:
+    if not pm or pm.org_id != org_id:
         raise HTTPException(status_code=404, detail="Plate map not found")
     return pm
 
@@ -74,10 +83,11 @@ async def get_plate_map(
 async def update_plate_map(
     plate_map_id: uuid.UUID,
     body: PlateMapUpdate,
+    org_id: str = Depends(get_org_context),
     db: AsyncSession = Depends(get_db),
 ) -> PlateMap:
     pm = await db.get(PlateMap, plate_map_id)
-    if not pm:
+    if not pm or pm.org_id != org_id:
         raise HTTPException(status_code=404, detail="Plate map not found")
     update_data = body.model_dump(exclude_unset=True)
     if "well_mappings" in update_data and update_data["well_mappings"] is not None:
@@ -95,10 +105,11 @@ async def update_plate_map(
 @router.delete("/{plate_map_id}", status_code=204)
 async def delete_plate_map(
     plate_map_id: uuid.UUID,
+    org_id: str = Depends(get_org_context),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     pm = await db.get(PlateMap, plate_map_id)
-    if not pm:
+    if not pm or pm.org_id != org_id:
         raise HTTPException(status_code=404, detail="Plate map not found")
     await db.delete(pm)
 
@@ -107,10 +118,11 @@ async def delete_plate_map(
 async def generate_worklist(
     plate_map_id: uuid.UUID,
     body: WorklistRequest,
+    org_id: str = Depends(get_org_context),
     db: AsyncSession = Depends(get_db),
 ) -> PlainTextResponse:
     pm = await db.get(PlateMap, plate_map_id)
-    if not pm:
+    if not pm or pm.org_id != org_id:
         raise HTTPException(status_code=404, detail="Plate map not found")
     if not pm.well_mappings:
         raise HTTPException(status_code=400, detail="Plate map has no well mappings")

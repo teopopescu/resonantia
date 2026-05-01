@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from resonantia.db.session import get_db
+from resonantia.dependencies import get_org_context
 from resonantia.models.microscopy import MicroscopyImage
 from resonantia.schemas.microscopy import (
     MicroscopyImageResponse,
@@ -29,6 +30,7 @@ async def upload_image(
     well: str | None = Form(None),
     channel: str | None = Form(None),
     fov: int | None = Form(None),
+    org_id: str = Depends(get_org_context),
     db: AsyncSession = Depends(get_db),
 ) -> MicroscopyImageResponse:
     contents = await file.read()
@@ -42,6 +44,7 @@ async def upload_image(
         fov=fov,
         image_path=image_path,
         thumbnail_path=thumbnail_path,
+        org_id=org_id,
     )
     db.add(img)
     await db.flush()
@@ -58,9 +61,10 @@ async def list_images(
     fov: int | None = Query(None),
     skip: int = 0,
     limit: int = 50,
+    org_id: str = Depends(get_org_context),
     db: AsyncSession = Depends(get_db),
 ) -> list[MicroscopyImageResponse]:
-    stmt = select(MicroscopyImage).order_by(MicroscopyImage.created_at.desc())
+    stmt = select(MicroscopyImage).where(MicroscopyImage.org_id == org_id).order_by(MicroscopyImage.created_at.desc())
     if experiment_id:
         stmt = stmt.where(MicroscopyImage.experiment_id == experiment_id)
     if plate_id:
@@ -78,10 +82,11 @@ async def list_images(
 @router.get("/images/{image_id}", response_model=MicroscopyImageResponse)
 async def get_image(
     image_id: uuid.UUID,
+    org_id: str = Depends(get_org_context),
     db: AsyncSession = Depends(get_db),
 ) -> MicroscopyImageResponse:
     img = await db.get(MicroscopyImage, image_id)
-    if not img:
+    if not img or img.org_id != org_id:
         raise HTTPException(status_code=404, detail="Image not found")
     return MicroscopyImageResponse.from_orm_model(img)
 
@@ -89,10 +94,11 @@ async def get_image(
 @router.get("/images/{image_id}/file")
 async def get_image_file(
     image_id: uuid.UUID,
+    org_id: str = Depends(get_org_context),
     db: AsyncSession = Depends(get_db),
 ) -> FileResponse:
     img = await db.get(MicroscopyImage, image_id)
-    if not img:
+    if not img or img.org_id != org_id:
         raise HTTPException(status_code=404, detail="Image not found")
     return FileResponse(img.image_path)
 
@@ -100,10 +106,11 @@ async def get_image_file(
 @router.get("/images/{image_id}/thumbnail")
 async def get_thumbnail(
     image_id: uuid.UUID,
+    org_id: str = Depends(get_org_context),
     db: AsyncSession = Depends(get_db),
 ) -> FileResponse:
     img = await db.get(MicroscopyImage, image_id)
-    if not img or not img.thumbnail_path:
+    if not img or img.org_id != org_id or not img.thumbnail_path:
         raise HTTPException(status_code=404, detail="Thumbnail not found")
     return FileResponse(img.thumbnail_path)
 
@@ -111,12 +118,13 @@ async def get_thumbnail(
 @router.post("/montage")
 async def create_montage(
     body: MontageRequest,
+    org_id: str = Depends(get_org_context),
     db: AsyncSession = Depends(get_db),
 ) -> FileResponse:
     paths: list[str] = []
     for img_id in body.image_ids:
         img = await db.get(MicroscopyImage, img_id)
-        if not img:
+        if not img or img.org_id != org_id:
             raise HTTPException(status_code=404, detail=f"Image {img_id} not found")
         paths.append(img.image_path)
 

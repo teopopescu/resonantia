@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from sqlalchemy import String, Text
-from sqlalchemy.dialects.postgresql import JSON
+from sqlalchemy.dialects.postgresql import JSON  # noqa: F401
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from resonantia.models.base import Base, TimestampMixin, UUIDPrimaryKey
@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 class Experiment(Base, UUIDPrimaryKey, TimestampMixin):
     __tablename__ = "experiments"
 
+    org_id: Mapped[str] = mapped_column(String(255), index=True, default="org_default")
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     protocol: Mapped[str | None] = mapped_column(Text, nullable=True)

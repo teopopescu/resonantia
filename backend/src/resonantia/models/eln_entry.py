@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 class ELNEntry(Base, UUIDPrimaryKey, TimestampMixin):
     __tablename__ = "eln_entries"
 
+    org_id: Mapped[str] = mapped_column(String(255), index=True, default="org_default")
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     entry_number: Mapped[str] = mapped_column(
         String(64), unique=True, nullable=False, index=True

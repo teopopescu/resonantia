@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 class Protocol(Base, UUIDPrimaryKey, TimestampMixin):
     __tablename__ = "protocols"
 
+    org_id: Mapped[str] = mapped_column(String(255), index=True, default="org_default")
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     version: Mapped[int] = mapped_column(Integer, default=1)

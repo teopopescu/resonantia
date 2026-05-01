@@ -3,6 +3,8 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useLabStore } from "@/stores/lab-store";
+import { useUser } from "@clerk/nextjs";
+import { getActiveOrgId } from "@/lib/api";
 import Link from "next/link";
 import SkillBar from "./skill-bar";
 import {
@@ -182,7 +184,17 @@ function MessageContent({ content, role }: { content: string; role: string }) {
 }
 
 export default function ChatInterface() {
-  const { chatMessages, addMessage, pendingPrompt, setPendingPrompt } = useLabStore();
+  const {
+    chatMessages,
+    addMessage,
+    pendingPrompt,
+    setPendingPrompt,
+    activeConversationId,
+    setActiveConversation,
+    addConversation,
+    fetchConversations,
+  } = useLabStore();
+  const { user } = useUser();
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [showResources, setShowResources] = useState(false);
@@ -303,14 +315,33 @@ export default function ChatInterface() {
     // Call real backend chat endpoint
     setIsLoading(true);
     try {
+      const activeOrgId = getActiveOrgId();
       const res = await fetch(`${API_URL}/api/v1/chat/message`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: content, conversation_id: "default" }),
+        headers: {
+          "Content-Type": "application/json",
+          "X-Org-Id": activeOrgId,
+        },
+        body: JSON.stringify({
+          message: content,
+          conversation_id: activeConversationId || "new",
+          clerk_user_id: user?.id,
+          org_id: activeOrgId,
+        }),
       });
       if (res.ok) {
         const data = await res.json();
         addMessage("assistant", data.message);
+        // If the backend returned a new conversation, add it to the list
+        if (data.conversation_id && !activeConversationId) {
+          const newConv = {
+            id: data.conversation_id,
+            title: data.conversation_title || content.slice(0, 50) || "New Chat",
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+          addConversation(newConv);
+        }
       } else {
         const err = await res.json().catch(() => ({}));
         addMessage("assistant", `Error: ${(err as any).detail || "Could not process your request. Please try again."}`);

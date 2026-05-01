@@ -3,6 +3,8 @@
 The agent calls OpenAI, and when the LLM decides to use a tool,
 we execute it against the real database and feed the result back
 so the LLM can generate a final answer grounded in real data.
+
+Conversations are persisted to PostgreSQL for history/multi-tenancy.
 """
 
 from __future__ import annotations
@@ -10,17 +12,18 @@ from __future__ import annotations
 import json
 import time
 import uuid
-from collections import defaultdict
 from typing import Any, AsyncGenerator
 
 from openai import AsyncOpenAI, AuthenticationError, APIConnectionError
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 
 from resonantia.config import get_settings
+from resonantia.db.session import async_session_factory
+from resonantia.models.conversation import Conversation, ConversationMessage
 from resonantia.services.guardrails import GUARDRAIL_SYSTEM_PROMPT, check_guardrails
 from resonantia.services.tool_executor import execute_tool
 from resonantia.services.tracing import trace_llm_call
-
-_conversations: dict[str, list[dict[str, Any]]] = defaultdict(list)
 
 SYSTEM_PROMPT = GUARDRAIL_SYSTEM_PROMPT
 
@@ -55,18 +58,104 @@ def _get_client() -> AsyncOpenAI:
     return AsyncOpenAI(api_key=settings.openai_api_key)
 
 
+def _is_valid_uuid(val: str | None) -> bool:
+    """Check if a string is a valid UUID."""
+    if not val:
+        return False
+    try:
+        uuid.UUID(val)
+        return True
+    except (ValueError, AttributeError):
+        return False
+
+
+async def _get_or_create_conversation(
+    conversation_id: str | None,
+    clerk_user_id: str,
+    org_id: str,
+) -> tuple[uuid.UUID, list[dict[str, Any]]]:
+    """Load or create a conversation and return (uuid, history_as_openai_messages)."""
+    async with async_session_factory() as session:
+        # Try loading existing conversation
+        if _is_valid_uuid(conversation_id):
+            conv = await session.get(Conversation, uuid.UUID(conversation_id))
+            if conv:
+                # Build history from persisted messages
+                history: list[dict[str, Any]] = []
+                for msg in conv.messages:
+                    entry: dict[str, Any] = {"role": msg.role}
+                    if msg.content is not None:
+                        entry["content"] = msg.content
+                    if msg.tool_calls:
+                        entry["tool_calls"] = msg.tool_calls
+                    if msg.tool_call_id:
+                        entry["tool_call_id"] = msg.tool_call_id
+                    history.append(entry)
+                return conv.id, history
+
+        # Create new conversation
+        conv = Conversation(
+            clerk_user_id=clerk_user_id,
+            org_id=org_id,
+            title="New conversation",
+        )
+        session.add(conv)
+        await session.commit()
+        await session.refresh(conv)
+        return conv.id, []
+
+
+async def _persist_message(
+    conversation_id: uuid.UUID,
+    role: str,
+    content: str | None = None,
+    tool_calls: dict | None = None,
+    tool_call_id: str | None = None,
+    token_usage: dict | None = None,
+) -> None:
+    """Persist a single message to the database."""
+    async with async_session_factory() as session:
+        msg = ConversationMessage(
+            conversation_id=conversation_id,
+            role=role,
+            content=content,
+            tool_calls=tool_calls,
+            tool_call_id=tool_call_id,
+            token_usage=token_usage,
+        )
+        session.add(msg)
+        await session.commit()
+
+
+async def _update_conversation_title(conversation_id: uuid.UUID, first_message: str) -> None:
+    """Auto-generate title from first user message (first 50 chars)."""
+    title = first_message[:50].strip()
+    if len(first_message) > 50:
+        title += "..."
+    async with async_session_factory() as session:
+        conv = await session.get(Conversation, conversation_id)
+        if conv and conv.title == "New conversation":
+            conv.title = title
+            await session.commit()
+
+
 async def chat(
     message: str,
     conversation_id: str | None = None,
     context: dict[str, Any] | None = None,
+    clerk_user_id: str | None = None,
+    org_id: str | None = None,
 ) -> dict[str, Any]:
     """Send a user message and return the assistant's response.
 
     Implements a full agentic loop: if the LLM calls tools, we execute
     them and feed results back until we get a text response.
     """
-    cid = conversation_id or uuid.uuid4().hex
-    history = _conversations[cid]
+    user_id = clerk_user_id or "anonymous"
+    org = org_id or "org_default"
+
+    conv_uuid, history = await _get_or_create_conversation(conversation_id, user_id, org)
+    cid = str(conv_uuid)
 
     # --- Guardrails ---
     guardrail_result = check_guardrails(message)
@@ -84,6 +173,13 @@ async def chat(
 
     history.append({"role": "user", "content": user_content})
 
+    # Persist user message
+    await _persist_message(conv_uuid, "user", content=user_content)
+
+    # Auto-generate title from first message
+    if len(history) == 1:
+        await _update_conversation_title(conv_uuid, message)
+
     settings = get_settings()
 
     if not settings.openai_api_key:
@@ -93,6 +189,7 @@ async def chat(
             "To enable AI chat, set `OPENAI_API_KEY` in your environment."
         )
         history.append({"role": "assistant", "content": no_key_msg})
+        await _persist_message(conv_uuid, "assistant", content=no_key_msg)
         return {"message": no_key_msg, "conversation_id": cid, "tool_calls": None}
 
     client = _get_client()
@@ -101,7 +198,7 @@ async def chat(
 
     start_time = time.monotonic()
 
-    # --- Agentic loop: call LLM → execute tools → repeat until text response ---
+    # --- Agentic loop: call LLM -> execute tools -> repeat until text response ---
     for round_num in range(MAX_TOOL_ROUNDS):
         messages = [{"role": "system", "content": SYSTEM_PROMPT}] + history
 
@@ -129,6 +226,9 @@ async def chat(
             if response.usage:
                 token_usage = {"input": response.usage.prompt_tokens, "output": response.usage.completion_tokens}
 
+            # Persist assistant message
+            await _persist_message(conv_uuid, "assistant", content=assistant_text, token_usage=token_usage)
+
             trace_llm_call(
                 user_message=message, system_prompt=SYSTEM_PROMPT,
                 response=assistant_text, model=settings.llm_model,
@@ -140,20 +240,27 @@ async def chat(
 
             return {"message": assistant_text, "conversation_id": cid, "tool_calls": all_tool_calls or None}
 
-        # --- The LLM wants to call tools — execute them ---
-        # Add the assistant message with tool_calls to history
+        # --- The LLM wants to call tools --- execute them ---
+        tool_calls_data = [
+            {
+                "id": tc.id,
+                "type": "function",
+                "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+            }
+            for tc in choice.message.tool_calls
+        ]
         history.append({
             "role": "assistant",
             "content": choice.message.content,
-            "tool_calls": [
-                {
-                    "id": tc.id,
-                    "type": "function",
-                    "function": {"name": tc.function.name, "arguments": tc.function.arguments},
-                }
-                for tc in choice.message.tool_calls
-            ],
+            "tool_calls": tool_calls_data,
         })
+
+        # Persist assistant message with tool calls
+        await _persist_message(
+            conv_uuid, "assistant",
+            content=choice.message.content,
+            tool_calls=tool_calls_data,
+        )
 
         # Execute each tool and add results
         for tc in choice.message.tool_calls:
@@ -161,8 +268,8 @@ async def chat(
             tool_input = json.loads(tc.function.arguments)
             all_tool_calls.append({"id": tc.id, "name": tool_name, "input": tool_input})
 
-            # Execute the tool against the real database
-            tool_result = await execute_tool(tool_name, tool_input)
+            # Execute the tool against the real database, scoped to org_id
+            tool_result = await execute_tool(tool_name, tool_input, org_id=org)
 
             # Add tool result to history for the next LLM round
             history.append({
@@ -171,7 +278,14 @@ async def chat(
                 "content": tool_result,
             })
 
-    # Max rounds reached — return what we have
+            # Persist tool result message
+            await _persist_message(
+                conv_uuid, "tool",
+                content=tool_result,
+                tool_call_id=tc.id,
+            )
+
+    # Max rounds reached
     return {
         "message": "I've gathered the data but reached the processing limit. Please try a more specific query.",
         "conversation_id": cid,
@@ -183,13 +297,16 @@ async def chat_stream(
     message: str,
     conversation_id: str | None = None,
     context: dict[str, Any] | None = None,
+    clerk_user_id: str | None = None,
+    org_id: str | None = None,
 ) -> AsyncGenerator[str, None]:
     """Stream the assistant response. Falls back to non-streaming for tool calls."""
-    # For tool-calling conversations, use the synchronous loop and stream the final result
-    result = await chat(message, conversation_id, context)
+    result = await chat(
+        message, conversation_id, context,
+        clerk_user_id=clerk_user_id, org_id=org_id,
+    )
     text = result.get("message", "")
 
-    # Stream character by character for a natural feel
     chunk_size = 8
     for i in range(0, len(text), chunk_size):
         yield f"data: {json.dumps({'text': text[i:i+chunk_size]})}\n\n"
@@ -198,19 +315,9 @@ async def chat_stream(
 
 
 def get_history(conversation_id: str) -> list[dict[str, Any]]:
-    """Return message history for a conversation."""
-    raw = _conversations.get(conversation_id, [])
-    result = []
-    for msg in raw:
-        role = msg.get("role", "")
-        if role == "tool":
-            continue  # skip tool results from display history
-        content = msg.get("content", "")
-        if isinstance(content, str) and content:
-            result.append({"role": role, "content": content})
-        elif isinstance(content, list):
-            text_parts = [b.get("text", "") if isinstance(b, dict) else str(b) for b in content]
-            joined = " ".join(text_parts).strip()
-            if joined:
-                result.append({"role": role, "content": joined})
-    return result
+    """Return message history for a conversation.
+
+    NOTE: This is now a legacy sync helper. Prefer the async DB-backed
+    endpoints at /api/v1/chat/conversations/{id}.
+    """
+    return []

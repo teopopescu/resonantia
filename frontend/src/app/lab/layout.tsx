@@ -2,26 +2,42 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { useUser } from "@clerk/nextjs";
+import { useUser, useOrganization } from "@clerk/nextjs";
 import Sidebar from "@/components/lab/sidebar";
 import TaskPanel from "@/components/lab/task-panel";
 import { useLabStore } from "@/stores/lab-store";
 import { useOnboardingStore } from "@/stores/onboarding-store";
-import { api } from "@/lib/api";
+import { api, setActiveOrgId } from "@/lib/api";
 import { ChevronRight } from "lucide-react";
 
 export default function LabLayout({ children }: { children: React.ReactNode }) {
   const sidebarCollapsed = useLabStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useLabStore((s) => s.toggleSidebar);
+  const fetchConversations = useLabStore((s) => s.fetchConversations);
   const onboardingCompleted = useOnboardingStore((s) => s.onboardingCompleted);
   const setOnboardingCompleted = useOnboardingStore((s) => s.setOnboardingCompleted);
 
   const { user, isLoaded } = useUser();
+  const { organization, isLoaded: orgLoaded } = useOrganization();
   const router = useRouter();
   const pathname = usePathname();
   const [checking, setChecking] = useState(true);
 
   const isOnboardingRoute = pathname.startsWith("/lab/onboarding");
+
+  // Set active org from Clerk
+  useEffect(() => {
+    if (organization?.id) {
+      setActiveOrgId(organization.id);
+    }
+  }, [organization]);
+
+  // Fetch conversations once org context is ready
+  useEffect(() => {
+    if (!isOnboardingRoute && !checking) {
+      fetchConversations();
+    }
+  }, [isOnboardingRoute, checking, fetchConversations]);
 
   useEffect(() => {
     // Skip the check if we're already on the onboarding page
@@ -70,8 +86,8 @@ export default function LabLayout({ children }: { children: React.ReactNode }) {
     return <>{children}</>;
   }
 
-  // Loading state while checking onboarding
-  if (checking) {
+  // Loading state while checking
+  if (checking || !isLoaded || !orgLoaded) {
     return (
       <div className="flex h-screen w-screen items-center justify-center bg-cream">
         <div className="flex flex-col items-center gap-4">
@@ -79,6 +95,35 @@ export default function LabLayout({ children }: { children: React.ReactNode }) {
             <span className="text-amber font-serif text-lg font-bold">R</span>
           </div>
           <div className="w-5 h-5 border-2 border-amber/30 border-t-amber rounded-full animate-spin" />
+        </div>
+      </div>
+    );
+  }
+
+  // No organization — user has no access
+  if (!organization && orgLoaded && isLoaded) {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-cream">
+        <div className="flex flex-col items-center gap-4 max-w-md text-center px-6">
+          <div className="w-16 h-16 rounded-2xl bg-charcoal flex items-center justify-center mb-2">
+            <span className="text-amber font-serif text-2xl font-bold">R</span>
+          </div>
+          <h1 className="font-serif text-2xl font-semibold text-charcoal">
+            No access
+          </h1>
+          <p className="text-muted leading-relaxed">
+            You need to be part of an organization to access Resonantia Lab.
+            Ask your administrator for an invitation, or contact us at{" "}
+            <a href="mailto:hello@resonantia.io" className="text-amber hover:underline">
+              hello@resonantia.io
+            </a>
+          </p>
+          <a
+            href="/"
+            className="mt-4 px-6 py-2.5 bg-charcoal text-cream text-sm font-medium rounded-xl hover:bg-charcoal-light transition-colors"
+          >
+            Back to home
+          </a>
         </div>
       </div>
     );

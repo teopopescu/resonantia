@@ -14,6 +14,7 @@ from resonantia.models.base import Base, TimestampMixin, UUIDPrimaryKey
 class Sample(Base, UUIDPrimaryKey, TimestampMixin):
     __tablename__ = "samples"
 
+    org_id: Mapped[str] = mapped_column(String(255), index=True, default="org_default")
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     barcode: Mapped[str | None] = mapped_column(
         String(128), unique=True, nullable=True, index=True

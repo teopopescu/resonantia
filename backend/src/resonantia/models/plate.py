@@ -12,6 +12,7 @@ from resonantia.models.base import Base, TimestampMixin, UUIDPrimaryKey
 class PlateMap(Base, UUIDPrimaryKey, TimestampMixin):
     __tablename__ = "plate_maps"
 
+    org_id: Mapped[str] = mapped_column(String(255), index=True, default="org_default")
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     plate_type: Mapped[str] = mapped_column(
         String(16), nullable=False, default="96"
