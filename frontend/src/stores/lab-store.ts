@@ -23,6 +23,7 @@ interface LabState {
   activeTool: string;
   activeTab: "tasks" | "files";
   pendingPrompt: string | null;
+  voiceModeActive: boolean;
 
   addTask: (title: string) => void;
   setActiveTask: (id: string | null) => void;
@@ -31,6 +32,7 @@ interface LabState {
   setActiveTool: (tool: string) => void;
   setActiveTab: (tab: "tasks" | "files") => void;
   setPendingPrompt: (prompt: string | null) => void;
+  setVoiceModeActive: (active: boolean) => void;
 }
 
 function generateId() {
@@ -66,6 +68,7 @@ export const useLabStore = create<LabState>()(
       activeTool: "chat",
       activeTab: "tasks",
       pendingPrompt: null,
+      voiceModeActive: false,
 
       addTask: (title) =>
         set((state) => ({
@@ -103,6 +106,8 @@ export const useLabStore = create<LabState>()(
       setActiveTab: (tab) => set({ activeTab: tab }),
 
       setPendingPrompt: (prompt) => set({ pendingPrompt: prompt }),
+
+      setVoiceModeActive: (active) => set({ voiceModeActive: active }),
     }),
     {
       name: "resonantia-lab",

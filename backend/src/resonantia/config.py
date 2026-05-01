@@ -50,6 +50,11 @@ class Settings(BaseSettings):
     elabftw_url: str = ""
     elabftw_api_key: str = ""
 
+    # --- Voice ---
+    tts_voice: str = "nova"
+    tts_model: str = "tts-1"
+    stt_model: str = "whisper-1"
+
     # --- CORS ---
     cors_origins: list[str] = [
         "http://localhost:3000",

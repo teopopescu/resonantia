@@ -10,7 +10,6 @@ import {
   Box,
   Sparkles,
   SendHorizontal,
-  Bot,
   User,
   X,
   Upload,
@@ -25,7 +24,9 @@ import {
   BookOpen,
   Loader2,
   Download,
+  Mic,
 } from "lucide-react";
+import VoiceMode from "./voice-mode";
 
 /* ---------- Attachment type ---------- */
 interface Attachment {
@@ -188,6 +189,7 @@ export default function ChatInterface() {
   const [showSkills, setShowSkills] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [voiceModeActive, setVoiceModeActive] = useState(false);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -361,7 +363,7 @@ export default function ChatInterface() {
               >
                 {msg.role === "assistant" && (
                   <div className="shrink-0 w-8 h-8 rounded-lg bg-amber/15 flex items-center justify-center mt-0.5">
-                    <Bot size={16} className="text-amber" />
+                    <span className="text-xs font-serif font-bold text-amber">R</span>
                   </div>
                 )}
                 <div
@@ -384,8 +386,8 @@ export default function ChatInterface() {
             ))}
             {isLoading && (
               <div className="flex gap-3 justify-start">
-                <div className="shrink-0 w-8 h-8 rounded-lg bg-amber/15 flex items-center justify-center mt-0.5">
-                  <Bot size={16} className="text-amber" />
+                <div className="shrink-0 w-8 h-8 rounded-lg bg-amber/10 flex items-center justify-center mt-0.5 overflow-hidden">
+                  <img src="/resonantia-logo.png" alt="Resonantia" className="w-6 h-6 object-contain" />
                 </div>
                 <div className="px-4 py-3 rounded-2xl bg-cream border border-border rounded-bl-md">
                   <div className="flex gap-1">
@@ -450,204 +452,235 @@ export default function ChatInterface() {
 
       {/* Input area (always visible at bottom) */}
       <div className="shrink-0 px-6 pb-5">
-        <div className="max-w-3xl mx-auto">
-          {/* Chat input box */}
-          <div className="rounded-2xl border border-border bg-surface shadow-sm focus-within:border-amber/40 transition-colors">
-            {/* Attachment chips */}
-            {attachments.length > 0 && (
-              <div className="flex flex-wrap gap-2 px-4 pt-3">
-                {isUploading && (
-                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber/10 border border-amber/20 text-xs text-amber">
-                    <Loader2 size={12} className="animate-spin" />
-                    <span>Uploading {attachments.length} file{attachments.length > 1 ? "s" : ""}...</span>
-                  </div>
-                )}
-                {attachments.map((att) => (
-                  <div
-                    key={att.id}
-                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-cream border border-border text-xs text-charcoal"
-                  >
-                    <Paperclip size={12} className="text-muted" />
-                    <span className="max-w-[160px] truncate">{att.file.name}</span>
-                    <span className="text-muted">({formatFileSize(att.file.size)})</span>
-                    <button
-                      onClick={() => removeAttachment(att.id)}
-                      className="text-muted hover:text-charcoal transition-colors"
-                      disabled={isUploading}
-                    >
-                      <X size={12} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <textarea
-              ref={textareaRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="What lab task can I help you with today?"
-              rows={1}
-              className="w-full px-4 pt-4 pb-2 text-sm bg-transparent resize-none focus:outline-none placeholder:text-muted/60"
-            />
-
-            {/* Toolbar */}
-            <div className="flex items-center justify-between px-3 pb-3">
-              <div className="flex items-center gap-1">
-                {/* Paperclip / File upload */}
-                <button
-                  onClick={triggerFileUpload}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-muted hover:text-charcoal hover:bg-cream transition-colors"
-                  title="Attach file"
-                >
-                  <Paperclip size={14} />
-                </button>
-
-                {/* Resource dropdown */}
-                <div ref={resourceRef} className="relative">
-                  <button
-                    onClick={() => {
-                      setShowResources(!showResources);
-                      setShowSkills(false);
-                    }}
-                    className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-colors ${
-                      showResources
-                        ? "text-charcoal bg-cream"
-                        : "text-muted hover:text-charcoal hover:bg-cream"
-                    }`}
-                  >
-                    <Box size={14} />
-                    <span>Resource</span>
-                  </button>
-                  <AnimatePresence>
-                    {showResources && (
-                      <motion.div
-                        initial={{ opacity: 0, y: 4, scale: 0.97 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, y: 4, scale: 0.97 }}
-                        transition={{ duration: 0.15 }}
-                        className="absolute bottom-full left-0 mb-2 w-56 rounded-xl border border-border bg-surface shadow-lg z-50 overflow-hidden"
-                      >
-                        {resourceItems.map((item) => {
-                          const Icon = item.icon;
-                          if (item.action === "upload") {
-                            return (
-                              <button
-                                key={item.label}
-                                onClick={() => {
-                                  triggerFileUpload();
-                                  setShowResources(false);
-                                }}
-                                className="flex items-center gap-3 w-full px-4 py-2.5 text-xs text-charcoal hover:bg-cream transition-colors text-left"
-                              >
-                                <Icon size={14} className="text-muted" />
-                                {item.label}
-                              </button>
-                            );
-                          }
-                          return (
-                            <Link
-                              key={item.label}
-                              href={item.href!}
-                              onClick={() => setShowResources(false)}
-                              className="flex items-center gap-3 w-full px-4 py-2.5 text-xs text-charcoal hover:bg-cream transition-colors"
-                            >
-                              <Icon size={14} className="text-muted" />
-                              {item.label}
-                            </Link>
-                          );
-                        })}
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-
-                {/* Skill dropdown */}
-                <div ref={skillRef} className="relative">
-                  <button
-                    onClick={() => {
-                      setShowSkills(!showSkills);
-                      setShowResources(false);
-                    }}
-                    className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-colors ${
-                      showSkills
-                        ? "text-charcoal bg-cream"
-                        : "text-muted hover:text-charcoal hover:bg-cream"
-                    }`}
-                  >
-                    <Sparkles size={14} />
-                    <span>+ Skill</span>
-                  </button>
-                  <AnimatePresence>
-                    {showSkills && (
-                      <motion.div
-                        initial={{ opacity: 0, y: 4, scale: 0.97 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, y: 4, scale: 0.97 }}
-                        transition={{ duration: 0.15 }}
-                        className="absolute bottom-full left-0 mb-2 w-72 rounded-xl border border-border bg-surface shadow-lg z-50 overflow-hidden"
-                      >
-                        {agentSkills.map((skill) => {
-                          const Icon = skill.icon;
-                          return (
-                            <button
-                              key={skill.label}
-                              onClick={() => insertSkillPrompt(skill.prompt)}
-                              className="flex items-start gap-3 w-full px-4 py-3 hover:bg-cream transition-colors text-left"
-                            >
-                              <Icon size={14} className="text-amber mt-0.5 shrink-0" />
-                              <div>
-                                <div className="text-xs font-medium text-charcoal">
-                                  {skill.label}
-                                </div>
-                                <div className="text-[11px] text-muted mt-0.5">
-                                  {skill.desc}
-                                </div>
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleSend}
-                  disabled={isUploading || isLoading || (!input.trim() && attachments.length === 0)}
-                  className={`flex items-center justify-center w-8 h-8 rounded-lg transition-all ${
-                    isUploading || isLoading
-                      ? "bg-amber/60 text-charcoal cursor-wait"
-                      : input.trim() || attachments.length > 0
-                      ? "bg-amber text-charcoal hover:bg-amber-light shadow-sm"
-                      : "bg-cream text-muted cursor-not-allowed"
-                  }`}
-                >
-                  {isUploading ? (
-                    <Loader2 size={16} className="animate-spin" />
-                  ) : (
-                    <SendHorizontal size={16} />
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Skill categories */}
-          {!hasMessages && (
+        <AnimatePresence mode="wait">
+          {voiceModeActive ? (
             <motion.div
+              key="voice"
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.35, duration: 0.4 }}
-              className="mt-4"
+              exit={{ opacity: 0, y: 8 }}
+              transition={{ duration: 0.2 }}
+              className="max-w-3xl mx-auto relative"
             >
-              <SkillBar />
+              <VoiceMode onExit={() => setVoiceModeActive(false)} />
+            </motion.div>
+          ) : (
+            <motion.div
+              key="text"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 8 }}
+              transition={{ duration: 0.2 }}
+              className="max-w-3xl mx-auto"
+            >
+              {/* Chat input box */}
+              <div className="rounded-2xl border border-border bg-surface shadow-sm focus-within:border-amber/40 transition-colors">
+                {/* Attachment chips */}
+                {attachments.length > 0 && (
+                  <div className="flex flex-wrap gap-2 px-4 pt-3">
+                    {isUploading && (
+                      <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber/10 border border-amber/20 text-xs text-amber">
+                        <Loader2 size={12} className="animate-spin" />
+                        <span>Uploading {attachments.length} file{attachments.length > 1 ? "s" : ""}...</span>
+                      </div>
+                    )}
+                    {attachments.map((att) => (
+                      <div
+                        key={att.id}
+                        className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-cream border border-border text-xs text-charcoal"
+                      >
+                        <Paperclip size={12} className="text-muted" />
+                        <span className="max-w-[160px] truncate">{att.file.name}</span>
+                        <span className="text-muted">({formatFileSize(att.file.size)})</span>
+                        <button
+                          onClick={() => removeAttachment(att.id)}
+                          className="text-muted hover:text-charcoal transition-colors"
+                          disabled={isUploading}
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <textarea
+                  ref={textareaRef}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="What lab task can I help you with today?"
+                  rows={1}
+                  className="w-full px-4 pt-4 pb-2 text-sm bg-transparent resize-none focus:outline-none placeholder:text-muted/60"
+                />
+
+                {/* Toolbar */}
+                <div className="flex items-center justify-between px-3 pb-3">
+                  <div className="flex items-center gap-1">
+                    {/* Paperclip / File upload */}
+                    <button
+                      onClick={triggerFileUpload}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-muted hover:text-charcoal hover:bg-cream transition-colors"
+                      title="Attach file"
+                    >
+                      <Paperclip size={14} />
+                    </button>
+
+                    {/* Voice mode */}
+                    <button
+                      onClick={() => setVoiceModeActive(true)}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-muted hover:text-amber hover:bg-amber/10 transition-colors"
+                      title="Voice mode"
+                    >
+                      <Mic size={14} />
+                    </button>
+
+                    {/* Resource dropdown */}
+                    <div ref={resourceRef} className="relative">
+                      <button
+                        onClick={() => {
+                          setShowResources(!showResources);
+                          setShowSkills(false);
+                        }}
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-colors ${
+                          showResources
+                            ? "text-charcoal bg-cream"
+                            : "text-muted hover:text-charcoal hover:bg-cream"
+                        }`}
+                      >
+                        <Box size={14} />
+                        <span>Resource</span>
+                      </button>
+                      <AnimatePresence>
+                        {showResources && (
+                          <motion.div
+                            initial={{ opacity: 0, y: 4, scale: 0.97 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: 4, scale: 0.97 }}
+                            transition={{ duration: 0.15 }}
+                            className="absolute bottom-full left-0 mb-2 w-56 rounded-xl border border-border bg-surface shadow-lg z-50 overflow-hidden"
+                          >
+                            {resourceItems.map((item) => {
+                              const Icon = item.icon;
+                              if (item.action === "upload") {
+                                return (
+                                  <button
+                                    key={item.label}
+                                    onClick={() => {
+                                      triggerFileUpload();
+                                      setShowResources(false);
+                                    }}
+                                    className="flex items-center gap-3 w-full px-4 py-2.5 text-xs text-charcoal hover:bg-cream transition-colors text-left"
+                                  >
+                                    <Icon size={14} className="text-muted" />
+                                    {item.label}
+                                  </button>
+                                );
+                              }
+                              return (
+                                <Link
+                                  key={item.label}
+                                  href={item.href!}
+                                  onClick={() => setShowResources(false)}
+                                  className="flex items-center gap-3 w-full px-4 py-2.5 text-xs text-charcoal hover:bg-cream transition-colors"
+                                >
+                                  <Icon size={14} className="text-muted" />
+                                  {item.label}
+                                </Link>
+                              );
+                            })}
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+
+                    {/* Skill dropdown */}
+                    <div ref={skillRef} className="relative">
+                      <button
+                        onClick={() => {
+                          setShowSkills(!showSkills);
+                          setShowResources(false);
+                        }}
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-colors ${
+                          showSkills
+                            ? "text-charcoal bg-cream"
+                            : "text-muted hover:text-charcoal hover:bg-cream"
+                        }`}
+                      >
+                        <Sparkles size={14} />
+                        <span>+ Skill</span>
+                      </button>
+                      <AnimatePresence>
+                        {showSkills && (
+                          <motion.div
+                            initial={{ opacity: 0, y: 4, scale: 0.97 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: 4, scale: 0.97 }}
+                            transition={{ duration: 0.15 }}
+                            className="absolute bottom-full left-0 mb-2 w-72 rounded-xl border border-border bg-surface shadow-lg z-50 overflow-hidden"
+                          >
+                            {agentSkills.map((skill) => {
+                              const Icon = skill.icon;
+                              return (
+                                <button
+                                  key={skill.label}
+                                  onClick={() => insertSkillPrompt(skill.prompt)}
+                                  className="flex items-start gap-3 w-full px-4 py-3 hover:bg-cream transition-colors text-left"
+                                >
+                                  <Icon size={14} className="text-amber mt-0.5 shrink-0" />
+                                  <div>
+                                    <div className="text-xs font-medium text-charcoal">
+                                      {skill.label}
+                                    </div>
+                                    <div className="text-[11px] text-muted mt-0.5">
+                                      {skill.desc}
+                                    </div>
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleSend}
+                      disabled={isUploading || isLoading || (!input.trim() && attachments.length === 0)}
+                      className={`flex items-center justify-center w-8 h-8 rounded-lg transition-all ${
+                        isUploading || isLoading
+                          ? "bg-amber/60 text-charcoal cursor-wait"
+                          : input.trim() || attachments.length > 0
+                          ? "bg-amber text-charcoal hover:bg-amber-light shadow-sm"
+                          : "bg-cream text-muted cursor-not-allowed"
+                      }`}
+                    >
+                      {isUploading ? (
+                        <Loader2 size={16} className="animate-spin" />
+                      ) : (
+                        <SendHorizontal size={16} />
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Skill categories */}
+              {!hasMessages && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.35, duration: 0.4 }}
+                  className="mt-4"
+                >
+                  <SkillBar />
+                </motion.div>
+              )}
             </motion.div>
           )}
-        </div>
+        </AnimatePresence>
       </div>
 
     </div>
