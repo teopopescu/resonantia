@@ -27,7 +27,11 @@ import {
   Loader2,
   Download,
   Mic,
+  ChevronDown,
+  ChevronRight,
+  Wrench,
 } from "lucide-react";
+import type { ToolCall } from "@/stores/lab-store";
 import VoiceMode from "./voice-mode";
 import { ElabFTWLogo, BenchlingLogo, DotmaticsLogo } from "@/components/icons/integration-logos";
 
@@ -48,6 +52,112 @@ interface UploadedFile {
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+/* ---------- Tool name → friendly label ---------- */
+const TOOL_LABELS: Record<string, string> = {
+  lookup_sample: "Looking up sample",
+  check_inventory: "Checking inventory",
+  query_experiments: "Querying experiments",
+  get_ic50_values: "Fetching IC50 values",
+  fit_dose_response: "Fitting dose-response curve",
+  normalize_plate: "Normalizing plate data",
+  calculate_z_prime: "Calculating Z-prime",
+  qpcr_analysis: "Running qPCR analysis",
+  create_plate_map: "Creating plate map",
+  cherry_pick: "Cherry-picking wells",
+  serial_dilution: "Setting up serial dilution",
+  generate_worklist: "Generating worklist",
+  get_plate_map_details: "Loading plate map details",
+  query_plate_maps: "Querying plate maps",
+  browse_microscopy: "Browsing microscopy images",
+  generate_montage: "Generating montage",
+  create_eln_entry: "Creating ELN entry",
+  query_eln_entries: "Searching ELN entries",
+  get_eln_entry: "Loading ELN entry",
+  submit_eln_entry: "Submitting ELN entry",
+  create_protocol: "Creating protocol",
+  query_protocols: "Searching protocols",
+  check_protocol_inventory: "Checking protocol reagents",
+  calculate_dilution: "Calculating dilution",
+  design_next_experiment: "Designing next experiment",
+  get_expiring_samples: "Finding expiring samples",
+  get_sample_stats: "Getting inventory stats",
+  search_literature: "Searching literature",
+  list_files: "Listing files",
+  read_file_contents: "Reading file",
+};
+
+/* ---------- Thinking Trace component ---------- */
+function ThinkingTrace({ toolCalls }: { toolCalls: ToolCall[] }) {
+  const [expanded, setExpanded] = useState(false);
+
+  if (!toolCalls || toolCalls.length === 0) return null;
+
+  return (
+    <div className="mb-1.5">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-1.5 font-mono text-[10.5px] uppercase tracking-[0.04em] text-ink-subtle hover:text-ink-muted transition-colors group"
+      >
+        {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+        <Wrench size={10} className="opacity-70" />
+        <span>
+          <span className="text-brand">›</span> {toolCalls.length} tool{toolCalls.length > 1 ? "s" : ""}
+        </span>
+        <span className="opacity-0 group-hover:opacity-100 transition-opacity">
+          · {expanded ? "hide" : "show"}
+        </span>
+      </button>
+      <AnimatePresence>
+        {expanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="overflow-hidden"
+          >
+            <div className="mt-1.5 ml-3.5 space-y-1.5 border-l-2 border-brand/30 pl-3">
+              {toolCalls.map((tc, i) => (
+                <ToolCallStep key={tc.id || i} tc={tc} index={i} />
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function ToolCallStep({ tc, index }: { tc: ToolCall; index: number }) {
+  const [showInput, setShowInput] = useState(false);
+  const label = TOOL_LABELS[tc.name] || tc.name.replace(/_/g, " ");
+  const hasInput = tc.input && Object.keys(tc.input).length > 0;
+
+  return (
+    <div className="font-mono text-[11px] tracking-[0.01em]">
+      <div className="flex items-center gap-1.5">
+        <span className="w-4 h-4 rounded-[2px] bg-brand-soft border border-brand/30 flex items-center justify-center text-[9px] font-medium text-brand shrink-0">
+          {index + 1}
+        </span>
+        <span className="text-ink">{label}</span>
+        {hasInput && (
+          <button
+            onClick={() => setShowInput(!showInput)}
+            className="text-[10px] uppercase tracking-[0.04em] text-ink-subtle hover:text-ink-muted transition-colors ml-1"
+          >
+            {showInput ? "· hide params" : "· params"}
+          </button>
+        )}
+      </div>
+      {showInput && hasInput && (
+        <pre className="mt-1 ml-5 text-[10.5px] text-ink-muted bg-bg border border-line rounded-[3px] px-2 py-1.5 overflow-x-auto max-h-24 font-mono">
+          {JSON.stringify(tc.input, null, 2)}
+        </pre>
+      )}
+    </div>
+  );
+}
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return bytes + "B";
@@ -164,7 +274,7 @@ function MessageContent({ content, role }: { content: string; role: string }) {
           className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors no-underline ${
             isUserMsg
               ? "bg-white/15 text-white hover:bg-white/25"
-              : "bg-amber/10 text-amber border border-amber/20 hover:bg-amber/20"
+              : "bg-brand-soft text-brand border border-brand/30 hover:bg-brand-soft/70"
           }`}
         >
           <Download size={12} />
@@ -177,7 +287,7 @@ function MessageContent({ content, role }: { content: string; role: string }) {
         <span
           key={m.index}
           className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs ${
-            isUserMsg ? "bg-white/15 text-white" : "bg-charcoal/5 text-charcoal"
+            isUserMsg ? "bg-white/15 text-white" : "bg-bg-sunk text-ink"
           }`}
         >
           <Paperclip size={12} />
@@ -349,7 +459,7 @@ export default function ChatInterface() {
       });
       if (res.ok) {
         const data = await res.json();
-        addMessage("assistant", data.message);
+        addMessage("assistant", data.message, data.tool_calls || undefined);
         // If the backend returned a new conversation, add it to the list
         if (data.conversation_id && !activeConversationId) {
           const newConv = {
@@ -473,41 +583,68 @@ export default function ChatInterface() {
                 }`}
               >
                 {msg.role === "assistant" && (
-                  <div className="shrink-0 w-8 h-8 rounded-lg bg-amber/15 flex items-center justify-center mt-0.5">
-                    <span className="text-xs font-serif font-bold text-amber">R</span>
-                  </div>
+                  <span
+                    className="shrink-0 inline-grid grid-cols-2 grid-rows-2 gap-[2px] p-[4px] rounded-[4px] bg-surface border border-line-strong mt-0.5"
+                    style={{ width: 28, height: 28 }}
+                    aria-hidden="true"
+                  >
+                    <span className="rounded-full bg-ink-subtle" />
+                    <span className="rounded-full bg-ink-subtle" />
+                    <span className="rounded-full bg-ink-subtle" />
+                    <span className="rounded-full bg-brand" />
+                  </span>
                 )}
-                <div
-                  className={`max-w-[75%] px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap ${
-                    msg.role === "user"
-                      ? "bg-charcoal text-white rounded-br-md"
-                      : msg.role === "system"
-                      ? "bg-red-50 border border-red-200 text-red-700 rounded-bl-md"
-                      : "bg-cream border border-border rounded-bl-md"
-                  }`}
-                >
-                  <MessageContent content={msg.content} role={msg.role} />
+                <div className="max-w-[75%]">
+                  {msg.role === "assistant" && msg.toolCalls && msg.toolCalls.length > 0 && (
+                    <ThinkingTrace toolCalls={msg.toolCalls} />
+                  )}
+                  <div
+                    className={`px-4 py-3 rounded-md text-[13.5px] leading-relaxed whitespace-pre-wrap ${
+                      msg.role === "user"
+                        ? "bg-brand text-white"
+                        : msg.role === "system"
+                        ? "bg-mch-soft border border-mch/30 text-mch"
+                        : "bg-bg border border-line"
+                    }`}
+                    style={
+                      msg.role === "user"
+                        ? { boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.06)" }
+                        : undefined
+                    }
+                  >
+                    <MessageContent content={msg.content} role={msg.role} />
+                  </div>
                 </div>
                 {msg.role === "user" && (
-                  <div className="shrink-0 w-8 h-8 rounded-lg bg-charcoal/10 flex items-center justify-center mt-0.5">
-                    <User size={16} className="text-charcoal/60" />
+                  <div className="shrink-0 w-7 h-7 rounded-[4px] bg-bg-sunk border border-line flex items-center justify-center mt-0.5">
+                    <User size={14} className="text-ink-muted" />
                   </div>
                 )}
               </motion.div>
             ))}
             {isLoading && (
-              <div className="flex gap-3 justify-start">
-                <div className="shrink-0 w-8 h-8 rounded-lg bg-amber/10 flex items-center justify-center mt-0.5 overflow-hidden">
-                  <img src="/resonantia-logo.png" alt="Resonantia" className="w-6 h-6 object-contain" />
-                </div>
-                <div className="px-4 py-3 rounded-2xl bg-cream border border-border rounded-bl-md">
-                  <div className="flex gap-1">
-                    <span className="w-2 h-2 bg-muted/40 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-                    <span className="w-2 h-2 bg-muted/40 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-                    <span className="w-2 h-2 bg-muted/40 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="flex gap-3 justify-start"
+              >
+                <span
+                  className="shrink-0 inline-grid grid-cols-2 grid-rows-2 gap-[2px] p-[4px] rounded-[4px] bg-surface border border-line-strong mt-0.5"
+                  style={{ width: 28, height: 28 }}
+                  aria-hidden="true"
+                >
+                  <span className="rounded-full bg-ink-subtle" />
+                  <span className="rounded-full bg-ink-subtle" />
+                  <span className="rounded-full bg-ink-subtle" />
+                  <span className="rounded-full bg-brand" />
+                </span>
+                <div className="px-4 py-3 rounded-md bg-bg border border-line">
+                  <div className="flex items-center gap-2 font-mono text-[11px] tracking-[0.02em] text-ink-muted">
+                    <Loader2 size={12} className="animate-spin text-brand" />
+                    <span>thinking…</span>
                   </div>
                 </div>
-              </div>
+              </motion.div>
             )}
             <div ref={messagesEndRef} />
           </div>
@@ -515,37 +652,55 @@ export default function ChatInterface() {
       ) : (
         /* Empty state / greeting */
         <div className="flex-1 flex items-center justify-center px-6">
-          <div className="max-w-2xl w-full text-center">
-            {/* Logo mark */}
+          <div className="max-w-2xl w-full">
+            {/* Brand mark */}
             <motion.div
-              initial={{ scale: 0.8, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.4, ease: "easeOut" }}
-              className="mx-auto w-16 h-16 rounded-2xl bg-amber/15 border border-amber/20 flex items-center justify-center mb-6"
+              className="mb-6"
             >
-              <span className="text-2xl font-serif font-bold text-amber">
-                R
+              <span
+                className="inline-grid grid-cols-2 grid-rows-2 gap-[3px] p-[6px] rounded-[5px] bg-surface border border-line-strong"
+                style={{ width: 40, height: 40 }}
+                aria-hidden="true"
+              >
+                <span className="rounded-full bg-ink-subtle" />
+                <span className="rounded-full bg-ink-subtle" />
+                <span className="rounded-full bg-ink-subtle" />
+                <span className="rounded-full bg-brand" />
               </span>
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1, duration: 0.4 }}
+              className="font-mono text-[11px] uppercase tracking-[0.06em] text-ink-subtle mb-3"
+            >
+              <span className="text-brand">›</span> agent · ready · 32 tools
+              wired
             </motion.div>
 
             <motion.h1
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1, duration: 0.4 }}
-              className="text-3xl font-serif font-semibold text-charcoal mb-3"
+              transition={{ delay: 0.15, duration: 0.4 }}
+              className="text-[32px] font-semibold tracking-[-0.025em] leading-[1.1] text-ink mb-3"
             >
-              Hi there,
+              What would you like to{" "}
+              <span className="text-brand">run</span> on the bench?
             </motion.h1>
 
             <motion.p
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2, duration: 0.4 }}
-              className="text-base text-muted leading-relaxed max-w-lg mx-auto"
+              transition={{ delay: 0.25, duration: 0.4 }}
+              className="text-[15px] text-ink-muted leading-relaxed max-w-lg"
             >
-              I&apos;m your lab assistant — ask me to design plate maps, fit
-              dose-response curves, look up samples, or analyze your microscopy
-              data.
+              Design plate maps, fit dose-response curves, look up samples,
+              browse microscopy. Every action is cited and written back to your
+              notebook.
             </motion.p>
           </div>
         </div>
@@ -585,30 +740,30 @@ export default function ChatInterface() {
               className="max-w-3xl mx-auto"
             >
               {/* Chat input box */}
-              <div className="rounded-2xl border border-border bg-surface shadow-sm focus-within:border-amber/40 transition-colors">
+              <div className="rounded-[5px] border border-line-strong bg-surface focus-within:border-brand/50 transition-colors">
                 {/* Attachment chips */}
                 {attachments.length > 0 && (
                   <div className="flex flex-wrap gap-2 px-4 pt-3">
                     {isUploading && (
-                      <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber/10 border border-amber/20 text-xs text-amber">
-                        <Loader2 size={12} className="animate-spin" />
-                        <span>Uploading {attachments.length} file{attachments.length > 1 ? "s" : ""}...</span>
+                      <div className="flex items-center gap-2 px-2.5 py-1 rounded-[3px] bg-brand-soft border border-brand/30 font-mono text-[11px] tracking-[0.02em] text-brand">
+                        <Loader2 size={11} className="animate-spin" />
+                        <span>uploading {attachments.length} file{attachments.length > 1 ? "s" : ""}…</span>
                       </div>
                     )}
                     {attachments.map((att) => (
                       <div
                         key={att.id}
-                        className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-cream border border-border text-xs text-charcoal"
+                        className="flex items-center gap-2 px-2.5 py-1 rounded-[3px] bg-bg border border-line font-mono text-[11px] tracking-[0.02em] text-ink"
                       >
-                        <Paperclip size={12} className="text-muted" />
+                        <Paperclip size={11} className="text-ink-subtle" />
                         <span className="max-w-[160px] truncate">{att.file.name}</span>
-                        <span className="text-muted">({formatFileSize(att.file.size)})</span>
+                        <span className="text-ink-subtle">{formatFileSize(att.file.size)}</span>
                         <button
                           onClick={() => removeAttachment(att.id)}
-                          className="text-muted hover:text-charcoal transition-colors"
+                          className="text-ink-subtle hover:text-mch transition-colors"
                           disabled={isUploading}
                         >
-                          <X size={12} />
+                          <X size={11} />
                         </button>
                       </div>
                     ))}
@@ -624,23 +779,23 @@ export default function ChatInterface() {
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={{ opacity: 0, y: 4, scale: 0.97 }}
                         transition={{ duration: 0.15 }}
-                        className="absolute bottom-full left-4 mb-1 w-64 max-h-64 overflow-y-auto rounded-xl border border-border bg-surface shadow-lg z-50"
+                        className="absolute bottom-full left-4 mb-1 w-64 max-h-64 overflow-y-auto rounded-[5px] border border-line bg-surface shadow-md z-50"
                       >
                         {Object.entries(groupedMentions).map(([category, items]) => (
                           <div key={category}>
-                            <div className="px-3 pt-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted/60">
+                            <div className="px-3 pt-2.5 pb-1 font-mono text-[10px] font-medium uppercase tracking-[0.06em] text-ink-subtle">
                               @{category}
                             </div>
                             {items.map((item) => (
                               <button
                                 key={item.label}
                                 onClick={() => handleMentionSelect(item.label)}
-                                className="flex items-center gap-2 w-full px-3 py-2 text-xs text-charcoal hover:bg-cream transition-colors text-left"
+                                className="flex items-center gap-2 w-full px-3 py-2 text-[12.5px] text-ink hover:bg-bg transition-colors text-left"
                               >
                                 {item.icon && <span className="shrink-0 flex items-center">{item.icon}</span>}
                                 <span className="font-medium">{item.label}</span>
                                 {item.comingSoon && (
-                                  <span className="ml-auto text-[10px] text-muted/50 italic">coming soon</span>
+                                  <span className="ml-auto font-mono text-[10px] tracking-[0.02em] uppercase text-ink-subtle">coming soon</span>
                                 )}
                               </button>
                             ))}
@@ -656,30 +811,30 @@ export default function ChatInterface() {
                   value={input}
                   onChange={handleInputChange}
                   onKeyDown={handleKeyDown}
-                  placeholder="What lab task can I help you with today?"
+                  placeholder="ask the lab — fit ic50 plate A row B and write to ELN…"
                   rows={1}
-                  className="w-full px-4 pt-4 pb-2 text-sm bg-transparent resize-none focus:outline-none placeholder:text-muted/60"
+                  className="w-full px-4 pt-4 pb-2 text-[13.5px] bg-transparent resize-none focus:outline-none placeholder:text-ink-subtle"
                 />
 
                 {/* Toolbar */}
-                <div className="flex items-center justify-between px-3 pb-3">
-                  <div className="flex items-center gap-1">
+                <div className="flex items-center justify-between px-2.5 pb-2.5">
+                  <div className="flex items-center gap-0.5">
                     {/* Paperclip / File upload */}
                     <button
                       onClick={triggerFileUpload}
-                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-muted hover:text-charcoal hover:bg-cream transition-colors"
+                      className="flex items-center gap-1.5 px-2 py-1.5 rounded-[3px] font-mono text-[11px] tracking-[0.02em] uppercase text-ink-muted hover:text-ink hover:bg-bg transition-colors"
                       title="Attach file"
                     >
-                      <Paperclip size={14} />
+                      <Paperclip size={13} />
                     </button>
 
                     {/* Voice mode */}
                     <button
                       onClick={() => setVoiceModeActive(true)}
-                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-muted hover:text-amber hover:bg-amber/10 transition-colors"
+                      className="flex items-center gap-1.5 px-2 py-1.5 rounded-[3px] font-mono text-[11px] tracking-[0.02em] uppercase text-ink-muted hover:text-brand hover:bg-brand-soft transition-colors"
                       title="Voice mode"
                     >
-                      <Mic size={14} />
+                      <Mic size={13} />
                     </button>
 
                     {/* Resource dropdown */}
@@ -689,14 +844,14 @@ export default function ChatInterface() {
                           setShowResources(!showResources);
                           setShowSkills(false);
                         }}
-                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-colors ${
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-[3px] font-mono text-[11px] tracking-[0.02em] uppercase transition-colors ${
                           showResources
-                            ? "text-charcoal bg-cream"
-                            : "text-muted hover:text-charcoal hover:bg-cream"
+                            ? "text-brand bg-brand-soft"
+                            : "text-ink-muted hover:text-ink hover:bg-bg"
                         }`}
                       >
-                        <Box size={14} />
-                        <span>Resource</span>
+                        <Box size={13} />
+                        <span>resource</span>
                       </button>
                       <AnimatePresence>
                         {showResources && (
@@ -705,7 +860,7 @@ export default function ChatInterface() {
                             animate={{ opacity: 1, y: 0, scale: 1 }}
                             exit={{ opacity: 0, y: 4, scale: 0.97 }}
                             transition={{ duration: 0.15 }}
-                            className="absolute bottom-full left-0 mb-2 w-56 rounded-xl border border-border bg-surface shadow-lg z-50 overflow-hidden"
+                            className="absolute bottom-full left-0 mb-2 w-56 rounded-[5px] border border-line bg-surface shadow-md z-50 overflow-hidden"
                           >
                             {resourceItems.map((item) => {
                               const Icon = item.icon;
@@ -717,9 +872,9 @@ export default function ChatInterface() {
                                       triggerFileUpload();
                                       setShowResources(false);
                                     }}
-                                    className="flex items-center gap-3 w-full px-4 py-2.5 text-xs text-charcoal hover:bg-cream transition-colors text-left"
+                                    className="flex items-center gap-3 w-full px-4 py-2.5 text-[12.5px] text-ink hover:bg-bg transition-colors text-left"
                                   >
-                                    <Icon size={14} className="text-muted" />
+                                    <Icon size={13} className="text-ink-subtle" />
                                     {item.label}
                                   </button>
                                 );
@@ -729,9 +884,9 @@ export default function ChatInterface() {
                                   key={item.label}
                                   href={item.href!}
                                   onClick={() => setShowResources(false)}
-                                  className="flex items-center gap-3 w-full px-4 py-2.5 text-xs text-charcoal hover:bg-cream transition-colors"
+                                  className="flex items-center gap-3 w-full px-4 py-2.5 text-[12.5px] text-ink hover:bg-bg transition-colors"
                                 >
-                                  <Icon size={14} className="text-muted" />
+                                  <Icon size={13} className="text-ink-subtle" />
                                   {item.label}
                                 </Link>
                               );
@@ -748,14 +903,14 @@ export default function ChatInterface() {
                           setShowSkills(!showSkills);
                           setShowResources(false);
                         }}
-                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-colors ${
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-[3px] font-mono text-[11px] tracking-[0.02em] uppercase transition-colors ${
                           showSkills
-                            ? "text-charcoal bg-cream"
-                            : "text-muted hover:text-charcoal hover:bg-cream"
+                            ? "text-brand bg-brand-soft"
+                            : "text-ink-muted hover:text-ink hover:bg-bg"
                         }`}
                       >
-                        <Sparkles size={14} />
-                        <span>+ Skill</span>
+                        <Sparkles size={13} />
+                        <span>+ skill</span>
                       </button>
                       <AnimatePresence>
                         {showSkills && (
@@ -764,7 +919,7 @@ export default function ChatInterface() {
                             animate={{ opacity: 1, y: 0, scale: 1 }}
                             exit={{ opacity: 0, y: 4, scale: 0.97 }}
                             transition={{ duration: 0.15 }}
-                            className="absolute bottom-full left-0 mb-2 w-72 rounded-xl border border-border bg-surface shadow-lg z-50 overflow-hidden"
+                            className="absolute bottom-full left-0 mb-2 w-72 rounded-[5px] border border-line bg-surface shadow-md z-50 overflow-hidden"
                           >
                             {agentSkills.map((skill) => {
                               const Icon = skill.icon;
@@ -772,14 +927,14 @@ export default function ChatInterface() {
                                 <button
                                   key={skill.label}
                                   onClick={() => insertSkillPrompt(skill.prompt)}
-                                  className="flex items-start gap-3 w-full px-4 py-3 hover:bg-cream transition-colors text-left"
+                                  className="flex items-start gap-3 w-full px-4 py-3 hover:bg-bg transition-colors text-left"
                                 >
-                                  <Icon size={14} className="text-amber mt-0.5 shrink-0" />
+                                  <Icon size={14} className="text-brand mt-0.5 shrink-0" />
                                   <div>
-                                    <div className="text-xs font-medium text-charcoal">
+                                    <div className="text-[12.5px] font-medium text-ink">
                                       {skill.label}
                                     </div>
-                                    <div className="text-[11px] text-muted mt-0.5">
+                                    <div className="font-mono text-[11px] tracking-[0.02em] text-ink-muted mt-0.5">
                                       {skill.desc}
                                     </div>
                                   </div>
@@ -796,18 +951,23 @@ export default function ChatInterface() {
                     <button
                       onClick={handleSend}
                       disabled={isUploading || isLoading || (!input.trim() && attachments.length === 0)}
-                      className={`flex items-center justify-center w-8 h-8 rounded-lg transition-all ${
+                      className={`flex items-center justify-center w-8 h-8 rounded-[3px] transition-all ${
                         isUploading || isLoading
-                          ? "bg-amber/60 text-charcoal cursor-wait"
+                          ? "bg-brand/70 text-white cursor-wait"
                           : input.trim() || attachments.length > 0
-                          ? "bg-amber text-charcoal hover:bg-amber-light shadow-sm"
-                          : "bg-cream text-muted cursor-not-allowed"
+                          ? "bg-brand text-white hover:bg-brand-strong"
+                          : "bg-bg-sunk text-ink-subtle cursor-not-allowed"
                       }`}
+                      style={
+                        input.trim() || attachments.length > 0
+                          ? { boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.06)" }
+                          : undefined
+                      }
                     >
                       {isUploading ? (
-                        <Loader2 size={16} className="animate-spin" />
+                        <Loader2 size={15} className="animate-spin" />
                       ) : (
-                        <SendHorizontal size={16} />
+                        <SendHorizontal size={15} />
                       )}
                     </button>
                   </div>

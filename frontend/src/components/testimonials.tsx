@@ -1,7 +1,6 @@
 "use client";
 
-import { motion, useInView } from "framer-motion";
-import { useRef } from "react";
+import { motion } from "framer-motion";
 import { Quote } from "lucide-react";
 
 const testimonials = [
@@ -38,35 +37,31 @@ function TestimonialCard({
   testimonial: (typeof testimonials)[number];
   index: number;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const isInView = useInView(ref, { once: true, margin: "-60px" });
-
   return (
     <motion.div
-      ref={ref}
-      initial={{ opacity: 0, y: 40 }}
-      animate={isInView ? { opacity: 1, y: 0 } : {}}
-      transition={{ duration: 0.6, delay: index * 0.15 }}
-      className="relative p-8 lg:p-10 rounded-2xl bg-surface border border-border/60"
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, delay: index * 0.08 }}
+      className="relative p-8 lg:p-9 rounded-md bg-surface border border-line"
     >
       {/* Quote icon */}
-      <Quote size={24} className="text-amber/30 mb-6" />
+      <Quote size={20} className="text-brand/40 mb-5" />
 
       {/* Quote text */}
-      <p className="text-base leading-relaxed text-charcoal-light mb-8 font-light italic">
+      <p className="text-[15px] leading-relaxed text-ink mb-7">
         &ldquo;{testimonial.quote}&rdquo;
       </p>
 
       {/* Author */}
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-full bg-cream-dark border border-border flex items-center justify-center text-xs font-medium text-muted">
+      <div className="flex items-center gap-3 pt-5 border-t border-dashed border-line">
+        <div className="w-9 h-9 rounded-full bg-bg border border-line flex items-center justify-center text-[11px] font-mono font-medium text-ink-muted">
           {testimonial.initials}
         </div>
         <div>
-          <p className="text-sm font-medium text-charcoal">
+          <p className="text-[13.5px] font-medium text-ink">
             {testimonial.author}
           </p>
-          <p className="text-xs text-muted">
+          <p className="text-[11.5px] font-mono uppercase tracking-[0.04em] text-ink-subtle mt-0.5">
             {testimonial.role} &middot; {testimonial.org}
           </p>
         </div>
@@ -76,25 +71,24 @@ function TestimonialCard({
 }
 
 export function Testimonials() {
-  const headingRef = useRef<HTMLDivElement>(null);
-  const isInView = useInView(headingRef, { once: true, margin: "-80px" });
-
   return (
-    <section className="relative py-28 lg:py-36 bg-cream-dark/30">
+    <section className="relative py-24 lg:py-32 border-t border-line">
       <div className="max-w-7xl mx-auto px-6 lg:px-8">
         {/* Section heading */}
         <motion.div
-          ref={headingRef}
-          initial={{ opacity: 0, y: 30 }}
-          animate={isInView ? { opacity: 1, y: 0 } : {}}
-          transition={{ duration: 0.7 }}
-          className="max-w-2xl mx-auto text-center mb-16"
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
+          className="max-w-2xl mb-14"
         >
-          <span className="inline-block text-xs font-medium uppercase tracking-[0.2em] text-amber mb-4">
-            Testimonials
-          </span>
-          <h2 className="font-serif text-3xl sm:text-4xl lg:text-5xl font-semibold leading-tight">
-            Trusted by researchers
+          <div className="inline-flex items-center gap-2.5 mb-6 font-mono text-[11px] uppercase tracking-[0.06em] text-ink-muted">
+            <span className="font-semibold text-brand bg-brand-soft border border-brand/40 rounded-[2px] px-1.5 py-0.5">
+              04
+            </span>
+            <span>From the bench</span>
+          </div>
+          <h2 className="text-3xl sm:text-4xl lg:text-5xl font-semibold leading-[1.05] tracking-[-0.03em] text-ink">
+            What scientists say<br />about the <span className="text-brand">console.</span>
           </h2>
         </motion.div>
 
