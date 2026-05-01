@@ -2,287 +2,148 @@
 
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
-import { motion } from "framer-motion";
-import { useState } from "react";
+import { motion, useInView } from "framer-motion";
+import { useRef, useState } from "react";
 import { Check, ChevronDown } from "lucide-react";
 import Link from "next/link";
-import { cn } from "@/lib/utils";
 
-interface Tier {
-  code: string;
-  name: string;
-  price: string;
-  period?: string;
-  blurb: string;
-  cta: string;
-  ctaHref: string;
-  featured?: boolean;
-  allowance?: string[];
-  features: string[];
+function AnimatedSection({
+  children,
+  className = "",
+  delay = 0,
+}: {
+  children: React.ReactNode;
+  className?: string;
+  delay?: number;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const isInView = useInView(ref, { once: true, margin: "-60px" });
+
+  return (
+    <motion.div
+      ref={ref}
+      initial={{ opacity: 0, y: 40 }}
+      animate={isInView ? { opacity: 1, y: 0 } : {}}
+      transition={{ duration: 0.7, delay, ease: "easeOut" }}
+      className={className}
+    >
+      {children}
+    </motion.div>
+  );
 }
 
-const tiers: Tier[] = [
+const tiers = [
   {
-    code: "DP",
-    name: "Design partner",
-    price: "Free",
-    period: "for 12 months",
-    blurb: "3 slots. In exchange: weekly feedback sessions, anonymized usage data, and a co-branded case study after 6 months.",
-    cta: "Apply for a slot",
-    ctaHref: "mailto:hello@resonantia.io?subject=Design%20partner%20application",
-    allowance: ["Soft-capped agent turns", "Direct line to founders", "Slack channel + weekly call"],
-    features: [
-      "Everything in Team tier",
-      "Hands-on onboarding",
-      "Direct input into the roadmap",
-      "Locked-in 50% discount post-program",
-    ],
-  },
-  {
-    code: "FREE",
     name: "Free",
     price: "$0",
     period: "/month",
-    blurb: "For solo researchers exploring the agent surface. Bring your own LLM key for higher limits.",
+    description: "For individual researchers getting started.",
     cta: "Get started free",
     ctaHref: "/lab",
-    allowance: [
-      "1 user",
-      "50 agent turns / month",
-      "BYOK option · uncapped with your own Anthropic / OpenAI key",
-    ],
+    featured: false,
     features: [
-      "Plate map designer",
-      "Worklist export · Echo / STAR / OT-2",
-      "Sample tracking · 100 items max",
+      "1 user",
+      "5 plate maps per month",
+      "Basic data processing (dose-response, normalization)",
+      "Sample tracking (up to 100 items)",
       "Community support",
     ],
   },
   {
-    code: "PRO",
     name: "Pro",
-    price: "$149",
-    period: "/seat / month",
-    blurb: "For active researchers using the agent daily.",
+    price: "$99",
+    period: "/user/month",
+    description: "For active researchers who need full capabilities.",
     cta: "Start free trial",
     ctaHref: "/lab",
     featured: true,
-    allowance: [
-      "500 agent turns / seat / month",
-      "$0.25 / turn after allowance",
-      "50 GB storage / seat",
-    ],
     features: [
-      "Plan mode · multi-step agent workflows",
-      "Microscopy browser · DAPI / GFP / mCh / BF",
+      "Unlimited plate maps",
       "All data processing pipelines",
-      "Cited tool-call traces",
-      "Voice mode",
-      "Email support · 1 business day",
+      "Microscopy image browser",
+      "Unlimited sample tracking",
+      "File upload & download",
+      "Priority support",
     ],
   },
   {
-    code: "TEAM",
-    name: "Team",
-    price: "$349",
-    period: "/seat / month",
-    blurb: "For 5–50 person teams running shared projects.",
-    cta: "Start free trial",
-    ctaHref: "/lab",
-    allowance: [
-      "1,000 agent turns / seat / month",
-      "$0.20 / turn after allowance",
-      "200 GB storage / seat",
-    ],
+    name: "Enterprise",
+    price: "Custom",
+    period: "",
+    description: "For teams that need control, compliance, and scale.",
+    cta: "Contact sales",
+    ctaHref: "mailto:hello@resonantia.io",
+    featured: false,
     features: [
       "Everything in Pro",
-      "Roles · scientist / reviewer / admin",
-      "Shared projects + entity linking",
-      "Audit log + activity export",
-      "SAML SSO (beta)",
-      "Slack support · same business day",
-    ],
-  },
-  {
-    code: "ENT",
-    name: "Enterprise",
-    price: "From $96K",
-    period: "/ year",
-    blurb: "For 50+ user teams in pharma + regulated environments.",
-    cta: "Talk to sales",
-    ctaHref: "mailto:hello@resonantia.io?subject=Enterprise",
-    allowance: [
-      "8-seat minimum · ~$1,000/seat effective",
-      "Unlimited agent turns",
-      "Custom storage caps",
-    ],
-    features: [
-      "Everything in Team",
-      "Private VPC deployment · self-hosted vLLM",
-      "Custom LoRAs trained on your data",
-      "Full SSO / SAML / SCIM",
-      "21 CFR Part 11 path · validated environment",
-      "Dedicated success manager + SLA",
+      "Multi-user teams with roles",
+      "Audit logging & compliance reports",
+      "SSO / SAML",
+      "Custom instrument integrations",
+      "Dedicated support & SLA",
     ],
   },
 ];
 
 const faqs = [
   {
-    question: "Can I bring my own LLM key?",
+    question: "Can I use my own Anthropic API key?",
     answer:
-      "Yes — on the Free tier. Point Resonantia at your own Anthropic or OpenAI key and you get uncapped agent turns; we only host the substrate. Pro and Team tiers use our managed inference for predictable pricing. Enterprise can run a self-hosted model in your own VPC.",
+      "Yes, bring your own key for the free tier. This lets you use the full AI capabilities without any per-query charges from us.",
   },
   {
-    question: "What's an \"agent turn\" and why is it metered?",
+    question: "What file formats do you support?",
     answer:
-      "A turn is one round-trip with the agent — your input, the planner's reasoning, the specialist that runs your task, and the critic's review. A typical light query is one turn; a complex multi-step plan can chain into 3–5 turns as the agent works through it. We meter because LLM inference is a real per-call cost; allowances let you forecast bills and overage covers heavy use without surprises.",
+      "CSV, XLSX, TSV, FCS, TIFF, PNG, PDF and more. We're continuously adding support for additional instrument-specific formats.",
   },
   {
-    question: "Where is my data hosted?",
+    question: "Do you support my liquid handler?",
     answer:
-      "Cloud customers run on encrypted Postgres in EU or US regions, your choice. Microscopy and large file storage on S3-compatible object storage with at-rest encryption. Enterprise customers can deploy the entire stack — gateway, agent, vLLM, database — into their own VPC with no data egress.",
+      "We generate worklists for Echo, Hamilton, and Opentrons. More integrations are coming soon. Contact us if you need a specific instrument.",
   },
   {
-    question: "Is this SOC 2 / 21 CFR Part 11 compliant?",
+    question: "Is my data secure?",
     answer:
-      "Not yet. SOC 2 Type II is in progress and required before enterprise GA — design partners run on segregated tenants with full audit logging today. The 21 CFR Part 11 path is part of the Enterprise engagement: tamper-evident audit logs, witness/co-sign workflows, and validated environment support.",
-  },
-  {
-    question: "What instruments do you support?",
-    answer:
-      "Worklist export to Beckman Echo, Hamilton STAR, and Opentrons OT-2 today. Tecan Fluent and Beckman Biomek are on the roadmap. For microscopy, we read OME-Zarr and TIFF; importers for Phenix, Operetta, ImageXpress, and Cytation are part of the Enterprise integration scope. If you need a specific instrument, ask — we can usually add an exporter in a sprint.",
-  },
-  {
-    question: "How does the design-partner program work?",
-    answer:
-      "Three slots, free for 12 months. We ask for: a weekly 30-minute call with the lead scientist, anonymized usage telemetry to improve agent quality, and permission to publish a case study after 6 months. In exchange you get the full product, hands-on onboarding, direct input into the roadmap, and a locked-in 50% discount once the program ends.",
+      "All data stays local in the demo. Cloud deployment uses encrypted storage with SOC 2-compliant infrastructure. Your experimental data is never used for model training.",
   },
 ];
 
-function FaqItem({ faq, index }: { faq: { question: string; answer: string }; index: number }) {
+function FaqItem({
+  question,
+  answer,
+  delay,
+}: {
+  question: string;
+  answer: string;
+  delay: number;
+}) {
   const [open, setOpen] = useState(false);
+
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4, delay: index * 0.04 }}
-      className="border-b border-line"
-    >
+    <AnimatedSection delay={delay}>
       <button
         onClick={() => setOpen(!open)}
-        className="w-full text-left py-5 flex items-start justify-between gap-4 hover:bg-surface transition-colors px-2 -mx-2 rounded-[3px]"
+        className="w-full text-left p-6 rounded-2xl bg-surface border border-border hover:border-amber/30 transition-all duration-300"
       >
-        <h3 className="text-[15px] font-medium text-ink leading-snug">{faq.question}</h3>
-        <ChevronDown
-          size={16}
-          className={cn(
-            "text-ink-subtle shrink-0 mt-0.5 transition-transform duration-200",
-            open && "rotate-180"
-          )}
-        />
-      </button>
-      <motion.div
-        initial={false}
-        animate={{ height: open ? "auto" : 0, opacity: open ? 1 : 0 }}
-        transition={{ duration: 0.25 }}
-        className="overflow-hidden"
-      >
-        <p className="text-[14px] text-ink-muted leading-relaxed pb-5 max-w-[68ch]">
-          {faq.answer}
-        </p>
-      </motion.div>
-    </motion.div>
-  );
-}
-
-function TierCard({ tier, index }: { tier: Tier; index: number }) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 14 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.45, delay: index * 0.05 }}
-      className={cn(
-        "relative flex flex-col h-full rounded-[5px] border bg-surface transition-colors",
-        tier.featured ? "border-brand" : "border-line"
-      )}
-    >
-      {tier.featured && (
-        <div className="absolute -top-2.5 left-5">
-          <span className="font-mono text-[10px] tracking-[0.06em] uppercase font-semibold text-brand bg-brand-soft border border-brand/40 rounded-[2px] px-1.5 py-0.5">
-            Most popular
-          </span>
+        <div className="flex items-start justify-between gap-4">
+          <h3 className="font-medium text-charcoal">{question}</h3>
+          <ChevronDown
+            size={18}
+            className={`text-muted shrink-0 mt-0.5 transition-transform duration-300 ${
+              open ? "rotate-180" : ""
+            }`}
+          />
         </div>
-      )}
-
-      <div className="p-6 flex-1 flex flex-col">
-        <div className="font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-subtle mb-3">
-          <span className="text-brand">›</span> {tier.code} · {tier.name}
-        </div>
-
-        <div className="mb-5">
-          <div className="flex items-baseline gap-1.5">
-            <span className="font-semibold text-[36px] tracking-[-0.035em] text-ink leading-none">
-              {tier.price}
-            </span>
-            {tier.period && (
-              <span className="font-mono text-[11px] uppercase tracking-[0.04em] text-ink-muted">
-                {tier.period}
-              </span>
-            )}
-          </div>
-        </div>
-
-        <p className="text-[13.5px] text-ink-muted leading-relaxed mb-5 max-w-[34ch]">
-          {tier.blurb}
-        </p>
-
-        {tier.allowance && (
-          <div className="mb-5 pb-5 border-b border-line">
-            <div className="font-mono text-[10px] uppercase tracking-[0.06em] text-ink-subtle mb-2">
-              Allowance
-            </div>
-            <ul className="space-y-1.5">
-              {tier.allowance.map((a) => (
-                <li
-                  key={a}
-                  className="font-mono text-[11.5px] tracking-[0.01em] text-ink-muted leading-relaxed"
-                >
-                  {a}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        <ul className="space-y-2.5 flex-1 mb-6">
-          {tier.features.map((f) => (
-            <li key={f} className="flex items-start gap-2.5">
-              <Check size={14} className="text-brand shrink-0 mt-0.5" />
-              <span className="text-[13px] text-ink leading-snug">{f}</span>
-            </li>
-          ))}
-        </ul>
-
-        <Link
-          href={tier.ctaHref}
-          className={cn(
-            "inline-flex items-center justify-center gap-2 px-4 py-2.5 text-[13.5px] font-medium rounded-[3px] transition-colors",
-            tier.featured
-              ? "bg-brand text-white hover:bg-brand-strong"
-              : "border border-line-strong text-ink hover:border-ink hover:bg-bg"
-          )}
-          style={
-            tier.featured
-              ? { boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.06)" }
-              : undefined
-          }
+        <motion.div
+          initial={false}
+          animate={{ height: open ? "auto" : 0, opacity: open ? 1 : 0 }}
+          transition={{ duration: 0.3 }}
+          className="overflow-hidden"
         >
-          {tier.cta}
-          <span className="font-mono text-[14px] leading-none">→</span>
-        </Link>
-      </div>
-    </motion.div>
+          <p className="text-sm text-muted leading-relaxed mt-3">{answer}</p>
+        </motion.div>
+      </button>
+    </AnimatedSection>
   );
 }
 
@@ -290,142 +151,126 @@ export default function PricingPage() {
   return (
     <>
       <Navbar />
-      <div className="h-16" />
+      <main className="pt-24">
+        {/* Header */}
+        <section className="relative max-w-7xl mx-auto px-6 lg:px-8 py-20 lg:py-28">
+          <div className="absolute top-1/4 -left-32 w-96 h-96 bg-amber/10 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute top-1/3 right-0 w-80 h-80 bg-amber/5 rounded-full blur-3xl pointer-events-none" />
 
-      <main>
-        {/* Hero */}
-        <section className="pt-20 pb-12 lg:pt-24 lg:pb-16 border-b border-line">
-          <div className="max-w-7xl mx-auto px-6 lg:px-8">
-            <motion.div
-              initial={{ opacity: 0, y: 12 }}
+          <div className="relative max-w-3xl mx-auto text-center">
+            <motion.h1
+              initial={{ opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5 }}
-              className="grid grid-cols-1 lg:grid-cols-[1.15fr_1fr] gap-10 items-end"
+              transition={{ duration: 0.7, delay: 0.2 }}
+              className="font-serif text-4xl sm:text-5xl lg:text-6xl font-semibold leading-[1.1] tracking-tight mb-6"
             >
-              <div>
-                <div className="inline-flex items-center gap-2.5 mb-6 font-mono text-[11px] uppercase tracking-[0.06em] text-ink-muted">
-                  <span className="font-semibold text-brand bg-brand-soft border border-brand/40 rounded-[2px] px-1.5 py-0.5">
-                    PR
-                  </span>
-                  <span>Pricing · usage-aware</span>
-                </div>
-                <h1 className="text-[44px] sm:text-[58px] lg:text-[72px] leading-[0.98] tracking-[-0.04em] text-ink">
-                  <span className="font-light">Pricing that scales</span>
-                  <br />
-                  <span className="font-bold">
-                    with the <span className="text-brand">agent.</span>
-                  </span>
-                </h1>
-              </div>
-              <p className="text-[15.5px] text-ink-muted leading-relaxed max-w-[44ch] md:justify-self-end">
-                Each tier comes with an <strong className="text-ink font-medium">agent-turn allowance</strong> — predictable
-                bills, no surprises. Power users pay for overage; design partners
-                run free for a year.
-              </p>
-            </motion.div>
+              Simple, transparent
+              <br />
+              <span className="text-gradient">pricing</span>
+            </motion.h1>
+
+            <motion.p
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.7, delay: 0.35 }}
+              className="text-lg sm:text-xl text-muted leading-relaxed"
+            >
+              Start free. Scale as you grow.
+            </motion.p>
           </div>
         </section>
 
-        {/* Tiers */}
-        <section className="py-16 lg:py-20 border-b border-line">
-          <div className="max-w-7xl mx-auto px-6 lg:px-8">
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 lg:gap-5">
-              {tiers.map((tier, i) => (
-                <TierCard key={tier.code} tier={tier} index={i} />
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* What's an agent turn */}
-        <section className="py-16 lg:py-20 border-b border-line">
-          <div className="max-w-7xl mx-auto px-6 lg:px-8">
-            <div className="grid grid-cols-1 lg:grid-cols-[1.15fr_1fr] gap-10">
-              <div>
-                <div className="inline-flex items-center gap-2.5 mb-5 font-mono text-[11px] uppercase tracking-[0.06em] text-ink-muted">
-                  <span className="font-semibold text-brand bg-brand-soft border border-brand/40 rounded-[2px] px-1.5 py-0.5">
-                    AT
-                  </span>
-                  <span>Agent turns · how the meter works</span>
-                </div>
-                <h2 className="text-[28px] sm:text-[34px] font-semibold leading-[1.1] tracking-[-0.025em] text-ink mb-4">
-                  An <span className="text-brand">honest meter,</span> sized for real workflows.
-                </h2>
-                <p className="text-[15px] text-ink-muted leading-relaxed max-w-[60ch]">
-                  One turn = one round-trip with the agent. You ask, the planner
-                  reasons, the specialist runs your task, the critic reviews.
-                  Light queries are one turn; complex multi-step plans chain into
-                  3–5 turns as the agent works.
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                {[
-                  {
-                    k: "light",
-                    v: "lookups, sample queries, status checks",
-                    turns: "~1 turn",
-                  },
-                  {
-                    k: "medium",
-                    v: "design a plate map, fit one curve, draft a notebook entry",
-                    turns: "~2–3 turns",
-                  },
-                  {
-                    k: "heavy",
-                    v: "multi-day plan with microscopy review and full ELN",
-                    turns: "~5+ turns",
-                  },
-                ].map((row) => (
-                  <div
-                    key={row.k}
-                    className="flex items-baseline justify-between gap-4 px-4 py-3 bg-surface border border-line rounded-[5px]"
-                  >
-                    <div className="min-w-0">
-                      <div className="font-mono text-[10.5px] uppercase tracking-[0.06em] text-brand">
-                        {row.k}
-                      </div>
-                      <div className="text-[13.5px] text-ink mt-0.5">{row.v}</div>
+        {/* Pricing Cards */}
+        <section className="max-w-7xl mx-auto px-6 lg:px-8 pb-20 lg:pb-28">
+          <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
+            {tiers.map((tier, i) => (
+              <AnimatedSection key={tier.name} delay={i * 0.12}>
+                <div
+                  className={`relative flex flex-col h-full p-8 rounded-2xl border transition-all duration-500 ${
+                    tier.featured
+                      ? "bg-surface border-amber/50 shadow-lg shadow-amber/5"
+                      : "bg-surface border-border hover:border-amber/30"
+                  }`}
+                >
+                  {tier.featured && (
+                    <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
+                      <span className="inline-flex items-center px-4 py-1 rounded-full bg-amber text-white text-xs font-medium tracking-wide">
+                        Most popular
+                      </span>
                     </div>
-                    <div className="font-mono text-[12px] text-ink-muted whitespace-nowrap">
-                      {row.turns}
+                  )}
+
+                  <div className="mb-6">
+                    <h3 className="font-serif text-xl font-semibold mb-2">
+                      {tier.name}
+                    </h3>
+                    <p className="text-sm text-muted mb-4">{tier.description}</p>
+                    <div className="flex items-baseline gap-1">
+                      <span className="font-serif text-4xl font-semibold tracking-tight">
+                        {tier.price}
+                      </span>
+                      {tier.period && (
+                        <span className="text-sm text-muted">{tier.period}</span>
+                      )}
                     </div>
                   </div>
-                ))}
-              </div>
-            </div>
+
+                  <ul className="space-y-3 mb-8 flex-1">
+                    {tier.features.map((feature) => (
+                      <li key={feature} className="flex items-start gap-3">
+                        <Check
+                          size={16}
+                          className="text-amber shrink-0 mt-0.5"
+                        />
+                        <span className="text-sm text-muted">{feature}</span>
+                      </li>
+                    ))}
+                  </ul>
+
+                  <Link
+                    href={tier.ctaHref}
+                    className={`inline-flex items-center justify-center px-6 py-3 text-sm font-medium rounded-full transition-all duration-300 ${
+                      tier.featured
+                        ? "bg-charcoal text-cream hover:bg-charcoal-light shadow-lg shadow-charcoal/10"
+                        : "border border-border text-charcoal hover:border-amber hover:bg-amber/5"
+                    }`}
+                  >
+                    {tier.cta}
+                  </Link>
+                </div>
+              </AnimatedSection>
+            ))}
           </div>
         </section>
 
-        {/* FAQ */}
-        <section className="py-16 lg:py-20">
-          <div className="max-w-3xl mx-auto px-6 lg:px-8">
-            <motion.div
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.4 }}
-              className="mb-10"
-            >
-              <div className="inline-flex items-center gap-2.5 mb-5 font-mono text-[11px] uppercase tracking-[0.06em] text-ink-muted">
-                <span className="font-semibold text-brand bg-brand-soft border border-brand/40 rounded-[2px] px-1.5 py-0.5">
-                  FAQ
-                </span>
-                <span>Frequently asked</span>
-              </div>
-              <h2 className="text-[28px] sm:text-[34px] font-semibold leading-[1.1] tracking-[-0.025em] text-ink">
-                Common questions.
-              </h2>
-            </motion.div>
+        {/* Decorative divider */}
+        <div className="max-w-7xl mx-auto px-6 lg:px-8">
+          <div className="h-px bg-gradient-to-r from-transparent via-border to-transparent" />
+        </div>
 
-            <div className="border-t border-line">
-              {faqs.map((faq, i) => (
-                <FaqItem key={faq.question} faq={faq} index={i} />
-              ))}
-            </div>
+        {/* FAQ Section */}
+        <section className="max-w-7xl mx-auto px-6 lg:px-8 py-20 lg:py-28">
+          <AnimatedSection className="text-center mb-14">
+            <h2 className="font-serif text-3xl sm:text-4xl font-semibold tracking-tight mb-4">
+              Frequently asked questions
+            </h2>
+            <p className="text-lg text-muted">
+              Everything you need to know about Resonantia.
+            </p>
+          </AnimatedSection>
+
+          <div className="max-w-2xl mx-auto space-y-4">
+            {faqs.map((faq, i) => (
+              <FaqItem
+                key={faq.question}
+                question={faq.question}
+                answer={faq.answer}
+                delay={i * 0.1}
+              />
+            ))}
           </div>
         </section>
       </main>
-
       <Footer />
     </>
   );

@@ -109,22 +109,20 @@ export function generateSerialDilution(
   return result;
 }
 
-/** Well type → fluorescence-channel color (v4 palette).
- *  sample → DAPI cyan, compound → GFP lime, control− → mCherry red,
- *  control+ → brightfield amber, empty → bg-sunk. */
+/** Well type to color mapping */
 export function wellColor(type: WellType): string {
   switch (type) {
     case "sample":
-      return "#1F6CA0"; // DAPI
-    case "compound":
-      return "#82B82F"; // GFP
-    case "control-negative":
-      return "#C32A55"; // mCherry
+      return "#5B8FB9";
     case "control-positive":
-      return "#A6711B"; // brightfield amber
+      return "#6BAF6B";
+    case "control-negative":
+      return "#C45B5B";
+    case "compound":
+      return "#8B6BAF";
     case "empty":
     default:
-      return "#E0E4DA"; // bg-sunk
+      return "#E8E4DF";
   }
 }
 

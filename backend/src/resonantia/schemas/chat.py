@@ -49,7 +49,7 @@ class ConversationMessageResponse(BaseModel):
     id: str
     role: str
     content: str | None = None
-    tool_calls: list | dict | None = None
+    tool_calls: dict | None = None
     tool_call_id: str | None = None
     token_usage: dict | None = None
     created_at: datetime | None = None

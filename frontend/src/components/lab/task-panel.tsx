@@ -95,20 +95,24 @@ export default function TaskPanel() {
           animate={{ width: 320, opacity: 1 }}
           exit={{ width: 0, opacity: 0 }}
           transition={{ duration: 0.2, ease: "easeInOut" }}
-          className="shrink-0 bg-bg border-r border-line flex flex-col overflow-hidden"
+          className="shrink-0 bg-surface border-r border-border flex flex-col overflow-hidden"
         >
           {/* Header */}
           <div className="px-4 pt-4 pb-2">
-            <div className="flex items-center justify-between mb-2">
-              <p className="font-mono text-[10.5px] font-medium tracking-[0.06em] text-ink-subtle uppercase">
-                Conversations
-              </p>
-              <button
-                onClick={toggleSidebar}
-                className="p-1.5 rounded-[3px] text-ink-muted hover:text-ink hover:bg-bg-sunk transition-colors"
-              >
-                <ChevronLeft size={16} />
-              </button>
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <p className="text-[10px] font-semibold tracking-widest text-muted uppercase">
+                  Conversations
+                </p>
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={toggleSidebar}
+                  className="p-1.5 rounded-md text-muted hover:text-charcoal hover:bg-cream transition-colors"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+              </div>
             </div>
           </div>
 
@@ -118,124 +122,116 @@ export default function TaskPanel() {
             <div className="px-4 py-2">
               <div className="relative">
                 <Search
-                  size={13}
-                  className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-subtle"
+                  size={14}
+                  className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted"
                 />
                 <input
                   type="text"
-                  placeholder="search conversations…"
+                  placeholder="Search conversations..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-8 pr-3 py-2 font-mono text-[12px] rounded-[3px] border border-line bg-surface text-ink focus:outline-none focus:border-brand/40 transition-colors placeholder:text-ink-subtle"
+                  className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border border-border bg-surface text-charcoal focus:outline-none focus:border-amber/40 transition-colors placeholder:text-muted"
                 />
               </div>
             </div>
 
             {/* Conversation list */}
-            <div className="flex-1 overflow-y-auto px-2 pt-1">
+            <div className="flex-1 overflow-y-auto px-2">
               {filteredConversations.length === 0 && (
                 <div className="flex flex-col items-center justify-center text-center px-4 py-12">
-                  <div className="w-10 h-10 rounded-[4px] bg-surface border border-line flex items-center justify-center mb-3">
-                    <MessageSquare size={18} className="text-ink-subtle" />
+                  <div className="w-10 h-10 rounded-xl bg-cream flex items-center justify-center mb-3">
+                    <MessageSquare size={20} className="text-muted" />
                   </div>
-                  <p className="text-sm text-ink-muted">No conversations yet</p>
-                  <p className="font-mono text-[11px] text-ink-subtle mt-1.5 tracking-[0.02em]">
-                    start a new chat to begin
+                  <p className="text-sm text-muted">No conversations yet</p>
+                  <p className="text-xs text-muted/60 mt-1">
+                    Start a new chat to begin
                   </p>
                 </div>
               )}
-              {filteredConversations.map((conv) => {
-                const isActive = activeConversationId === conv.id;
-                return (
-                  <div
-                    key={conv.id}
-                    className={`group relative w-full text-left px-3 py-2.5 rounded-[3px] mb-0.5 cursor-pointer transition-colors ${
-                      isActive
-                        ? "bg-brand-soft"
-                        : "hover:bg-bg-sunk"
-                    }`}
-                    style={
-                      isActive
-                        ? { boxShadow: "inset 2px 0 0 0 var(--color-brand)" }
-                        : undefined
-                    }
-                    onClick={() => handleSelectConversation(conv.id)}
-                  >
-                    {editingId === conv.id ? (
-                      <div className="flex items-center gap-1">
-                        <input
-                          ref={editInputRef}
-                          type="text"
-                          value={editTitle}
-                          onChange={(e) => setEditTitle(e.target.value)}
-                          onKeyDown={handleRenameKeyDown}
-                          onBlur={handleFinishRename}
-                          className="flex-1 text-sm px-1.5 py-0.5 rounded-[3px] border border-brand/40 bg-surface text-ink focus:outline-none"
-                          onClick={(e) => e.stopPropagation()}
-                        />
+              {filteredConversations.map((conv) => (
+                <div
+                  key={conv.id}
+                  className={`group relative w-full text-left px-3 py-2.5 rounded-lg mb-0.5 transition-all duration-100 cursor-pointer ${
+                    activeConversationId === conv.id
+                      ? "bg-amber/10 border border-amber/20"
+                      : "hover:bg-cream border border-transparent"
+                  }`}
+                  onClick={() => handleSelectConversation(conv.id)}
+                >
+                  {editingId === conv.id ? (
+                    <div className="flex items-center gap-1">
+                      <input
+                        ref={editInputRef}
+                        type="text"
+                        value={editTitle}
+                        onChange={(e) => setEditTitle(e.target.value)}
+                        onKeyDown={handleRenameKeyDown}
+                        onBlur={handleFinishRename}
+                        className="flex-1 text-sm px-1.5 py-0.5 rounded border border-amber/40 bg-surface text-charcoal focus:outline-none"
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleFinishRename();
+                        }}
+                        className="p-0.5 text-amber hover:text-amber-dark"
+                      >
+                        <Check size={14} />
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <p
+                        className={`text-sm leading-snug truncate pr-12 ${
+                          activeConversationId === conv.id
+                            ? "text-charcoal font-medium"
+                            : "text-charcoal/80"
+                        }`}
+                      >
+                        {conv.title}
+                      </p>
+                      <p className="text-[10px] text-muted mt-0.5">
+                        {relativeDate(conv.updatedAt || conv.createdAt)}
+                      </p>
+
+                      {/* Hover actions */}
+                      <div className="absolute right-2 top-1/2 -translate-y-1/2 hidden group-hover:flex items-center gap-0.5">
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleFinishRename();
+                            handleStartRename(conv.id, conv.title);
                           }}
-                          className="p-0.5 text-brand hover:text-brand-strong"
+                          className="p-1 rounded text-muted hover:text-charcoal hover:bg-cream transition-colors"
+                          title="Rename"
                         >
-                          <Check size={14} />
+                          <Pencil size={12} />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteConversation(conv.id);
+                          }}
+                          className="p-1 rounded text-muted hover:text-red-500 hover:bg-red-50 transition-colors"
+                          title="Delete"
+                        >
+                          <X size={12} />
                         </button>
                       </div>
-                    ) : (
-                      <>
-                        <p
-                          className={`text-sm leading-snug truncate pr-12 ${
-                            isActive
-                              ? "text-brand font-medium"
-                              : "text-ink"
-                          }`}
-                        >
-                          {conv.title}
-                        </p>
-                        <p className="font-mono text-[10.5px] text-ink-subtle mt-1 tracking-[0.02em]">
-                          {relativeDate(conv.updatedAt || conv.createdAt)}
-                        </p>
-
-                        {/* Hover actions */}
-                        <div className="absolute right-2 top-1/2 -translate-y-1/2 hidden group-hover:flex items-center gap-0.5">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleStartRename(conv.id, conv.title);
-                            }}
-                            className="p-1 rounded-[2px] text-ink-muted hover:text-ink hover:bg-surface transition-colors"
-                            title="Rename"
-                          >
-                            <Pencil size={12} />
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              deleteConversation(conv.id);
-                            }}
-                            className="p-1 rounded-[2px] text-ink-muted hover:text-mch hover:bg-mch-soft transition-colors"
-                            title="Delete"
-                          >
-                            <X size={12} />
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                );
-              })}
+                    </>
+                  )}
+                </div>
+              ))}
             </div>
 
             {/* New Chat button */}
-            <div className="px-3 py-3 border-t border-line">
+            <div className="px-3 py-3 border-t border-border">
               <button
                 onClick={startNewConversation}
-                className="flex items-center justify-center gap-2 w-full px-3 py-2 font-mono text-[11.5px] uppercase tracking-[0.04em] text-ink-muted hover:text-ink rounded-[3px] border border-dashed border-line-strong hover:border-brand hover:bg-surface transition-colors"
+                className="flex items-center gap-2 w-full px-3 py-2 text-xs font-medium text-muted hover:text-charcoal rounded-lg border border-dashed border-border hover:border-amber/40 transition-all"
               >
-                <Plus size={13} />
-                new chat
+                <Plus size={14} />
+                New Chat
               </button>
             </div>
           </div>

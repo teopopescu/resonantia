@@ -2,75 +2,28 @@
 
 import { useMemo, useState } from "react";
 import {
+  BookOpen,
   Plus,
   Sparkles,
+  FileText,
+  FilePenLine,
   Send,
+  Archive,
   ChevronRight,
   Download,
   FileDown,
   X,
+  Tag,
+  Clock,
 } from "lucide-react";
-import { useELNStore, type ELNEntryStatus } from "@/stores/eln-store";
+import { useELNStore, type ELNEntry, type ELNEntryStatus } from "@/stores/eln-store";
 import ELNEditor from "@/components/lab/eln-editor";
-import {
-  PageHeader,
-  PageHeaderPrimary,
-  PageHeaderGhost,
-} from "@/components/lab/primitives/page-header";
-import { KpiStrip, Kpi } from "@/components/lab/primitives/kpi-strip";
-import { Chip } from "@/components/lab/primitives/data-table";
-import { cn } from "@/lib/utils";
 
-const STATUS_TONE: Record<ELNEntryStatus, "default" | "brand" | "bf"> = {
-  draft: "bf",
-  submitted: "brand",
-  archived: "default",
+const STATUS_CONFIG: Record<ELNEntryStatus, { label: string; color: string; bg: string }> = {
+  draft: { label: "Draft", color: "text-amber-700", bg: "bg-amber-50" },
+  submitted: { label: "Submitted", color: "text-emerald-700", bg: "bg-emerald-50" },
+  archived: { label: "Archived", color: "text-gray-600", bg: "bg-gray-100" },
 };
-
-const inputBase =
-  "w-full px-3 py-2 rounded-[3px] border border-line bg-bg text-[13px] text-ink focus:outline-none focus:border-brand/40 transition-colors placeholder:text-ink-subtle";
-
-function FieldLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <label className="block font-mono text-[10.5px] font-medium uppercase tracking-[0.06em] text-ink-subtle mb-1.5">
-      {children}
-    </label>
-  );
-}
-
-function CardPanel({
-  marker,
-  title,
-  onClose,
-  children,
-}: {
-  marker: string;
-  title: string;
-  onClose: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="mx-6 mb-4 bg-surface border border-brand/30 rounded-[5px] overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-line bg-bg">
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-[10px] font-semibold tracking-[0.04em] uppercase text-brand bg-brand-soft border border-brand/40 rounded-[2px] px-1.5 py-0.5">
-            {marker}
-          </span>
-          <h2 className="text-[14px] font-semibold tracking-[-0.01em] text-ink">
-            {title}
-          </h2>
-        </div>
-        <button
-          onClick={onClose}
-          className="p-1 rounded-[3px] text-ink-muted hover:text-ink hover:bg-bg-sunk transition-colors"
-        >
-          <X size={16} />
-        </button>
-      </div>
-      <div className="p-4">{children}</div>
-    </div>
-  );
-}
 
 export default function ELNPage() {
   const {
@@ -79,6 +32,7 @@ export default function ELNPage() {
     setActiveEntry,
     createEntry,
     autoGenerate,
+    updateEntry,
     submitEntry,
     exportPdf,
     exportMarkdown,
@@ -98,14 +52,12 @@ export default function ELNPage() {
       total: entries.length,
       drafts: entries.filter((e) => e.status === "draft").length,
       submittedThisWeek: entries.filter(
-        (e) =>
-          e.status === "submitted" &&
-          e.submitted_at &&
-          now - new Date(e.submitted_at).getTime() < sevenDays
+        (e) => e.status === "submitted" && e.submitted_at && now - new Date(e.submitted_at).getTime() < sevenDays
       ).length,
-      submittedTotal: entries.filter((e) => e.status === "submitted").length,
     };
   }, [entries]);
+
+  const activeEntry = entries.find((e) => e.id === activeEntryId);
 
   function handleCreateEntry() {
     createEntry({
@@ -123,235 +75,221 @@ export default function ELNPage() {
   }
 
   return (
-    <div className="flex flex-col h-full bg-bg">
-      <PageHeader
-        marker="07"
-        markerLabel="ELN · electronic lab notebook"
-        title="Electronic Lab Notebook"
-        meta={
-          <>
-            {entries.length} entries ·{" "}
-            <em
-              className="not-italic"
-              style={{ color: stats.drafts > 0 ? "var(--color-bf)" : undefined }}
-            >
-              {stats.drafts} drafts
-            </em>{" "}
-            · {stats.submittedTotal} submitted
-          </>
-        }
-      >
-        <PageHeaderGhost onClick={() => setShowAutoGen(true)}>
-          <Sparkles size={14} />
-          Auto-generate
-        </PageHeaderGhost>
-        <PageHeaderPrimary onClick={() => setShowNewForm(true)}>
-          <Plus size={14} />
-          New entry
-        </PageHeaderPrimary>
-      </PageHeader>
+    <div className="flex flex-col h-full bg-cream">
+      {/* Header */}
+      <div className="px-6 py-4 bg-surface border-b border-border">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-amber/15 flex items-center justify-center">
+              <BookOpen size={18} className="text-amber" />
+            </div>
+            <div>
+              <h1 className="text-lg font-semibold text-charcoal">Electronic Lab Notebook</h1>
+              <p className="text-xs text-muted">Document experiments, track results, and export entries</p>
+            </div>
+          </div>
 
-      <KpiStrip columns={3}>
-        <Kpi
-          label="total entries"
-          value={String(entries.length).padStart(2, "0")}
-          delta="all entries"
-        />
-        <Kpi
-          label="drafts"
-          value={String(stats.drafts).padStart(2, "0")}
-          delta={stats.drafts > 0 ? "awaiting review" : "no drafts"}
-          tone="bf"
-        />
-        <Kpi
-          label="submitted · 7d"
-          value={String(stats.submittedThisWeek).padStart(2, "0")}
-          delta={
-            stats.submittedThisWeek > 0
-              ? "this week"
-              : "no recent submissions"
-          }
-          tone="brand"
-        />
-      </KpiStrip>
-
-      {/* Auto-generate */}
-      {showAutoGen && (
-        <CardPanel
-          marker="AGEN"
-          title="Auto-generate from experiment"
-          onClose={() => setShowAutoGen(false)}
-        >
-          <p className="font-mono text-[11px] tracking-[0.02em] text-ink-muted mb-3">
-            <span className="text-brand">›</span> enter the experiment id to
-            generate an entry with objectives, protocol, plate maps, and results
-          </p>
-          <input
-            type="text"
-            value={autoGenExpId}
-            onChange={(e) => setAutoGenExpId(e.target.value)}
-            placeholder="experiment uuid"
-            className={cn(inputBase, "font-mono mb-3")}
-          />
           <div className="flex items-center gap-2">
             <button
-              onClick={() => {
-                if (autoGenExpId.trim()) {
-                  autoGenerate(autoGenExpId.trim());
-                  setAutoGenExpId("");
-                  setShowAutoGen(false);
-                }
-              }}
-              disabled={!autoGenExpId.trim()}
-              className="inline-flex items-center gap-2 px-3.5 py-2 text-[13px] font-medium bg-brand text-white rounded-[3px] hover:bg-brand-strong transition-colors disabled:opacity-60"
-              style={{ boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.06)" }}
+              onClick={() => setShowAutoGen(true)}
+              className="flex items-center gap-1.5 px-3 py-2 text-sm text-muted hover:text-charcoal rounded-lg border border-border hover:border-muted bg-cream hover:bg-cream-dark transition-colors"
             >
-              <Sparkles size={13} /> Generate
+              <Sparkles size={15} />
+              Auto-generate
             </button>
             <button
-              onClick={() => setShowAutoGen(false)}
-              className="px-3 py-2 text-[13px] text-ink-muted hover:text-ink transition-colors"
+              onClick={() => setShowNewForm(true)}
+              className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium bg-amber text-charcoal rounded-lg hover:bg-amber-light transition-colors"
             >
-              Cancel
+              <Plus size={15} />
+              New Entry
             </button>
           </div>
-          <p className="font-mono text-[10.5px] uppercase tracking-[0.04em] text-ink-subtle mt-3">
-            tip · ask the agent to “create an eln entry for [experiment]”
-          </p>
-        </CardPanel>
+        </div>
+      </div>
+
+      {/* Dashboard cards */}
+      <div className="px-6 py-4 grid grid-cols-3 gap-4">
+        <DashCard
+          icon={<FileText size={18} className="text-amber" />}
+          label="Total Entries"
+          value={stats.total}
+          bg="bg-amber/10"
+        />
+        <DashCard
+          icon={<FilePenLine size={18} className="text-amber-600" />}
+          label="Drafts"
+          value={stats.drafts}
+          bg="bg-amber-50"
+          highlight={stats.drafts > 0 ? "text-amber-700" : undefined}
+        />
+        <DashCard
+          icon={<Send size={18} className="text-emerald-600" />}
+          label="Submitted This Week"
+          value={stats.submittedThisWeek}
+          bg="bg-emerald-50"
+        />
+      </div>
+
+      {/* Auto-generate from experiment */}
+      {showAutoGen && (
+        <div className="mx-6 mb-4 bg-surface rounded-xl border border-amber/30 shadow-sm overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+            <h2 className="text-sm font-semibold text-charcoal">Auto-generate from Experiment</h2>
+            <button onClick={() => setShowAutoGen(false)} className="p-1 text-muted hover:text-charcoal"><X size={16} /></button>
+          </div>
+          <div className="p-4 space-y-3">
+            <p className="text-xs text-muted">Enter the experiment ID to auto-generate an ELN entry with objectives, protocol, plate maps, and results.</p>
+            <input
+              type="text"
+              value={autoGenExpId}
+              onChange={(e) => setAutoGenExpId(e.target.value)}
+              placeholder="Experiment UUID"
+              className="w-full px-3 py-2 rounded-xl border border-border bg-surface text-sm text-charcoal focus:outline-none focus:border-amber/40"
+            />
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => { if (autoGenExpId.trim()) { autoGenerate(autoGenExpId.trim()); setAutoGenExpId(""); setShowAutoGen(false); } }}
+                disabled={!autoGenExpId.trim()}
+                className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium bg-amber text-charcoal rounded-lg hover:bg-amber-light transition-colors disabled:opacity-60"
+              >
+                <Sparkles size={14} /> Generate
+              </button>
+              <button onClick={() => setShowAutoGen(false)} className="px-4 py-2 text-sm text-muted hover:text-charcoal rounded-lg border border-border transition-colors">Cancel</button>
+            </div>
+            <p className="text-[11px] text-muted">Tip: ask the chat assistant &quot;Create an ELN entry for [experiment name]&quot; — it will find the experiment automatically.</p>
+          </div>
+        </div>
       )}
 
-      {/* New entry */}
+      {/* New entry form (slide-over) */}
       {showNewForm && (
-        <CardPanel
-          marker="NEW"
-          title="New notebook entry"
-          onClose={() => setShowNewForm(false)}
-        >
-          <div className="space-y-3">
+        <div className="mx-6 mb-4 bg-surface rounded-xl border border-amber/30 shadow-sm overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+            <h2 className="text-sm font-semibold text-charcoal">New Notebook Entry</h2>
+            <button onClick={() => setShowNewForm(false)} className="p-1 text-muted hover:text-charcoal">
+              <X size={16} />
+            </button>
+          </div>
+          <div className="p-4 space-y-3">
             <div>
-              <FieldLabel>title</FieldLabel>
+              <label className="block text-xs font-medium text-charcoal mb-1">Title</label>
               <input
                 type="text"
                 value={newTitle}
                 onChange={(e) => setNewTitle(e.target.value)}
-                placeholder="entry title…"
-                className={inputBase}
+                placeholder="Entry title..."
+                className="w-full px-3 py-2 rounded-xl border border-border bg-surface text-sm text-charcoal focus:outline-none focus:border-amber/40"
               />
             </div>
             <ELNEditor content={newContent} onChange={setNewContent} />
             <div>
-              <FieldLabel>tags · comma-separated</FieldLabel>
+              <label className="block text-xs font-medium text-charcoal mb-1">Tags (comma-separated)</label>
               <input
                 type="text"
                 value={newTags}
                 onChange={(e) => setNewTags(e.target.value)}
                 placeholder="e.g. western-blot, p53, CRISPR"
-                className={cn(inputBase, "font-mono")}
+                className="w-full px-3 py-2 rounded-xl border border-border bg-surface text-sm text-charcoal focus:outline-none focus:border-amber/40"
               />
             </div>
-            <div className="flex items-center gap-2 pt-2 border-t border-line">
+            <div className="flex items-center gap-2 pt-1">
               <button
                 onClick={handleCreateEntry}
-                className="inline-flex items-center gap-2 px-3.5 py-2 text-[13px] font-medium bg-brand text-white rounded-[3px] hover:bg-brand-strong transition-colors"
-                style={{ boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.06)" }}
+                className="px-4 py-2 text-sm font-medium bg-amber text-charcoal rounded-lg hover:bg-amber-light transition-colors"
               >
-                Save entry
+                Save Entry
               </button>
               <button
                 onClick={() => setShowNewForm(false)}
-                className="px-3 py-2 text-[13px] text-ink-muted hover:text-ink transition-colors"
+                className="px-4 py-2 text-sm text-muted hover:text-charcoal rounded-lg border border-border hover:border-muted transition-colors"
               >
                 Cancel
               </button>
             </div>
           </div>
-        </CardPanel>
+        </div>
       )}
 
       {/* Entry list */}
-      <div className="flex-1 mx-6 mb-6 bg-surface border border-line rounded-[5px] overflow-hidden flex flex-col min-h-0">
-        <div className="px-4 py-2.5 border-b border-line bg-bg flex items-center justify-between">
-          <span className="font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-subtle">
-            <span className="text-brand">›</span> entries
-          </span>
-          <span className="font-mono text-[11px] uppercase tracking-[0.02em] text-ink-subtle">
-            {entries.length} total
-          </span>
+      <div className="flex-1 mx-6 mb-6 bg-surface rounded-xl border border-border overflow-hidden flex flex-col">
+        <div className="px-4 py-3 border-b border-border">
+          <h2 className="text-sm font-medium text-charcoal">Entries</h2>
         </div>
 
-        <div className="flex-1 overflow-auto">
-          {entries.map((entry, idx) => {
+        <div className="flex-1 overflow-auto divide-y divide-border/50">
+          {entries.map((entry) => {
+            const statusCfg = STATUS_CONFIG[entry.status];
             const isExpanded = activeEntryId === entry.id;
             return (
-              <div
-                key={entry.id}
-                className={cn(idx > 0 && "border-t border-line")}
-              >
+              <div key={entry.id}>
                 <button
                   onClick={() => setActiveEntry(isExpanded ? null : entry.id)}
-                  className="w-full flex items-center gap-4 px-4 py-3 hover:bg-bg transition-colors text-left"
+                  className="w-full flex items-center gap-4 px-4 py-3 hover:bg-cream/30 transition-colors text-left"
                 >
+                  <div className="w-8 h-8 rounded-lg bg-amber/10 flex items-center justify-center shrink-0">
+                    <BookOpen size={14} className="text-amber" />
+                  </div>
+
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="font-mono text-[11px] tracking-[0.04em] text-ink-subtle uppercase">
-                        {entry.entry_number}
-                      </span>
-                      <span className="text-[13.5px] font-medium text-ink truncate">
-                        {entry.title}
-                      </span>
+                      <span className="text-xs font-mono text-muted">{entry.entry_number}</span>
+                      <span className="text-sm font-medium text-charcoal truncate">{entry.title}</span>
                     </div>
-                    <div className="font-mono text-[10.5px] uppercase tracking-[0.04em] text-ink-subtle mt-1">
+                    <div className="flex items-center gap-2 mt-0.5">
                       {entry.experiment_title && (
-                        <>
-                          {entry.experiment_title}
-                          <span className="text-line-strong mx-1.5">·</span>
-                        </>
+                        <span className="text-xs text-muted truncate">{entry.experiment_title}</span>
                       )}
-                      {new Date(entry.updated_at).toLocaleDateString()}
+                      <span className="flex items-center gap-1 text-xs text-muted">
+                        <Clock size={10} />
+                        {new Date(entry.updated_at).toLocaleDateString()}
+                      </span>
                     </div>
                   </div>
 
                   {entry.tags.length > 0 && (
                     <div className="flex items-center gap-1 shrink-0">
                       {entry.tags.slice(0, 2).map((tag) => (
-                        <Chip key={tag} tone="default">
+                        <span
+                          key={tag}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-cream text-muted border border-border"
+                        >
+                          <Tag size={8} />
                           {tag}
-                        </Chip>
+                        </span>
                       ))}
                       {entry.tags.length > 2 && (
-                        <span className="font-mono text-[10.5px] tracking-[0.02em] text-ink-subtle">
-                          +{entry.tags.length - 2}
-                        </span>
+                        <span className="text-[10px] text-muted">+{entry.tags.length - 2}</span>
                       )}
                     </div>
                   )}
 
-                  <Chip tone={STATUS_TONE[entry.status]}>{entry.status}</Chip>
+                  <span
+                    className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${statusCfg.bg} ${statusCfg.color} shrink-0`}
+                  >
+                    {statusCfg.label}
+                  </span>
 
                   <ChevronRight
                     size={14}
-                    className={cn(
-                      "text-ink-subtle transition-transform shrink-0",
-                      isExpanded && "rotate-90"
-                    )}
+                    className={`text-muted transition-transform shrink-0 ${isExpanded ? "rotate-90" : ""}`}
                   />
                 </button>
 
+                {/* Expanded view */}
                 {isExpanded && (
-                  <div className="px-4 pb-4 bg-bg">
-                    <div className="rounded-[3px] bg-surface border border-line p-3 mb-3">
-                      <pre className="text-[12.5px] text-ink whitespace-pre-wrap font-sans leading-relaxed">
+                  <div className="px-4 pb-4 pl-16">
+                    <div className="rounded-lg bg-cream/50 p-3 mb-3">
+                      <pre className="text-xs text-charcoal/80 whitespace-pre-wrap font-sans leading-relaxed">
                         {entry.content.slice(0, 500)}
-                        {entry.content.length > 500 ? "…" : ""}
+                        {entry.content.length > 500 ? "..." : ""}
                       </pre>
                     </div>
                     <div className="flex items-center gap-2">
                       {entry.status === "draft" && (
                         <button
                           onClick={() => submitEntry(entry.id)}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium bg-brand text-white rounded-[3px] hover:bg-brand-strong transition-colors"
-                          style={{ boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.06)" }}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors"
                         >
                           <Send size={12} />
                           Submit
@@ -359,17 +297,17 @@ export default function ELNPage() {
                       )}
                       <button
                         onClick={() => exportPdf(entry.id)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium text-ink border border-line-strong rounded-[3px] hover:border-ink hover:bg-surface transition-colors"
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-muted hover:text-charcoal rounded-lg border border-border hover:border-muted transition-colors"
                       >
                         <Download size={12} />
                         Export PDF
                       </button>
                       <button
                         onClick={() => exportMarkdown(entry.id)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium text-ink border border-line-strong rounded-[3px] hover:border-ink hover:bg-surface transition-colors"
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-muted hover:text-charcoal rounded-lg border border-border hover:border-muted transition-colors"
                       >
                         <FileDown size={12} />
-                        Export markdown
+                        Export Markdown
                       </button>
                     </div>
                   </div>
@@ -379,18 +317,41 @@ export default function ELNPage() {
           })}
 
           {entries.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-16">
-              <p className="text-[13px] text-ink-muted">No entries yet</p>
-              <p className="font-mono text-[11px] tracking-[0.02em] text-ink-subtle mt-1.5 uppercase">
-                create your first notebook entry to get started
-              </p>
+            <div className="flex flex-col items-center justify-center py-16 text-muted">
+              <BookOpen size={32} className="mb-2 opacity-40" />
+              <p className="text-sm">No entries yet</p>
+              <p className="text-xs mt-1">Create your first notebook entry to get started</p>
             </div>
           )}
         </div>
 
-        <div className="px-4 py-2.5 border-t border-line bg-bg font-mono text-[11.5px] tracking-[0.02em] text-ink-subtle">
-          showing {entries.length} entries
+        <div className="px-4 py-2.5 border-t border-border text-xs text-muted">
+          Showing {entries.length} entries
         </div>
+      </div>
+    </div>
+  );
+}
+
+function DashCard({
+  icon,
+  label,
+  value,
+  bg,
+  highlight,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: number;
+  bg: string;
+  highlight?: string;
+}) {
+  return (
+    <div className="bg-surface rounded-xl border border-border p-4 flex items-center gap-3">
+      <div className={`w-10 h-10 rounded-lg ${bg} flex items-center justify-center shrink-0`}>{icon}</div>
+      <div>
+        <div className={`text-2xl font-semibold ${highlight || "text-charcoal"}`}>{value}</div>
+        <div className="text-xs text-muted">{label}</div>
       </div>
     </div>
   );

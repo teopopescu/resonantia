@@ -985,13 +985,7 @@ TOOL_HANDLERS: dict[str, Any] = {
     "normalize_plate": _normalize_plate_tool,
     "calculate_z_prime": _calculate_z_prime_tool,
     "qpcr_analysis": _qpcr_analysis_tool,
-    # Experiment design (closed-loop)
-    "design_next_experiment": None,  # populated below
     # Generic
     "design_protocol": _query_experiments,
     "search_literature": _query_experiments,
 }
-
-# Late import to avoid circular dependency
-from resonantia.services.experiment_designer import get_design_tool_handler  # noqa: E402
-TOOL_HANDLERS["design_next_experiment"] = get_design_tool_handler()

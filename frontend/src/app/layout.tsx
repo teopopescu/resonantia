@@ -1,20 +1,18 @@
 import type { Metadata } from "next";
-import { Inter_Tight, JetBrains_Mono } from "next/font/google";
+import { Inter, Playfair_Display } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
 import "./globals.css";
 
-const interTight = Inter_Tight({
+const inter = Inter({
   subsets: ["latin"],
   display: "swap",
-  variable: "--font-inter-tight",
-  weight: ["300", "400", "500", "600", "700", "800"],
+  variable: "--font-inter",
 });
 
-const jetbrainsMono = JetBrains_Mono({
+const playfair = Playfair_Display({
   subsets: ["latin"],
   display: "swap",
-  variable: "--font-jetbrains-mono",
-  weight: ["400", "500", "600"],
+  variable: "--font-playfair",
 });
 
 export const metadata: Metadata = {
@@ -40,9 +38,9 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${interTight.variable} ${jetbrainsMono.variable} h-full antialiased`}
+      className={`${inter.variable} ${playfair.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col font-sans bg-bg text-ink">
+      <body className="min-h-full flex flex-col font-sans bg-cream text-charcoal">
         <ClerkProvider>
           {children}
         </ClerkProvider>

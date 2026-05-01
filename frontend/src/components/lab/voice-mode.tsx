@@ -156,13 +156,14 @@ export default function VoiceMode({ onExit }: VoiceModeProps) {
       {/* Exit button */}
       <button
         onClick={onExit}
-        className="absolute top-4 right-4 p-2 rounded-[3px] text-ink-muted hover:text-ink hover:bg-bg-sunk transition-colors z-10"
+        className="absolute top-4 right-4 p-2 rounded-lg text-muted hover:text-charcoal hover:bg-cream transition-colors z-10"
       >
         <X size={18} />
       </button>
 
       {/* Mic circle with pulsing rings */}
       <div className="relative mb-6">
+        {/* Pulse rings */}
         <AnimatePresence>
           {isActive && (
             <>
@@ -172,13 +173,14 @@ export default function VoiceMode({ onExit }: VoiceModeProps) {
                   initial={{ scale: 1, opacity: 0.3 }}
                   animate={{ scale: 1 + ring * 0.3, opacity: 0 }}
                   transition={{ duration: 2, repeat: Infinity, delay: ring * 0.4 }}
-                  className="absolute inset-0 rounded-full border-2 border-brand/30"
+                  className="absolute inset-0 rounded-full border-2 border-amber/30"
                 />
               ))}
             </>
           )}
         </AnimatePresence>
 
+        {/* Main mic button */}
         <button
           onClick={() => {
             if (isActive) {
@@ -187,43 +189,41 @@ export default function VoiceMode({ onExit }: VoiceModeProps) {
           }}
           className={`relative w-24 h-24 rounded-full flex items-center justify-center transition-all duration-300 ${
             isActive
-              ? "bg-brand text-white"
+              ? "bg-amber text-charcoal shadow-lg shadow-amber/20"
               : status === "speaking"
-              ? "bg-brand/80 text-white"
+              ? "bg-amber/80 text-charcoal"
               : status === "error"
-              ? "bg-mch-soft text-mch"
-              : "bg-bg-sunk text-ink-muted"
+              ? "bg-red-100 text-red-600"
+              : "bg-cream-dark text-muted"
           }`}
-          style={
-            isActive ? { boxShadow: "0 8px 24px -8px rgba(31,77,58,0.25), inset 0 0 0 1px rgba(0,0,0,0.06)" } : undefined
-          }
         >
           {isActive ? (
-            <Mic size={30} className="animate-pulse" />
+            <Mic size={32} className="animate-pulse" />
           ) : status === "speaking" ? (
             <motion.div
               animate={{ scale: [1, 1.1, 1] }}
               transition={{ duration: 1.5, repeat: Infinity }}
             >
-              <Mic size={30} />
+              <Mic size={32} />
             </motion.div>
           ) : status === "error" ? (
-            <X size={30} />
+            <X size={32} />
           ) : (
             <motion.div
               animate={{ rotate: 360 }}
               transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-              className="w-6 h-6 border-2 border-ink-subtle border-t-brand rounded-full"
+              className="w-6 h-6 border-2 border-muted border-t-amber rounded-full"
             />
           )}
         </button>
 
+        {/* Silence countdown ring */}
         {status === "silence_detected" && (
           <svg className="absolute inset-0 w-24 h-24 -rotate-90" viewBox="0 0 96 96">
             <circle
               cx="48" cy="48" r="46"
               fill="none"
-              stroke="#1F4D3A"
+              stroke="#D4A843"
               strokeWidth="3"
               strokeDasharray={`${((1500 - recorder.silenceCountdown) / 1500) * 289} 289`}
               strokeLinecap="round"
@@ -239,7 +239,7 @@ export default function VoiceMode({ onExit }: VoiceModeProps) {
             key={i}
             animate={{ height: isActive ? h : 4 }}
             transition={{ duration: 0.1 }}
-            className="w-1.5 rounded-full bg-brand/60"
+            className="w-1.5 rounded-full bg-amber/60"
             style={{ minHeight: 4 }}
           />
         ))}
@@ -250,16 +250,16 @@ export default function VoiceMode({ onExit }: VoiceModeProps) {
         key={status}
         initial={{ opacity: 0, y: 4 }}
         animate={{ opacity: 1, y: 0 }}
-        className={`font-mono text-[12px] uppercase tracking-[0.04em] font-medium ${
-          status === "error" ? "text-mch" : "text-ink-muted"
+        className={`text-sm font-medium ${
+          status === "error" ? "text-red-500" : "text-muted"
         }`}
       >
-        {statusLabels[status].toLowerCase()}
+        {statusLabels[status]}
       </motion.p>
 
       {/* Help text */}
-      <p className="font-mono text-[10.5px] uppercase tracking-[0.04em] text-ink-subtle mt-3">
-        {isActive ? "tap mic to send \u00b7 esc to exit" : ""}
+      <p className="text-xs text-muted/50 mt-3">
+        {isActive ? "Tap the mic to send manually \u00b7 Esc to exit" : ""}
       </p>
     </div>
   );

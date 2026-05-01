@@ -9,18 +9,11 @@ export interface Conversation {
   updatedAt: string;
 }
 
-export interface ToolCall {
-  id: string;
-  name: string;
-  input: Record<string, unknown>;
-}
-
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
   timestamp: string;
-  toolCalls?: ToolCall[];
 }
 
 interface LabState {
@@ -38,7 +31,7 @@ interface LabState {
   startNewConversation: () => void;
   deleteConversation: (id: string) => Promise<void>;
   renameConversation: (id: string, title: string) => Promise<void>;
-  addMessage: (role: ChatMessage["role"], content: string, toolCalls?: ToolCall[]) => void;
+  addMessage: (role: ChatMessage["role"], content: string) => void;
   clearMessages: () => void;
   toggleSidebar: () => void;
   setActiveTool: (tool: string) => void;
@@ -84,53 +77,15 @@ export const useLabStore = create<LabState>()(
 
       loadConversationMessages: async (id: string) => {
         try {
-          const response = await api<{ messages: any[] }>(
-            `/api/v1/chat/conversations/${id}`
+          const raw = await api<any[]>(
+            `/api/v1/chat/conversations/${id}/messages`
           );
-          const raw = response.messages || [];
-          // Merge tool-call metadata into assistant messages, skip tool-result rows
-          const data: ChatMessage[] = [];
-          let pendingToolCalls: ToolCall[] = [];
-          for (const m of raw) {
-            if (m.role === "tool") continue; // skip tool result messages
-            if (m.role === "assistant" && Array.isArray(m.tool_calls) && m.tool_calls.length > 0) {
-              // assistant message that triggered tool calls — collect them
-              pendingToolCalls.push(
-                ...m.tool_calls.map((tc: any) => ({
-                  id: tc.id,
-                  name: tc.function?.name || tc.name || "unknown",
-                  input: tc.function?.arguments
-                    ? (typeof tc.function.arguments === "string" ? JSON.parse(tc.function.arguments) : tc.function.arguments)
-                    : tc.input || {},
-                }))
-              );
-              // If the message also has content, include it
-              if (m.content) {
-                data.push({
-                  id: m.id || generateId(),
-                  role: m.role,
-                  content: m.content,
-                  toolCalls: [...pendingToolCalls],
-                  timestamp: m.created_at || m.timestamp || new Date().toISOString(),
-                });
-                pendingToolCalls = [];
-              }
-              continue;
-            }
-            // Regular user or assistant message
-            const msg: ChatMessage = {
-              id: m.id || generateId(),
-              role: m.role,
-              content: m.content || "",
-              timestamp: m.created_at || m.timestamp || new Date().toISOString(),
-            };
-            // Attach any pending tool calls to the next assistant text response
-            if (m.role === "assistant" && pendingToolCalls.length > 0) {
-              msg.toolCalls = [...pendingToolCalls];
-              pendingToolCalls = [];
-            }
-            data.push(msg);
-          }
+          const data: ChatMessage[] = raw.map((m) => ({
+            id: m.id || generateId(),
+            role: m.role,
+            content: m.content || "",
+            timestamp: m.created_at || m.timestamp || new Date().toISOString(),
+          }));
           set({ chatMessages: data, activeConversationId: id });
         } catch (err) {
           console.error("Failed to load conversation messages:", err);
@@ -173,7 +128,7 @@ export const useLabStore = create<LabState>()(
         }
       },
 
-      addMessage: (role, content, toolCalls?) =>
+      addMessage: (role, content) =>
         set((state) => ({
           chatMessages: [
             ...state.chatMessages,
@@ -181,7 +136,6 @@ export const useLabStore = create<LabState>()(
               id: generateId(),
               role,
               content,
-              toolCalls,
               timestamp: new Date().toISOString(),
             },
           ],

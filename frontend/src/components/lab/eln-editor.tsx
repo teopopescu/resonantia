@@ -20,19 +20,19 @@ interface ELNEditorProps {
 function simpleMarkdownToHtml(md: string): string {
   let html = md
     // Headers
-    .replace(/^### (.+)$/gm, '<h3 class="text-[15px] font-semibold text-ink mt-4 mb-2 tracking-[-0.01em]">$1</h3>')
-    .replace(/^## (.+)$/gm, '<h2 class="text-[17px] font-semibold text-ink mt-5 mb-2 tracking-[-0.015em]">$1</h2>')
-    .replace(/^# (.+)$/gm, '<h1 class="text-[20px] font-bold text-ink mt-6 mb-3 tracking-[-0.02em]">$1</h1>')
+    .replace(/^### (.+)$/gm, '<h3 class="text-base font-semibold text-charcoal mt-4 mb-2">$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2 class="text-lg font-semibold text-charcoal mt-5 mb-2 font-serif">$1</h2>')
+    .replace(/^# (.+)$/gm, '<h1 class="text-xl font-bold text-charcoal mt-6 mb-3 font-serif">$1</h1>')
     // Bold and italic
     .replace(/\*\*\*(.+?)\*\*\*/g, "<strong><em>$1</em></strong>")
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
     .replace(/\*(.+?)\*/g, "<em>$1</em>")
     // Links
-    .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" class="text-brand underline underline-offset-2">$1</a>')
+    .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" class="text-amber underline">$1</a>')
     // Horizontal rule
-    .replace(/^---$/gm, '<hr class="my-4 border-line" />')
+    .replace(/^---$/gm, '<hr class="my-4 border-border" />')
     // Line breaks into paragraphs
-    .replace(/\n\n/g, "</p><p class=\"text-[13px] text-ink leading-relaxed mb-2\">")
+    .replace(/\n\n/g, "</p><p class=\"text-sm text-charcoal/80 leading-relaxed mb-2\">")
     .replace(/\n/g, "<br />");
 
   // Handle unordered lists (simple line-by-line)
@@ -42,7 +42,7 @@ function simpleMarkdownToHtml(md: string): string {
   for (const line of lines) {
     if (line.trimStart().startsWith("- ")) {
       if (!inList) { processed.push('<ul class="my-2">'); inList = true; }
-      processed.push(`<li class="ml-4 list-disc text-[13px] text-ink">${line.trimStart().slice(2)}</li>`);
+      processed.push(`<li class="ml-4 list-disc text-sm text-charcoal/80">${line.trimStart().slice(2)}</li>`);
     } else {
       if (inList) { processed.push("</ul>"); inList = false; }
       processed.push(line);
@@ -51,7 +51,7 @@ function simpleMarkdownToHtml(md: string): string {
   if (inList) processed.push("</ul>");
   html = processed.join("");
 
-  return `<div class="prose-resonantia"><p class="text-[13px] text-ink leading-relaxed mb-2">${html}</p></div>`;
+  return `<div class="prose-resonantia"><p class="text-sm text-charcoal/80 leading-relaxed mb-2">${html}</p></div>`;
 }
 
 const TOOLBAR_ITEMS = [
@@ -85,10 +85,10 @@ export default function ELNEditor({ content, onChange }: ELNEditorProps) {
   );
 
   return (
-    <div className="rounded-[5px] border border-line overflow-hidden bg-surface">
+    <div className="rounded-xl border border-border overflow-hidden bg-surface">
       {/* Toolbar */}
-      <div className="flex items-center justify-between px-2.5 py-2 border-b border-line bg-bg">
-        <div className="flex items-center gap-0.5">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-cream/50">
+        <div className="flex items-center gap-1">
           {TOOLBAR_ITEMS.map((item) => {
             const Icon = item.icon;
             return (
@@ -96,36 +96,36 @@ export default function ELNEditor({ content, onChange }: ELNEditorProps) {
                 key={item.label}
                 onClick={() => insertMarkdown(item.prefix, item.suffix)}
                 title={item.label}
-                className="p-1.5 rounded-[3px] text-ink-muted hover:text-ink hover:bg-bg-sunk transition-colors"
+                className="p-1.5 rounded-lg text-muted hover:text-charcoal hover:bg-cream transition-colors"
               >
-                <Icon size={13} />
+                <Icon size={14} />
               </button>
             );
           })}
         </div>
 
-        <div className="flex items-center gap-0.5 bg-bg-sunk rounded-[3px] p-0.5 border border-line">
+        <div className="flex items-center gap-1 bg-cream rounded-lg p-0.5">
           <button
             onClick={() => setMode("edit")}
-            className={`flex items-center gap-1 px-2 py-0.5 rounded-[2px] font-mono text-[10.5px] uppercase tracking-[0.04em] transition-colors ${
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
               mode === "edit"
-                ? "bg-surface text-brand"
-                : "text-ink-muted hover:text-ink"
+                ? "bg-surface text-charcoal shadow-sm"
+                : "text-muted hover:text-charcoal"
             }`}
           >
-            <Edit3 size={11} />
-            edit
+            <Edit3 size={12} />
+            Edit
           </button>
           <button
             onClick={() => setMode("preview")}
-            className={`flex items-center gap-1 px-2 py-0.5 rounded-[2px] font-mono text-[10.5px] uppercase tracking-[0.04em] transition-colors ${
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
               mode === "preview"
-                ? "bg-surface text-brand"
-                : "text-ink-muted hover:text-ink"
+                ? "bg-surface text-charcoal shadow-sm"
+                : "text-muted hover:text-charcoal"
             }`}
           >
-            <Eye size={11} />
-            preview
+            <Eye size={12} />
+            Preview
           </button>
         </div>
       </div>
@@ -136,8 +136,8 @@ export default function ELNEditor({ content, onChange }: ELNEditorProps) {
           id="eln-textarea"
           value={content}
           onChange={(e) => onChange(e.target.value)}
-          placeholder="Write your lab notebook entry in Markdown…"
-          className="w-full h-72 px-4 py-3 text-[13px] text-ink bg-surface resize-none focus:outline-none font-mono placeholder:text-ink-subtle"
+          placeholder="Write your lab notebook entry in Markdown..."
+          className="w-full h-72 px-4 py-3 text-sm text-charcoal bg-surface resize-none focus:outline-none font-mono placeholder:text-muted/60"
         />
       ) : (
         <div

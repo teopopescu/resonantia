@@ -39,9 +39,9 @@ export default function SkillBar() {
             <button
               key={skill.id}
               onClick={() => setPendingPrompt(skill.prompt)}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-[3px] font-mono text-[11px] uppercase tracking-[0.04em] whitespace-nowrap transition-colors duration-150 border bg-surface border-line text-ink-muted hover:text-ink hover:border-line-strong active:bg-brand-soft active:border-brand/30 active:text-brand"
+              className="flex items-center gap-2 px-4 py-2 rounded-full text-xs font-medium whitespace-nowrap transition-all duration-150 border bg-surface border-border text-muted hover:text-charcoal hover:border-amber/20 active:bg-amber/15 active:border-amber/30 active:text-charcoal"
             >
-              <Icon size={13} strokeWidth={1.6} />
+              <Icon size={14} strokeWidth={1.5} />
               {skill.label}
             </button>
           );

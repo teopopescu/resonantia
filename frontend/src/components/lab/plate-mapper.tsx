@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowRight, Shuffle, Copy, FlaskConical, Cherry, Trash2, ChevronRight } from "lucide-react";
+import { ArrowRight, Shuffle, Copy, FlaskConical, Cherry, Trash2 } from "lucide-react";
 import PlateView from "./plate-view";
 import { usePlateStore, type MappingMode, type WellMapping } from "@/stores/plate-store";
 import {
@@ -10,37 +10,30 @@ import {
   generateCherryPickMapping,
   generateSerialDilution,
   generateWellLabels,
+  wellToCoords,
 } from "@/lib/plate-utils";
 import type { WellData } from "@/lib/plate-utils";
-import { cn } from "@/lib/utils";
 
-const MODE_CONFIG: Record<
-  MappingMode,
-  { label: string; icon: React.ReactNode; desc: string; code: string }
-> = {
+const MODE_CONFIG: Record<MappingMode, { label: string; icon: React.ReactNode; desc: string }> = {
   "cherry-pick": {
-    label: "Cherry pick",
-    icon: <Cherry size={13} />,
-    desc: "Select individual source wells and map them to the destination.",
-    code: "MD/01",
+    label: "Cherry Pick",
+    icon: <Cherry size={14} />,
+    desc: "Select individual source wells and map to destination",
   },
   "serial-dilution": {
-    label: "Serial dilution",
-    icon: <FlaskConical size={13} />,
-    desc: "Create a dilution series from a starting well.",
-    code: "MD/02",
+    label: "Serial Dilution",
+    icon: <FlaskConical size={14} />,
+    desc: "Create dilution series from a starting well",
   },
   replicate: {
     label: "Replicate",
-    icon: <Copy size={13} />,
-    desc: "Copy the source layout onto the destination plate.",
-    code: "MD/03",
+    icon: <Copy size={14} />,
+    desc: "Copy source layout to destination plate",
   },
   randomize: {
     label: "Randomize",
-    icon: <Shuffle size={13} />,
-    desc: "Randomize well assignments on the destination.",
-    code: "MD/04",
+    icon: <Shuffle size={14} />,
+    desc: "Randomize well assignments on destination",
   },
 };
 
@@ -53,17 +46,6 @@ function createEmptyPlateWells(type: 96 | 384): Record<string, WellData> {
   }
   return wells;
 }
-
-function FieldLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <label className="block font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-subtle mb-1.5">
-      {children}
-    </label>
-  );
-}
-
-const inputClass =
-  "px-2.5 py-1.5 font-mono text-[12px] rounded-[3px] border border-line bg-bg text-ink focus:outline-none focus:border-brand/40 transition-colors";
 
 export default function PlateMapper() {
   const {
@@ -101,6 +83,7 @@ export default function PlateMapper() {
   const sourcePlate = plates.find((p) => p.id === activeSourcePlateId);
   const destWells = useMemo(() => createEmptyPlateWells(plateType), [plateType]);
 
+  // Build destination wells with mapping colors
   const destWellsWithMappings = useMemo(() => {
     if (!activeMap) return destWells;
     const updated = { ...destWells };
@@ -183,48 +166,45 @@ export default function PlateMapper() {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       {/* Mode selector */}
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap gap-2">
         {(Object.entries(MODE_CONFIG) as [MappingMode, typeof MODE_CONFIG[MappingMode]][]).map(
-          ([mode, cfg]) => {
-            const isOn = mappingMode === mode;
-            return (
-              <button
-                key={mode}
-                onClick={() => setMappingMode(mode)}
-                className={cn(
-                  "inline-flex items-center gap-2 px-3 py-1.5 rounded-[3px] text-[12.5px] font-medium transition-colors border",
-                  isOn
-                    ? "bg-brand-soft text-brand border-brand/30"
-                    : "bg-surface text-ink-muted border-line hover:border-line-strong hover:text-ink"
-                )}
-              >
-                <span className="font-mono text-[10px] tracking-[0.04em] opacity-70">
-                  {cfg.code}
-                </span>
-                {cfg.icon}
-                {cfg.label}
-              </button>
-            );
-          }
+          ([mode, cfg]) => (
+            <button
+              key={mode}
+              onClick={() => setMappingMode(mode)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                mappingMode === mode
+                  ? "bg-amber text-charcoal shadow-sm"
+                  : "bg-surface border border-border text-muted hover:border-amber/50 hover:text-charcoal"
+              }`}
+            >
+              {cfg.icon}
+              {cfg.label}
+            </button>
+          )
         )}
       </div>
 
-      <p className="font-mono text-[11px] tracking-[0.02em] text-ink-subtle">
-        <span className="text-brand">›</span> {MODE_CONFIG[mappingMode].desc}
+      {/* Mode description */}
+      <p className="text-xs text-muted">
+        {MODE_CONFIG[mappingMode].desc}
       </p>
 
       {/* Parameters row */}
       <div className="flex flex-wrap items-end gap-4">
+        {/* Source plate selector */}
         <div>
-          <FieldLabel>source plate</FieldLabel>
+          <label className="block text-[11px] font-medium text-muted uppercase tracking-wider mb-1">
+            Source Plate
+          </label>
           <select
             value={activeSourcePlateId || ""}
             onChange={(e) => setActiveSourcePlate(e.target.value || null)}
-            className={cn(inputClass, "min-w-[180px] cursor-pointer")}
+            className="text-xs px-2.5 py-1.5 rounded-xl border border-border bg-surface text-charcoal appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2216%22%20height%3D%2216%22%20fill%3D%22%238A8478%22%20viewBox%3D%220%200%2016%2016%22%3E%3Cpath%20d%3D%22M4.646%206.646a.5.5%200%200%201%20.708%200L8%209.293l2.646-2.647a.5.5%200%200%201%20.708.708l-3%203a.5.5%200%200%201-.708%200l-3-3a.5.5%200%200%201%200-.708z%22%2F%3E%3C%2Fsvg%3E')] bg-no-repeat bg-[right_0.5rem_center] pr-7 focus:outline-none focus:border-amber/40 cursor-pointer hover:border-amber/20 transition-colors"
           >
-            <option value="">select plate…</option>
+            <option value="">Select plate...</option>
             {plates.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
@@ -233,56 +213,66 @@ export default function PlateMapper() {
           </select>
         </div>
 
+        {/* Transfer volume */}
         <div>
-          <FieldLabel>volume (nL)</FieldLabel>
+          <label className="block text-[11px] font-medium text-muted uppercase tracking-wider mb-1">
+            Volume (nL)
+          </label>
           <input
             type="number"
             value={transferVolume}
             onChange={(e) => setTransferVolume(Number(e.target.value))}
-            className={cn(inputClass, "w-24")}
+            className="w-20 text-xs px-2.5 py-1.5 rounded-xl border border-border bg-surface text-charcoal focus:outline-none focus:border-amber/40 transition-colors"
             min={0}
           />
         </div>
 
+        {/* Dilution-specific params */}
         <AnimatePresence>
           {mappingMode === "serial-dilution" && (
             <motion.div
               initial={{ opacity: 0, x: -8 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -8 }}
-              className="flex items-end gap-3"
+              className="flex items-end gap-4"
             >
               <div>
-                <FieldLabel>dilution factor</FieldLabel>
+                <label className="block text-[11px] font-medium text-muted uppercase tracking-wider mb-1">
+                  Dilution Factor
+                </label>
                 <input
                   type="number"
                   value={dilutionFactor}
                   onChange={(e) => setDilutionFactor(Number(e.target.value))}
-                  className={cn(inputClass, "w-20")}
+                  className="w-16 text-xs px-2.5 py-1.5 rounded-xl border border-border bg-surface text-charcoal focus:outline-none focus:border-amber/40 transition-colors"
                   min={1}
                 />
               </div>
               <div>
-                <FieldLabel>steps</FieldLabel>
+                <label className="block text-[11px] font-medium text-muted uppercase tracking-wider mb-1">
+                  Steps
+                </label>
                 <input
                   type="number"
                   value={dilutionSteps}
                   onChange={(e) => setDilutionSteps(Number(e.target.value))}
-                  className={cn(inputClass, "w-20")}
+                  className="w-16 text-xs px-2.5 py-1.5 rounded-xl border border-border bg-surface text-charcoal focus:outline-none focus:border-amber/40 transition-colors"
                   min={1}
                 />
               </div>
               <div>
-                <FieldLabel>direction</FieldLabel>
+                <label className="block text-[11px] font-medium text-muted uppercase tracking-wider mb-1">
+                  Direction
+                </label>
                 <select
                   value={dilutionDirection}
                   onChange={(e) =>
                     setDilutionDirection(e.target.value as "horizontal" | "vertical")
                   }
-                  className={cn(inputClass, "cursor-pointer")}
+                  className="text-xs px-2.5 py-1.5 rounded-xl border border-border bg-surface text-charcoal appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2216%22%20height%3D%2216%22%20fill%3D%22%238A8478%22%20viewBox%3D%220%200%2016%2016%22%3E%3Cpath%20d%3D%22M4.646%206.646a.5.5%200%200%201%20.708%200L8%209.293l2.646-2.647a.5.5%200%200%201%20.708.708l-3%203a.5.5%200%200%201-.708%200l-3-3a.5.5%200%200%201%200-.708z%22%2F%3E%3C%2Fsvg%3E')] bg-no-repeat bg-[right_0.5rem_center] pr-7 focus:outline-none focus:border-amber/40 cursor-pointer hover:border-amber/20 transition-colors"
                 >
-                  <option value="horizontal">horizontal</option>
-                  <option value="vertical">vertical</option>
+                  <option value="horizontal">Horizontal</option>
+                  <option value="vertical">Vertical</option>
                 </select>
               </div>
             </motion.div>
@@ -291,7 +281,8 @@ export default function PlateMapper() {
       </div>
 
       {/* Plates side-by-side */}
-      <div className="grid grid-cols-1 xl:grid-cols-[1fr_auto_1fr] gap-5 items-start">
+      <div className="grid grid-cols-1 xl:grid-cols-[1fr_auto_1fr] gap-4 items-start">
+        {/* Source plate */}
         <div>
           {sourcePlate ? (
             <PlateView
@@ -300,35 +291,38 @@ export default function PlateMapper() {
               selectedWells={selectedSourceWells}
               onWellClick={(w) => toggleSourceWell(w)}
               onWellsSelect={(ws) => selectSourceWells(ws)}
-              label={`SOURCE · ${sourcePlate.name}`}
+              label={`Source: ${sourcePlate.name}`}
             />
           ) : (
-            <div className="flex items-center justify-center h-48 bg-bg border border-dashed border-line-strong rounded-[5px] font-mono text-[11.5px] tracking-[0.02em] uppercase text-ink-subtle">
-              select a source plate
+            <div className="flex items-center justify-center h-48 bg-surface border border-dashed border-border rounded-lg text-xs text-muted">
+              Select a source plate
             </div>
           )}
         </div>
 
+        {/* Arrow + Apply */}
         <div className="flex flex-col items-center justify-center gap-3 py-8 xl:py-16">
-          <button
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
             onClick={handleApplyMapping}
-            className="inline-flex items-center gap-2 bg-brand text-white px-3.5 py-2 rounded-[3px] text-[13px] font-semibold hover:bg-brand-strong transition-colors"
-            style={{ boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.06)" }}
+            className="flex items-center gap-1.5 bg-amber text-charcoal px-4 py-2 rounded-md text-xs font-semibold shadow-sm hover:bg-amber-light transition-colors"
           >
             Apply
             <ArrowRight size={14} />
-          </button>
+          </motion.button>
           {activeMap && activeMap.mappings.length > 0 && (
             <button
               onClick={() => clearMappings(activeMap.id)}
-              className="inline-flex items-center gap-1.5 font-mono text-[10.5px] uppercase tracking-[0.04em] text-ink-subtle hover:text-mch transition-colors"
+              className="flex items-center gap-1 text-[11px] text-muted hover:text-red-500 transition-colors"
             >
-              <Trash2 size={11} />
-              clear all
+              <Trash2 size={12} />
+              Clear
             </button>
           )}
         </div>
 
+        {/* Destination plate */}
         <div>
           <PlateView
             plateType={plateType}
@@ -336,31 +330,25 @@ export default function PlateMapper() {
             selectedWells={selectedDestWells}
             onWellClick={(w) => toggleDestWell(w)}
             onWellsSelect={(ws) => selectDestWells(ws)}
-            label="DESTINATION"
+            label="Destination"
           />
         </div>
       </div>
 
       {/* Selection summary */}
-      <div className="flex flex-wrap gap-x-6 gap-y-2 font-mono text-[11px] tracking-[0.02em] text-ink-subtle uppercase">
+      <div className="flex gap-6 text-[11px] text-muted">
         <span>
-          source selected ·{" "}
-          <span className="text-ink font-medium normal-case tracking-normal">
-            {selectedSourceWells.length}
-          </span>
+          Source selected:{" "}
+          <span className="font-semibold text-charcoal">{selectedSourceWells.length}</span> wells
         </span>
         <span>
-          dest selected ·{" "}
-          <span className="text-ink font-medium normal-case tracking-normal">
-            {selectedDestWells.length}
-          </span>
+          Dest selected:{" "}
+          <span className="font-semibold text-charcoal">{selectedDestWells.length}</span> wells
         </span>
         {activeMap && (
           <span>
-            mappings ·{" "}
-            <span className="text-brand font-semibold normal-case tracking-normal">
-              {activeMap.mappings.length}
-            </span>
+            Mappings:{" "}
+            <span className="font-semibold text-charcoal">{activeMap.mappings.length}</span>
           </span>
         )}
       </div>
@@ -370,16 +358,15 @@ export default function PlateMapper() {
         <div>
           <button
             onClick={() => setShowMappingTable((v) => !v)}
-            className="inline-flex items-center gap-1 font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-muted hover:text-ink mb-2 transition-colors"
+            className="text-xs text-muted hover:text-charcoal mb-2 flex items-center gap-1 transition-colors"
           >
-            <ChevronRight
-              size={12}
-              className={cn(
-                "transition-transform",
-                showMappingTable && "rotate-90"
-              )}
-            />
-            mapping table · {activeMap.mappings.length} transfers
+            <motion.span
+              animate={{ rotate: showMappingTable ? 90 : 0 }}
+              className="inline-block"
+            >
+              &#9654;
+            </motion.span>
+            Mapping Table ({activeMap.mappings.length} transfers)
           </button>
           <AnimatePresence>
             {showMappingTable && (
@@ -389,47 +376,31 @@ export default function PlateMapper() {
                 exit={{ height: 0, opacity: 0 }}
                 className="overflow-hidden"
               >
-                <div className="bg-bg border border-line rounded-[5px] overflow-hidden">
+                <div className="bg-surface border border-border rounded-lg overflow-hidden">
                   <div className="max-h-64 overflow-y-auto">
-                    <table className="w-full">
-                      <thead className="sticky top-0 bg-surface">
-                        <tr>
-                          {["#", "source", "dest", "compound", "conc. (µM)", "vol. (nL)"].map(
-                            (h) => (
-                              <th
-                                key={h}
-                                className="text-left px-3 py-2.5 border-b border-line font-mono text-[10.5px] font-medium uppercase tracking-[0.06em] text-ink-subtle"
-                              >
-                                {h}
-                              </th>
-                            )
-                          )}
+                    <table className="w-full text-xs">
+                      <thead className="sticky top-0 bg-cream">
+                        <tr className="text-left text-[10px] uppercase tracking-wider text-muted">
+                          <th className="px-3 py-2">#</th>
+                          <th className="px-3 py-2">Source</th>
+                          <th className="px-3 py-2">Dest</th>
+                          <th className="px-3 py-2">Compound</th>
+                          <th className="px-3 py-2">Conc. (uM)</th>
+                          <th className="px-3 py-2">Vol. (nL)</th>
                         </tr>
                       </thead>
                       <tbody>
                         {activeMap.mappings.map((m, i) => (
                           <tr
                             key={i}
-                            className="border-b border-line last:border-b-0 hover:bg-surface transition-colors"
+                            className="border-t border-border/50 hover:bg-cream/50 transition-colors"
                           >
-                            <td className="px-3 py-2 font-mono text-[11.5px] text-ink-subtle">
-                              {i + 1}
-                            </td>
-                            <td className="px-3 py-2 font-mono text-[12px] text-ink">
-                              {m.sourceWell}
-                            </td>
-                            <td className="px-3 py-2 font-mono text-[12px] text-brand font-medium">
-                              {m.destWell}
-                            </td>
-                            <td className="px-3 py-2 text-[12.5px] text-ink-muted">
-                              {m.compound || "—"}
-                            </td>
-                            <td className="px-3 py-2 font-mono text-[11.5px] text-ink-muted">
-                              {m.concentration ? m.concentration.toFixed(2) : "—"}
-                            </td>
-                            <td className="px-3 py-2 font-mono text-[11.5px] text-ink-muted">
-                              {m.volume}
-                            </td>
+                            <td className="px-3 py-1.5 text-muted">{i + 1}</td>
+                            <td className="px-3 py-1.5 font-mono">{m.sourceWell}</td>
+                            <td className="px-3 py-1.5 font-mono">{m.destWell}</td>
+                            <td className="px-3 py-1.5">{m.compound || "-"}</td>
+                            <td className="px-3 py-1.5">{m.concentration || "-"}</td>
+                            <td className="px-3 py-1.5">{m.volume}</td>
                           </tr>
                         ))}
                       </tbody>

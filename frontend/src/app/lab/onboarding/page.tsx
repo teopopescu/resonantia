@@ -20,211 +20,114 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useOnboardingStore } from "@/stores/onboarding-store";
-import { cn } from "@/lib/utils";
 
-interface Option {
+/* ── Types ── */
+interface RoleOption {
   id: string;
   label: string;
   description: string;
   icon: React.ReactNode;
 }
 
-const ROLES: Option[] = [
+interface FocusOption {
+  id: string;
+  label: string;
+  description: string;
+  icon: React.ReactNode;
+}
+
+/* ── Static data ── */
+const ROLES: RoleOption[] = [
   {
     id: "scientist",
     label: "Scientist",
-    description: "I run experiments and analyze data at the bench.",
-    icon: <FlaskRound size={22} />,
+    description: "I run experiments and analyze data at the bench",
+    icon: <FlaskRound size={24} />,
   },
   {
     id: "lab_manager",
-    label: "Lab manager",
-    description: "I oversee operations, inventory, and compliance.",
-    icon: <Users size={22} />,
+    label: "Lab Manager",
+    description: "I oversee lab operations, inventory, and compliance",
+    icon: <Users size={24} />,
   },
   {
     id: "bioinformatician",
     label: "Bioinformatician",
-    description: "I process experimental data computationally.",
-    icon: <Dna size={22} />,
+    description: "I analyze and process experimental data computationally",
+    icon: <Dna size={24} />,
   },
   {
     id: "other",
     label: "Other",
-    description: "Something else.",
-    icon: <HelpCircle size={22} />,
+    description: "Something else",
+    icon: <HelpCircle size={24} />,
   },
 ];
 
-const FOCUS_AREAS: Option[] = [
+const FOCUS_AREAS: FocusOption[] = [
   {
     id: "plate_assays",
     label: "Plate-based assays",
-    description: "Dose-response, HTS, screening.",
-    icon: <LayoutGrid size={22} />,
+    description: "Dose-response, HTS, screening",
+    icon: <LayoutGrid size={24} />,
   },
   {
     id: "microscopy",
     label: "Microscopy",
-    description: "Fluorescence imaging, high-content screening.",
-    icon: <Eye size={22} />,
+    description: "Fluorescence imaging, high-content screening",
+    icon: <Eye size={24} />,
   },
   {
     id: "qpcr",
     label: "qPCR",
-    description: "Gene expression, ΔΔCt analysis.",
-    icon: <Dna size={22} />,
+    description: "Gene expression, delta-delta Ct analysis",
+    icon: <Dna size={24} />,
   },
   {
     id: "sample_management",
     label: "Sample management",
-    description: "Reagent tracking, inventory, barcodes.",
-    icon: <FlaskConical size={22} />,
+    description: "Reagent tracking, inventory, barcodes",
+    icon: <FlaskConical size={24} />,
   },
 ];
 
-const FEATURE_HINTS: Record<
-  string,
-  { code: string; title: string; description: string; icon: React.ReactNode }
-> = {
+const FEATURE_HINTS: Record<string, { title: string; description: string; icon: React.ReactNode }> = {
   plate_assays: {
-    code: "PLT/01",
     title: "Plate Mapping",
-    description:
-      "Source-destination layouts. Echo, Hamilton, OT-2 worklists in one click.",
-    icon: <LayoutGrid size={18} />,
+    description: "Design plate maps and generate Echo/Hamilton worklists in seconds",
+    icon: <LayoutGrid size={20} className="text-amber" />,
   },
   microscopy: {
-    code: "MIC/02",
-    title: "Microscopy Browser",
-    description:
-      "Browse FOVs by plate, well, and channel. DAPI · GFP · mCherry overlays.",
-    icon: <Microscope size={18} />,
+    title: "Microscopy Viewer",
+    description: "Browse FOV images by plate, well, and channel with composite overlays",
+    icon: <Microscope size={20} className="text-amber" />,
   },
   qpcr: {
-    code: "DAT/03",
     title: "qPCR Analysis",
-    description: "ΔΔCt with reference gene and control sample.",
-    icon: <Dna size={18} />,
+    description: "Run delta-delta Ct analysis with automated fold-change calculation",
+    icon: <Dna size={20} className="text-amber" />,
   },
   sample_management: {
-    code: "INV/04",
     title: "Sample Tracking",
-    description:
-      "Every lot, every aliquot, every freeze-thaw. Barcode-first.",
-    icon: <FlaskConical size={18} />,
+    description: "Track every reagent lot, storage location, and expiry date",
+    icon: <FlaskConical size={20} className="text-amber" />,
   },
 };
 
+/* ── Animation variants ── */
 const pageVariants = {
-  enter: (direction: number) => ({ x: direction > 0 ? 200 : -200, opacity: 0 }),
+  enter: (direction: number) => ({ x: direction > 0 ? 300 : -300, opacity: 0 }),
   center: { x: 0, opacity: 1 },
-  exit: (direction: number) => ({ x: direction > 0 ? -200 : 200, opacity: 0 }),
+  exit: (direction: number) => ({ x: direction > 0 ? -300 : 300, opacity: 0 }),
 };
 
 const pageTransition = { type: "spring" as const, stiffness: 300, damping: 30 };
 
-function BrandMark({ size = 44 }: { size?: number }) {
-  return (
-    <span
-      className="inline-grid grid-cols-2 grid-rows-2 gap-[3px] p-[6px] rounded-[5px] bg-surface border border-line-strong"
-      style={{ width: size, height: size }}
-      aria-hidden="true"
-    >
-      <span className="rounded-full bg-ink-subtle" />
-      <span className="rounded-full bg-ink-subtle" />
-      <span className="rounded-full bg-ink-subtle" />
-      <span className="rounded-full bg-brand" />
-    </span>
-  );
-}
-
-function PrimaryButton({
-  children,
-  ...props
-}: React.ButtonHTMLAttributes<HTMLButtonElement>) {
-  return (
-    <button
-      {...props}
-      className={cn(
-        "inline-flex items-center gap-2 px-5 py-2.5 bg-brand text-white text-[13.5px] font-medium rounded-[3px] hover:bg-brand-strong transition-colors disabled:opacity-40 disabled:cursor-not-allowed",
-        props.className
-      )}
-      style={{
-        boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.06)",
-        ...props.style,
-      }}
-    >
-      {children}
-    </button>
-  );
-}
-
-function GhostButton({
-  children,
-  ...props
-}: React.ButtonHTMLAttributes<HTMLButtonElement>) {
-  return (
-    <button
-      {...props}
-      className={cn(
-        "px-3 py-2.5 text-[13px] text-ink-muted hover:text-ink transition-colors",
-        props.className
-      )}
-    >
-      {children}
-    </button>
-  );
-}
-
-function OptionCard({
-  option,
-  selected,
-  onClick,
-}: {
-  option: Option;
-  selected: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={cn(
-        "relative flex flex-col items-start p-5 rounded-[5px] border text-left transition-colors",
-        selected
-          ? "border-brand bg-brand-soft/40"
-          : "border-line bg-surface hover:border-line-strong"
-      )}
-    >
-      {selected && (
-        <div className="absolute top-3 right-3 w-5 h-5 rounded-[2px] bg-brand flex items-center justify-center">
-          <Check size={11} className="text-white" />
-        </div>
-      )}
-      <div
-        className={cn(
-          "mb-3 transition-colors",
-          selected ? "text-brand" : "text-ink-muted"
-        )}
-      >
-        {option.icon}
-      </div>
-      <span className="font-medium text-ink text-[14.5px]">
-        {option.label}
-      </span>
-      <span className="text-ink-muted text-[12.5px] leading-relaxed mt-1">
-        {option.description}
-      </span>
-    </button>
-  );
-}
-
+/* ── Component ── */
 export default function OnboardingPage() {
   const router = useRouter();
   const { user } = useUser();
-  const setOnboardingCompleted = useOnboardingStore(
-    (s) => s.setOnboardingCompleted
-  );
+  const setOnboardingCompleted = useOnboardingStore((s) => s.setOnboardingCompleted);
   const storeSetRole = useOnboardingStore((s) => s.setRole);
   const storeSetFocusAreas = useOnboardingStore((s) => s.setFocusAreas);
 
@@ -275,11 +178,13 @@ export default function OnboardingPage() {
       router.push("/lab");
     } catch (err) {
       console.error("Onboarding error:", err);
+      // Still redirect - onboarding is not critical
       setOnboardingCompleted(true);
       router.push("/lab");
     }
   }
 
+  /* ── Render steps ── */
   function renderStep() {
     switch (step) {
       case 0:
@@ -294,22 +199,28 @@ export default function OnboardingPage() {
             transition={pageTransition}
             className="flex flex-col items-center text-center max-w-lg mx-auto"
           >
-            <div className="mb-8">
-              <BrandMark size={48} />
+            {/* Logo mark */}
+            <div className="w-16 h-16 rounded-2xl bg-charcoal flex items-center justify-center mb-8">
+              <span className="text-amber font-serif text-2xl font-bold">R</span>
             </div>
-            <div className="font-mono text-[11px] uppercase tracking-[0.06em] text-ink-subtle mb-3">
-              <span className="text-brand">›</span> setup · ~30 seconds
-            </div>
-            <h1 className="text-[42px] font-bold tracking-[-0.035em] leading-[1.05] text-ink mb-3">
-              Welcome to <span className="text-brand">Resonantia.</span>
+
+            <h1 className="font-serif text-4xl text-charcoal mb-3">
+              Welcome to Resonantia Lab
             </h1>
-            <p className="text-ink-muted text-[16px] leading-relaxed mb-10">
-              Let&apos;s set up your workspace. Two questions, one summary.
+            <p className="text-muted text-lg mb-10 leading-relaxed">
+              Let&apos;s set up your experience. This takes about 30 seconds.
             </p>
-            <PrimaryButton onClick={goNext}>
+
+            <button
+              onClick={goNext}
+              className="group inline-flex items-center gap-2 px-8 py-3.5 bg-charcoal text-cream rounded-xl font-medium text-base hover:bg-charcoal-light transition-colors"
+            >
               Get started
-              <ArrowRight size={15} />
-            </PrimaryButton>
+              <ArrowRight
+                size={18}
+                className="group-hover:translate-x-0.5 transition-transform"
+              />
+            </button>
           </motion.div>
         );
 
@@ -325,35 +236,61 @@ export default function OnboardingPage() {
             transition={pageTransition}
             className="max-w-2xl mx-auto w-full"
           >
-            <div className="text-center mb-8">
-              <div className="font-mono text-[11px] uppercase tracking-[0.06em] text-ink-subtle mb-3">
-                <span className="text-brand">›</span> 01 / 03 · role
-              </div>
-              <h2 className="text-[32px] font-bold tracking-[-0.025em] leading-[1.1] text-ink mb-2">
-                What&apos;s your role?
-              </h2>
-              <p className="text-ink-muted text-[14.5px]">
-                This helps us tailor what shows up first.
-              </p>
-            </div>
+            <h2 className="font-serif text-3xl text-charcoal mb-2 text-center">
+              What&apos;s your role?
+            </h2>
+            <p className="text-muted text-center mb-8">
+              This helps us tailor your experience.
+            </p>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-8">
-              {ROLES.map((role) => (
-                <OptionCard
-                  key={role.id}
-                  option={role}
-                  selected={selectedRole === role.id}
-                  onClick={() => setSelectedRole(role.id)}
-                />
-              ))}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
+              {ROLES.map((role) => {
+                const selected = selectedRole === role.id;
+                return (
+                  <button
+                    key={role.id}
+                    onClick={() => setSelectedRole(role.id)}
+                    className={`relative flex flex-col items-start p-5 rounded-xl border-2 text-left transition-all ${
+                      selected
+                        ? "border-amber bg-amber/5 shadow-sm"
+                        : "border-border bg-surface hover:border-amber/40"
+                    }`}
+                  >
+                    {selected && (
+                      <div className="absolute top-3 right-3 w-5 h-5 rounded-full bg-amber flex items-center justify-center">
+                        <Check size={12} className="text-white" />
+                      </div>
+                    )}
+                    <div
+                      className={`mb-3 ${selected ? "text-amber" : "text-muted"}`}
+                    >
+                      {role.icon}
+                    </div>
+                    <span className="font-medium text-charcoal text-base">
+                      {role.label}
+                    </span>
+                    <span className="text-muted text-sm mt-1">
+                      {role.description}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
 
             <div className="flex justify-between">
-              <GhostButton onClick={goBack}>← Back</GhostButton>
-              <PrimaryButton onClick={goNext} disabled={!selectedRole}>
+              <button
+                onClick={goBack}
+                className="px-6 py-2.5 text-muted hover:text-charcoal transition-colors text-sm"
+              >
+                Back
+              </button>
+              <button
+                onClick={goNext}
+                disabled={!selectedRole}
+                className="px-8 py-2.5 bg-charcoal text-cream rounded-xl font-medium text-sm disabled:opacity-30 disabled:cursor-not-allowed hover:bg-charcoal-light transition-colors"
+              >
                 Continue
-                <ArrowRight size={14} />
-              </PrimaryButton>
+              </button>
             </div>
           </motion.div>
         );
@@ -370,43 +307,67 @@ export default function OnboardingPage() {
             transition={pageTransition}
             className="max-w-2xl mx-auto w-full"
           >
-            <div className="text-center mb-8">
-              <div className="font-mono text-[11px] uppercase tracking-[0.06em] text-ink-subtle mb-3">
-                <span className="text-brand">›</span> 02 / 03 · focus areas
-              </div>
-              <h2 className="text-[32px] font-bold tracking-[-0.025em] leading-[1.1] text-ink mb-2">
-                What do you work with most?
-              </h2>
-              <p className="text-ink-muted text-[14.5px]">
-                Select all that apply. You can change this later.
-              </p>
-            </div>
+            <h2 className="font-serif text-3xl text-charcoal mb-2 text-center">
+              What do you work with most?
+            </h2>
+            <p className="text-muted text-center mb-8">
+              Select all that apply. You can change this later.
+            </p>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-8">
-              {FOCUS_AREAS.map((area) => (
-                <OptionCard
-                  key={area.id}
-                  option={area}
-                  selected={selectedFocus.has(area.id)}
-                  onClick={() => toggleFocus(area.id)}
-                />
-              ))}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
+              {FOCUS_AREAS.map((area) => {
+                const selected = selectedFocus.has(area.id);
+                return (
+                  <button
+                    key={area.id}
+                    onClick={() => toggleFocus(area.id)}
+                    className={`relative flex flex-col items-start p-5 rounded-xl border-2 text-left transition-all ${
+                      selected
+                        ? "border-amber bg-amber/5 shadow-sm"
+                        : "border-border bg-surface hover:border-amber/40"
+                    }`}
+                  >
+                    {selected && (
+                      <div className="absolute top-3 right-3 w-5 h-5 rounded-full bg-amber flex items-center justify-center">
+                        <Check size={12} className="text-white" />
+                      </div>
+                    )}
+                    <div
+                      className={`mb-3 ${selected ? "text-amber" : "text-muted"}`}
+                    >
+                      {area.icon}
+                    </div>
+                    <span className="font-medium text-charcoal text-base">
+                      {area.label}
+                    </span>
+                    <span className="text-muted text-sm mt-1">
+                      {area.description}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
 
             <div className="flex justify-between">
-              <GhostButton onClick={goBack}>← Back</GhostButton>
-              <PrimaryButton
+              <button
+                onClick={goBack}
+                className="px-6 py-2.5 text-muted hover:text-charcoal transition-colors text-sm"
+              >
+                Back
+              </button>
+              <button
                 onClick={goNext}
                 disabled={selectedFocus.size === 0}
+                className="px-8 py-2.5 bg-charcoal text-cream rounded-xl font-medium text-sm disabled:opacity-30 disabled:cursor-not-allowed hover:bg-charcoal-light transition-colors"
               >
                 Continue
-                <ArrowRight size={14} />
-              </PrimaryButton>
+              </button>
             </div>
           </motion.div>
         );
 
       case 3: {
+        // Build feature cards based on selection
         const featureCards = Array.from(selectedFocus)
           .filter((id) => FEATURE_HINTS[id])
           .map((id) => FEATURE_HINTS[id]);
@@ -422,81 +383,82 @@ export default function OnboardingPage() {
             transition={pageTransition}
             className="max-w-2xl mx-auto w-full"
           >
-            <div className="text-center mb-8">
-              <div className="font-mono text-[11px] uppercase tracking-[0.06em] text-ink-subtle mb-3">
-                <span className="text-brand">›</span> 03 / 03 · ready
-              </div>
-              <h2 className="text-[32px] font-bold tracking-[-0.025em] leading-[1.1] text-ink mb-2">
-                Your workspace is <span className="text-brand">ready.</span>
-              </h2>
-              <p className="text-ink-muted text-[14.5px]">
-                These modules are wired and waiting on the rail.
-              </p>
-            </div>
+            <h2 className="font-serif text-3xl text-charcoal mb-2 text-center">
+              Here&apos;s what you can do
+            </h2>
+            <p className="text-muted text-center mb-8">
+              Your workspace is ready with these capabilities.
+            </p>
 
-            <div className="space-y-2 mb-4">
+            <div className="space-y-3 mb-4">
               {featureCards.map((feat, i) => (
                 <motion.div
-                  key={feat.code}
-                  initial={{ opacity: 0, y: 10 }}
+                  key={feat.title}
+                  initial={{ opacity: 0, y: 12 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: i * 0.08 }}
-                  className="flex items-start gap-3 px-4 py-3 rounded-[5px] bg-surface border border-line"
+                  transition={{ delay: i * 0.1 }}
+                  className="flex items-start gap-4 p-4 rounded-xl bg-surface border border-border"
                 >
-                  <span className="font-mono text-[10px] tracking-[0.04em] uppercase text-brand bg-brand-soft border border-brand/40 rounded-[2px] px-1.5 py-0.5 mt-0.5">
-                    {feat.code}
-                  </span>
-                  <div className="text-brand mt-0.5 shrink-0">{feat.icon}</div>
-                  <div className="min-w-0">
-                    <p className="font-medium text-ink text-[13.5px]">
+                  <div className="mt-0.5 shrink-0">{feat.icon}</div>
+                  <div>
+                    <p className="font-medium text-charcoal text-sm">
                       {feat.title}
                     </p>
-                    <p className="font-mono text-[11px] text-ink-muted mt-1 leading-relaxed">
+                    <p className="text-muted text-sm mt-0.5">
                       {feat.description}
                     </p>
                   </div>
                 </motion.div>
               ))}
 
+              {/* Always show AI assistant */}
               <motion.div
-                initial={{ opacity: 0, y: 10 }}
+                initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: featureCards.length * 0.08 }}
-                className="flex items-start gap-3 px-4 py-3 rounded-[5px] bg-surface border border-line"
+                transition={{ delay: featureCards.length * 0.1 }}
+                className="flex items-start gap-4 p-4 rounded-xl bg-surface border border-border"
               >
-                <span className="font-mono text-[10px] tracking-[0.04em] uppercase text-brand bg-brand-soft border border-brand/40 rounded-[2px] px-1.5 py-0.5 mt-0.5">
-                  AGT/05
-                </span>
-                <div className="text-brand mt-0.5 shrink-0">
-                  <Bot size={18} />
+                <div className="mt-0.5 shrink-0">
+                  <Bot size={20} className="text-amber" />
                 </div>
-                <div className="min-w-0">
-                  <p className="font-medium text-ink text-[13.5px]">
-                    Agent Console
+                <div>
+                  <p className="font-medium text-charcoal text-sm">
+                    AI Assistant
                   </p>
-                  <p className="font-mono text-[11px] text-ink-muted mt-1 leading-relaxed">
-                    Natural-language access to all 32 tools. Cited traces for
-                    every action.
+                  <p className="text-muted text-sm mt-0.5">
+                    Ask the AI assistant anything about your lab workflows
                   </p>
                 </div>
               </motion.div>
             </div>
 
             <div className="flex justify-between mt-8">
-              <GhostButton onClick={goBack}>← Back</GhostButton>
-              <PrimaryButton onClick={handleComplete} disabled={submitting}>
+              <button
+                onClick={goBack}
+                className="px-6 py-2.5 text-muted hover:text-charcoal transition-colors text-sm"
+              >
+                Back
+              </button>
+              <button
+                onClick={handleComplete}
+                disabled={submitting}
+                className="group inline-flex items-center gap-2 px-8 py-3 bg-amber text-charcoal rounded-xl font-medium text-sm hover:bg-amber-light transition-colors disabled:opacity-50"
+              >
                 {submitting ? (
                   <>
-                    <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    Setting up…
+                    <span className="w-4 h-4 border-2 border-charcoal/30 border-t-charcoal rounded-full animate-spin" />
+                    Setting up...
                   </>
                 ) : (
                   <>
-                    Open the lab
-                    <Sparkles size={14} />
+                    Enter Resonantia Lab
+                    <Sparkles
+                      size={16}
+                      className="group-hover:rotate-12 transition-transform"
+                    />
                   </>
                 )}
-              </PrimaryButton>
+              </button>
             </div>
           </motion.div>
         );
@@ -508,28 +470,25 @@ export default function OnboardingPage() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center px-6 py-12 bg-bg">
+    <div className="min-h-screen flex flex-col items-center justify-center px-6 py-12">
       {/* Progress dots */}
       <div className="flex items-center gap-2 mb-12">
         {Array.from({ length: totalSteps }).map((_, i) => (
           <div
             key={i}
-            className={cn(
-              "h-1 rounded-full transition-all duration-300",
+            className={`h-1.5 rounded-full transition-all duration-300 ${
               i === step
-                ? "w-8 bg-brand"
+                ? "w-8 bg-amber"
                 : i < step
-                ? "w-3 bg-brand/40"
-                : "w-3 bg-line-strong"
-            )}
+                  ? "w-3 bg-amber/40"
+                  : "w-3 bg-border"
+            }`}
           />
         ))}
       </div>
 
-      <div
-        className="w-full max-w-2xl relative"
-        style={{ minHeight: 440 }}
-      >
+      {/* Step content */}
+      <div className="w-full max-w-2xl relative" style={{ minHeight: 400 }}>
         <AnimatePresence mode="wait" custom={direction}>
           {renderStep()}
         </AnimatePresence>
