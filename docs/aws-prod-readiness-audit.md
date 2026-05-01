@@ -119,6 +119,52 @@ RDS uses default RDS key, S3 uses AES256 (S3-managed), ElastiCache has neither a
 
 ---
 
+## Observability & incident response (free-tier picks)
+
+The audit's Wave-2 entries (M17–M22) list the gaps; this section answers the "what do we actually pick" question, scoped to genuine free tiers for a 3-person team at design-partner stage.
+
+### Recommendation: Grafana Cloud Free + Sentry Free + Langfuse + Grafana OnCall
+
+| Concern | Pick | Why |
+|---|---|---|
+| Metrics, logs, traces | **Grafana Cloud Free** | 10K active series, 50 GB logs/mo, 50 GB traces/mo, 14-day retention. OTel-native (matches the M22 ADOT plan). No per-user paywall. |
+| Application errors | **Sentry Free** | 5K events/mo. Stack traces, breadcrumbs, user impact. Lighter than full APM and complements Grafana traces. |
+| LLM tracing | **Langfuse** (already in stack) | Self-hostable. Captures token cost + latency per turn and per tool call — agent-loop aware. |
+| AWS infra signals | **CloudWatch** | Covered by the AWS bill, already in M18 of the audit. Non-negotiable for ECS / RDS / ALB. Don't replace, augment. |
+| Paging / on-call | **Grafana OnCall** | Free with Grafana Cloud Free. Integrates with Grafana alerts and AlertManager. Single vendor with the rest. |
+
+### Alternatives considered
+
+| Tool | Free tier | Verdict |
+|---|---|---|
+| **New Relic Free** | 100 GB ingest/mo, 1 full user, unlimited basic users | Real, but 1-full-user cap forces an upgrade once a second engineer needs alert config. Grafana Cloud avoids that ceiling. |
+| **Datadog Free** | 5 hosts, 1-day retention | Too small for production. |
+| **Honeycomb Free** | 20M events/mo, 60-day retention | Excellent for traces alone; combining separate metrics + logs adds ops overhead vs. Grafana single-vendor. |
+| **OpenObserve / SigNoz** (self-hosted) | Free forever | Real ops cost — a small ECS service or EC2. Defer until volumes exceed Grafana Free's caps — design-partner stage is a year+ away from that. |
+| **PagerDuty Free** | 5 users, basic alerting only | Intentionally crippled (no schedules, no escalation policies). Squadcast Free and Grafana OnCall both do more. |
+| **Squadcast Free** | 10 users, schedules, basic incident mgmt | Best standalone free tier if you don't want to single-vendor on Grafana. Use as fallback / second-vendor. |
+| **Better Stack (Better Uptime) Free** | 1 user, 10 monitors | Smaller than the above. Not the pick. |
+| **incident.io Free** | Slack-native incident response | Strong for the "running an incident" half but lacks paging; pair with OnCall, not a replacement. |
+
+### Wiring plan (paired with `feat/terraform-prod-hardening`)
+
+1. Provision **Grafana Cloud Free** stack (one-click). Capture the OTLP endpoint + token in Secrets Manager (after B1 is fixed).
+2. Add an **ADOT collector** as an ECS sidecar on the API and worker tasks (M22). Forward OTLP traces + metrics to Grafana Cloud; forward stdout logs via FireLens → Grafana Cloud Loki.
+3. Wire **Sentry Free** SDK into the FastAPI app (global exception handler) and the Next.js frontend (Vercel has a one-click integration).
+4. Keep **Langfuse** as-is.
+5. Define alert rules in Grafana matching the M18 list (5xx rate, ECS CPU/mem, RDS CPU, RDS free storage). Route to **Grafana OnCall** → Slack + SMS escalation.
+6. Write a 1-page runbook: alert fires → who acks → what dashboard opens → rollback step. Save as `docs/runbook.md` (tracked as a follow-up to this audit).
+
+### Cost guardrail
+
+The Grafana Free + Sentry Free + Langfuse + Grafana OnCall combination is **$0/month** through design-partner stage and well into Pro-tier paying customers. Spend triggers: Grafana log volume crossing 50 GB/mo (typical at ~50 active users), or Sentry event volume past 5K/mo (typical at ~25 active users with no PII filter). Both are signals to upgrade — not to switch tools.
+
+### What this section is not
+
+It is not a SOC 2 control matrix. The picks are operationally sound; SOC 2 evidence requires a separate audit cycle (CloudTrail + AWS Config in M26/M27 cover the AWS side; Grafana, Sentry, Langfuse all publish their own SOC 2 reports, so the SOC 2 path is not made harder by these picks).
+
+---
+
 ## Repo-level: secret in `.git/config`
 
 Out of Terraform scope but found while auditing: `origin` remote URL embeds a GitHub Personal Access Token (`ghp_…`) in plaintext. Rotate the token, then re-set the remote either with HTTPS-no-token (and use a credential helper) or SSH.
