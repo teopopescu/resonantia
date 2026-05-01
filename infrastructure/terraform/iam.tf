@@ -28,6 +28,46 @@ resource "aws_iam_role_policy_attachment" "ecs_task_execution" {
 }
 
 # ------------------------------------------------------------------------------
+# Secrets-Manager + KMS read for the execution role (B5 in audit).
+#
+# Scoped to the specific secret ARNs created in secrets.tf — never `*` —
+# so a compromised task can read its configured secrets and nothing else.
+# kms:Decrypt is scoped to the customer-managed key only.
+# ------------------------------------------------------------------------------
+resource "aws_iam_role_policy" "ecs_task_execution_secrets" {
+  name = "${var.project_name}-${var.environment}-ecs-execution-secrets"
+  role = aws_iam_role.ecs_task_execution.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "ReadResonantiaSecrets"
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetSecretValue",
+          "secretsmanager:DescribeSecret",
+        ]
+        Resource = [
+          aws_secretsmanager_secret.db_password.arn,
+          aws_secretsmanager_secret.openai_api_key.arn,
+          aws_secretsmanager_secret.clerk_secret_key.arn,
+          aws_secretsmanager_secret.langfuse_public_key.arn,
+          aws_secretsmanager_secret.langfuse_secret_key.arn,
+          aws_secretsmanager_secret.redis_auth.arn,
+        ]
+      },
+      {
+        Sid      = "DecryptSecretsWithCMK"
+        Effect   = "Allow"
+        Action   = ["kms:Decrypt"]
+        Resource = [aws_kms_key.main.arn]
+      },
+    ]
+  })
+}
+
+# ------------------------------------------------------------------------------
 # ECS Task Role — used by the application containers at runtime
 # ------------------------------------------------------------------------------
 resource "aws_iam_role" "ecs_task" {
@@ -79,6 +119,7 @@ resource "aws_iam_role_policy" "ecs_task_logs" {
   name = "${var.project_name}-${var.environment}-ecs-task-logs"
   role = aws_iam_role.ecs_task.id
 
+  # Scoped to our specific log groups (M7 in audit) — never `*`.
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -86,9 +127,12 @@ resource "aws_iam_role_policy" "ecs_task_logs" {
         Effect = "Allow"
         Action = [
           "logs:CreateLogStream",
-          "logs:PutLogEvents"
+          "logs:PutLogEvents",
         ]
-        Resource = "*"
+        Resource = [
+          "${aws_cloudwatch_log_group.backend.arn}:*",
+          "${aws_cloudwatch_log_group.temporal_worker.arn}:*",
+        ]
       }
     ]
   })

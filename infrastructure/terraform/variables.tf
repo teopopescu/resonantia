@@ -85,3 +85,21 @@ variable "redis_node_type" {
   type        = string
   default     = "cache.t3.micro"
 }
+
+variable "acm_certificate_arn" {
+  description = "ARN of an ACM certificate to use on the ALB HTTPS listener. Leave empty to provision one for var.domain_name via DNS validation (validation records must be created out-of-band)."
+  type        = string
+  default     = ""
+}
+
+variable "tf_state_bucket" {
+  description = "S3 bucket holding Terraform remote state. Must be created out-of-band (chicken-and-egg). See infrastructure/README.md for the bootstrap step."
+  type        = string
+  default     = "resonantia-terraform-state"
+}
+
+variable "tf_state_lock_table" {
+  description = "DynamoDB table for Terraform state locking. Must be created out-of-band. See infrastructure/README.md."
+  type        = string
+  default     = "resonantia-terraform-locks"
+}

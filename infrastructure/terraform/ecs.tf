@@ -47,7 +47,8 @@ resource "aws_security_group" "ecs_tasks" {
 # ------------------------------------------------------------------------------
 resource "aws_cloudwatch_log_group" "backend" {
   name              = "/ecs/${var.project_name}-${var.environment}/backend"
-  retention_in_days = 30
+  retention_in_days = 90
+  kms_key_id        = aws_kms_key.main.arn
 
   tags = {
     Name = "${var.project_name}-${var.environment}-backend-logs"
@@ -56,7 +57,8 @@ resource "aws_cloudwatch_log_group" "backend" {
 
 resource "aws_cloudwatch_log_group" "temporal_worker" {
   name              = "/ecs/${var.project_name}-${var.environment}/temporal-worker"
-  retention_in_days = 30
+  retention_in_days = 90
+  kms_key_id        = aws_kms_key.main.arn
 
   tags = {
     Name = "${var.project_name}-${var.environment}-temporal-worker-logs"
@@ -89,17 +91,28 @@ resource "aws_ecs_task_definition" "backend" {
         }
       ]
 
+      # Non-sensitive configuration only. Every credential is loaded
+      # from Secrets Manager via the `secrets` block below (B1 in audit).
       environment = [
-        { name = "DATABASE_URL", value = "postgresql://${var.db_username}:${var.db_password}@${aws_db_instance.main.endpoint}/${aws_db_instance.main.db_name}" },
-        { name = "REDIS_URL", value = "redis://${aws_elasticache_cluster.main.cache_nodes[0].address}:${aws_elasticache_cluster.main.cache_nodes[0].port}" },
-        { name = "OPENAI_API_KEY", value = var.openai_api_key },
-        { name = "CLERK_SECRET_KEY", value = var.clerk_secret_key },
-        { name = "LANGFUSE_PUBLIC_KEY", value = var.langfuse_public_key },
-        { name = "LANGFUSE_SECRET_KEY", value = var.langfuse_secret_key },
+        { name = "DB_HOST", value = aws_db_instance.main.address },
+        { name = "DB_PORT", value = tostring(aws_db_instance.main.port) },
+        { name = "DB_NAME", value = aws_db_instance.main.db_name },
+        { name = "DB_USERNAME", value = var.db_username },
+        { name = "REDIS_HOST", value = aws_elasticache_replication_group.main.primary_endpoint_address },
+        { name = "REDIS_PORT", value = tostring(aws_elasticache_replication_group.main.port) },
         { name = "TEMPORAL_HOST", value = "temporal.${var.project_name}.local:7233" },
         { name = "S3_BUCKET_NAME", value = aws_s3_bucket.uploads.id },
         { name = "AWS_REGION", value = var.aws_region },
         { name = "ENVIRONMENT", value = var.environment },
+      ]
+
+      secrets = [
+        { name = "DB_PASSWORD", valueFrom = aws_secretsmanager_secret.db_password.arn },
+        { name = "OPENAI_API_KEY", valueFrom = aws_secretsmanager_secret.openai_api_key.arn },
+        { name = "CLERK_SECRET_KEY", valueFrom = aws_secretsmanager_secret.clerk_secret_key.arn },
+        { name = "LANGFUSE_PUBLIC_KEY", valueFrom = aws_secretsmanager_secret.langfuse_public_key.arn },
+        { name = "LANGFUSE_SECRET_KEY", valueFrom = aws_secretsmanager_secret.langfuse_secret_key.arn },
+        { name = "REDIS_AUTH_TOKEN", valueFrom = aws_secretsmanager_secret.redis_auth.arn },
       ]
 
       logConfiguration = {
@@ -145,16 +158,25 @@ resource "aws_ecs_task_definition" "temporal_worker" {
       essential = true
 
       environment = [
-        { name = "DATABASE_URL", value = "postgresql://${var.db_username}:${var.db_password}@${aws_db_instance.main.endpoint}/${aws_db_instance.main.db_name}" },
-        { name = "REDIS_URL", value = "redis://${aws_elasticache_cluster.main.cache_nodes[0].address}:${aws_elasticache_cluster.main.cache_nodes[0].port}" },
-        { name = "OPENAI_API_KEY", value = var.openai_api_key },
-        { name = "CLERK_SECRET_KEY", value = var.clerk_secret_key },
-        { name = "LANGFUSE_PUBLIC_KEY", value = var.langfuse_public_key },
-        { name = "LANGFUSE_SECRET_KEY", value = var.langfuse_secret_key },
+        { name = "DB_HOST", value = aws_db_instance.main.address },
+        { name = "DB_PORT", value = tostring(aws_db_instance.main.port) },
+        { name = "DB_NAME", value = aws_db_instance.main.db_name },
+        { name = "DB_USERNAME", value = var.db_username },
+        { name = "REDIS_HOST", value = aws_elasticache_replication_group.main.primary_endpoint_address },
+        { name = "REDIS_PORT", value = tostring(aws_elasticache_replication_group.main.port) },
         { name = "TEMPORAL_HOST", value = "temporal.${var.project_name}.local:7233" },
         { name = "S3_BUCKET_NAME", value = aws_s3_bucket.uploads.id },
         { name = "AWS_REGION", value = var.aws_region },
         { name = "ENVIRONMENT", value = var.environment },
+      ]
+
+      secrets = [
+        { name = "DB_PASSWORD", valueFrom = aws_secretsmanager_secret.db_password.arn },
+        { name = "OPENAI_API_KEY", valueFrom = aws_secretsmanager_secret.openai_api_key.arn },
+        { name = "CLERK_SECRET_KEY", valueFrom = aws_secretsmanager_secret.clerk_secret_key.arn },
+        { name = "LANGFUSE_PUBLIC_KEY", valueFrom = aws_secretsmanager_secret.langfuse_public_key.arn },
+        { name = "LANGFUSE_SECRET_KEY", valueFrom = aws_secretsmanager_secret.langfuse_secret_key.arn },
+        { name = "REDIS_AUTH_TOKEN", valueFrom = aws_secretsmanager_secret.redis_auth.arn },
       ]
 
       logConfiguration = {
@@ -180,8 +202,11 @@ resource "aws_ecs_service" "backend" {
   name            = "${var.project_name}-${var.environment}-backend"
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.backend.arn
-  desired_count   = 1
-  launch_type     = "FARGATE"
+  # Two minimum so a single AZ outage or rolling deploy does not zero
+  # the service (M23 in audit). Auto-scaling on top of this is a
+  # separate Wave-2 add via aws_appautoscaling_target.
+  desired_count = 2
+  launch_type   = "FARGATE"
 
   network_configuration {
     subnets          = aws_subnet.private[*].id
@@ -195,7 +220,9 @@ resource "aws_ecs_service" "backend" {
     container_port   = 8000
   }
 
-  depends_on = [aws_lb_listener.http]
+  # Wait for the HTTPS listener to exist before placing tasks behind
+  # it (the HTTP listener now only redirects).
+  depends_on = [aws_lb_listener.https]
 
   lifecycle {
     ignore_changes = [desired_count]
