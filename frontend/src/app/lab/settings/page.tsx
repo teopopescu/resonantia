@@ -10,8 +10,11 @@ import {
   Loader2,
   Eye,
   EyeOff,
+  Clock,
+  Bell,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { ElabFTWLogo, BenchlingLogo, DotmaticsLogo } from "@/components/icons/integration-logos";
 
 type ConnectionStatus = "connected" | "error" | "unconfigured";
 
@@ -131,11 +134,11 @@ export default function SettingsPage() {
             </h2>
 
             {/* eLabFTW card */}
-            <div className="rounded-2xl border border-border bg-surface overflow-hidden">
+            <div className="rounded-2xl border border-border bg-surface overflow-hidden mb-4">
               <div className="flex items-center justify-between px-5 py-4 border-b border-border">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
-                    <span className="text-sm font-bold text-blue-600">eL</span>
+                    <ElabFTWLogo size={28} />
                   </div>
                   <div>
                     <h3 className="text-sm font-semibold text-charcoal">eLabFTW</h3>
@@ -220,6 +223,108 @@ export default function SettingsPage() {
                   >
                     {saving && <Loader2 size={14} className="animate-spin" />}
                     Save
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Benchling card — Coming Soon */}
+            <div className="rounded-2xl border border-border bg-surface overflow-hidden mb-4 opacity-60 relative">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-[#4B6EF5]/10 flex items-center justify-center">
+                    <BenchlingLogo size={28} />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold text-charcoal">Benchling</h3>
+                    <p className="text-xs text-muted">Sync notebook entries, registry entities, and plate data with your Benchling tenant.</p>
+                  </div>
+                </div>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-500">
+                  <Clock size={12} />
+                  Coming Soon
+                </span>
+              </div>
+              <div className="p-5 space-y-4">
+                <div>
+                  <label className="block text-xs font-medium text-charcoal mb-1">Tenant URL</label>
+                  <input
+                    type="url"
+                    disabled
+                    placeholder="https://yourorg.benchling.com"
+                    className={`${inputClass} opacity-50 cursor-not-allowed`}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-charcoal mb-1">API Key</label>
+                  <input
+                    type="password"
+                    disabled
+                    placeholder="Enter your Benchling API key"
+                    className={`${inputClass} opacity-50 cursor-not-allowed`}
+                  />
+                </div>
+                <div className="flex items-center justify-between pt-1">
+                  <button
+                    disabled
+                    className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium bg-amber text-charcoal rounded-lg opacity-50 cursor-not-allowed"
+                  >
+                    Connect
+                  </button>
+                  <button className="flex items-center gap-1.5 text-xs text-amber hover:text-amber-light transition-colors">
+                    <Bell size={12} />
+                    Notify me
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Dotmatics card — Coming Soon */}
+            <div className="rounded-2xl border border-border bg-surface overflow-hidden opacity-60 relative">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-[#00897B]/10 flex items-center justify-center">
+                    <DotmaticsLogo size={28} />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold text-charcoal">Dotmatics</h3>
+                    <p className="text-xs text-muted">Connect to Dotmatics Browser, Studies, and compound registration.</p>
+                  </div>
+                </div>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-500">
+                  <Clock size={12} />
+                  Coming Soon
+                </span>
+              </div>
+              <div className="p-5 space-y-4">
+                <div>
+                  <label className="block text-xs font-medium text-charcoal mb-1">Server URL</label>
+                  <input
+                    type="url"
+                    disabled
+                    placeholder="https://yourorg.dotmatics.net"
+                    className={`${inputClass} opacity-50 cursor-not-allowed`}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-charcoal mb-1">API Key</label>
+                  <input
+                    type="password"
+                    disabled
+                    placeholder="Enter your Dotmatics API key"
+                    className={`${inputClass} opacity-50 cursor-not-allowed`}
+                  />
+                </div>
+                <div className="flex items-center justify-between pt-1">
+                  <button
+                    disabled
+                    className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium bg-amber text-charcoal rounded-lg opacity-50 cursor-not-allowed"
+                  >
+                    Connect
+                  </button>
+                  <button className="flex items-center gap-1.5 text-xs text-amber hover:text-amber-light transition-colors">
+                    <Bell size={12} />
+                    Notify me
                   </button>
                 </div>
               </div>

@@ -9,11 +9,10 @@ const footerLinks = {
     { label: "About", href: "/about" },
     { label: "Features", href: "#features" },
     { label: "Pricing", href: "/pricing" },
-    { label: "Careers", href: "#careers" },
+    { label: "Request a Feature", href: "/feature-request" },
   ],
   Research: [
     { label: "Blog", href: "/blog" },
-    { label: "Documentation", href: "/blog" },
   ],
 };
 

@@ -355,6 +355,66 @@ async def _get_file_info(params: dict, org_id: str = "org_default") -> dict:
     return {"found": False, "message": f"No file found with id or name matching '{file_id or params.get('filename', '')}'"}
 
 
+async def _read_file_contents(params: dict, org_id: str = "org_default") -> dict:
+    """Read the actual contents of an uploaded file (CSV, TSV, TXT)."""
+    from resonantia.api.files import _file_registry
+    from resonantia.config import get_settings
+    import os
+
+    file_id = params.get("file_id", "")
+    filename = params.get("filename", "")
+
+    # Find the file path
+    path = None
+    matched_file = None
+
+    # Search by ID
+    if file_id and file_id in _file_registry:
+        matched_file = _file_registry[file_id]
+        path = matched_file.get("stored_path") or matched_file.get("path")
+
+    # Search by filename
+    if not path and filename:
+        for f in _file_registry.values():
+            if filename.lower() in f.get("filename", "").lower():
+                matched_file = f
+                path = f.get("path")
+                break
+
+    # Try constructing path from file_id
+    if not path and file_id:
+        settings = get_settings()
+        for ext in [".csv", ".txt", ".tsv", ".xlsx"]:
+            candidate = os.path.join(settings.upload_dir, "files", f"{file_id}{ext}")
+            if os.path.exists(candidate):
+                path = candidate
+                break
+
+    if not path or not os.path.exists(path):
+        return {"error": f"File not found: {file_id or filename}. Use list_files to see available files."}
+
+    # Read the file
+    try:
+        with open(path, "r", errors="replace") as f:
+            content = f.read()
+
+        # Truncate very large files to avoid overwhelming the LLM context
+        max_chars = 8000
+        truncated = len(content) > max_chars
+        if truncated:
+            content = content[:max_chars]
+
+        return {
+            "filename": matched_file.get("filename", os.path.basename(path)) if matched_file else os.path.basename(path),
+            "content": content,
+            "truncated": truncated,
+            "size_bytes": os.path.getsize(path),
+            "lines": content.count("\n") + 1,
+        }
+    except Exception as e:
+        return {"error": f"Could not read file: {str(e)}"}
+
+
 # ---------------------------------------------------------------------------
 # Microscopy tools
 # ---------------------------------------------------------------------------
@@ -811,6 +871,81 @@ async def _calculate_dilution(params: dict, org_id: str = "org_default") -> dict
 
 
 # ---------------------------------------------------------------------------
+# Data processing tools
+# ---------------------------------------------------------------------------
+
+async def _fit_dose_response_tool(params: dict, org_id: str = "org_default") -> dict:
+    """Fit a 4PL dose-response curve and compute IC50."""
+    from resonantia.services.data_processor import fit_dose_response
+    concentrations = params.get("concentrations", [])
+    responses = params.get("responses", [])
+    if not concentrations or not responses:
+        return {"error": "Both 'concentrations' and 'responses' arrays are required."}
+    if len(concentrations) != len(responses):
+        return {"error": f"Array length mismatch: {len(concentrations)} concentrations vs {len(responses)} responses."}
+    try:
+        result = fit_dose_response(concentrations, responses)
+        return result
+    except Exception as e:
+        return {"error": f"Curve fitting failed: {str(e)}"}
+
+
+async def _normalize_plate_tool(params: dict, org_id: str = "org_default") -> dict:
+    """Normalize plate reader data."""
+    from resonantia.services.data_processor import normalize_plate
+    raw_data = params.get("raw_data", [])
+    method = params.get("method", "z-score")
+    if not raw_data:
+        return {"error": "'raw_data' array is required."}
+    try:
+        result = normalize_plate(raw_data, method)
+        return {"normalized_data": result.tolist() if hasattr(result, 'tolist') else list(result), "method": method, "count": len(raw_data)}
+    except Exception as e:
+        return {"error": f"Normalization failed: {str(e)}"}
+
+
+async def _calculate_z_prime_tool(params: dict, org_id: str = "org_default") -> dict:
+    """Calculate Z-prime factor for assay quality."""
+    from resonantia.services.data_processor import calculate_z_prime
+    positive = params.get("positive_values", [])
+    negative = params.get("negative_values", [])
+    if not positive or not negative:
+        return {"error": "Both 'positive_values' and 'negative_values' arrays are required."}
+    try:
+        result = calculate_z_prime(positive, negative)
+        return result
+    except Exception as e:
+        return {"error": f"Z-prime calculation failed: {str(e)}"}
+
+
+async def _qpcr_analysis_tool(params: dict, org_id: str = "org_default") -> dict:
+    """Delta-delta Ct analysis for qPCR data."""
+    ct_values = params.get("ct_values", {})
+    ref_gene = params.get("reference_gene", "GAPDH")
+    control = params.get("control_sample", "Control")
+    if not ct_values:
+        return {"error": "'ct_values' object is required (mapping sample/gene names to Ct value arrays)."}
+    try:
+        results = {}
+        if ref_gene in ct_values:
+            ref_avg = sum(ct_values[ref_gene]) / len(ct_values[ref_gene])
+            control_delta = 0
+            if control in ct_values:
+                control_avg = sum(ct_values[control]) / len(ct_values[control])
+                control_delta = control_avg - ref_avg
+            for sample, cts in ct_values.items():
+                if sample not in (ref_gene,):
+                    avg_ct = sum(cts) / len(cts)
+                    delta_ct = avg_ct - ref_avg
+                    delta_delta_ct = delta_ct - control_delta
+                    fold_change = 2 ** (-delta_delta_ct)
+                    results[sample] = {"avg_ct": round(avg_ct, 2), "delta_ct": round(delta_ct, 2), "delta_delta_ct": round(delta_delta_ct, 2), "fold_change": round(fold_change, 3)}
+        return {"reference_gene": ref_gene, "control_sample": control, "results": results}
+    except Exception as e:
+        return {"error": f"qPCR analysis failed: {str(e)}"}
+
+
+# ---------------------------------------------------------------------------
 # Handler registry
 # ---------------------------------------------------------------------------
 
@@ -834,6 +969,7 @@ TOOL_HANDLERS: dict[str, Any] = {
     # File tools
     "list_files": _list_files,
     "get_file_info": _get_file_info,
+    "read_file_contents": _read_file_contents,
     # ELN tools
     "create_eln_entry": _create_eln_entry,
     "query_eln_entries": _query_eln_entries,
@@ -844,6 +980,11 @@ TOOL_HANDLERS: dict[str, Any] = {
     "query_protocols": _query_protocols,
     "check_protocol_inventory": _check_protocol_inventory,
     "calculate_dilution": _calculate_dilution,
+    # Data processing tools
+    "fit_dose_response": _fit_dose_response_tool,
+    "normalize_plate": _normalize_plate_tool,
+    "calculate_z_prime": _calculate_z_prime_tool,
+    "qpcr_analysis": _qpcr_analysis_tool,
     # Generic
     "design_protocol": _query_experiments,
     "search_literature": _query_experiments,

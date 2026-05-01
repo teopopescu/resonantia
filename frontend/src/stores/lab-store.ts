@@ -25,7 +25,7 @@ interface LabState {
   pendingPrompt: string | null;
   voiceModeActive: boolean;
 
-  fetchConversations: () => Promise<void>;
+  fetchConversations: (clerkUserId?: string) => Promise<void>;
   setActiveConversation: (id: string | null) => void;
   loadConversationMessages: (id: string) => Promise<void>;
   startNewConversation: () => void;
@@ -55,9 +55,18 @@ export const useLabStore = create<LabState>()(
       pendingPrompt: null,
       voiceModeActive: false,
 
-      fetchConversations: async () => {
+      fetchConversations: async (clerkUserId?: string) => {
         try {
-          const data = await api<Conversation[]>("/api/v1/chat/conversations");
+          const uid = clerkUserId || "";
+          if (!uid) return;
+          const raw = await api<any[]>(`/api/v1/chat/conversations?clerk_user_id=${encodeURIComponent(uid)}`);
+          // Map snake_case from API to camelCase
+          const data: Conversation[] = raw.map((c) => ({
+            id: c.id,
+            title: c.title,
+            createdAt: c.created_at || c.createdAt || "",
+            updatedAt: c.updated_at || c.updatedAt || c.created_at || "",
+          }));
           set({ conversations: data });
         } catch (err) {
           console.error("Failed to fetch conversations:", err);
@@ -68,9 +77,15 @@ export const useLabStore = create<LabState>()(
 
       loadConversationMessages: async (id: string) => {
         try {
-          const data = await api<ChatMessage[]>(
+          const raw = await api<any[]>(
             `/api/v1/chat/conversations/${id}/messages`
           );
+          const data: ChatMessage[] = raw.map((m) => ({
+            id: m.id || generateId(),
+            role: m.role,
+            content: m.content || "",
+            timestamp: m.created_at || m.timestamp || new Date().toISOString(),
+          }));
           set({ chatMessages: data, activeConversationId: id });
         } catch (err) {
           console.error("Failed to load conversation messages:", err);
