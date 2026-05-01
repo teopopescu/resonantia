@@ -1,7 +1,8 @@
 "use client";
 
 import { CheckCircle2, XCircle, Loader2, Package } from "lucide-react";
-import { useProtocolStore, type InventoryCheckResult } from "@/stores/protocol-store";
+import { useProtocolStore } from "@/stores/protocol-store";
+import { cn } from "@/lib/utils";
 
 interface InventoryCheckerProps {
   protocolId: string;
@@ -16,49 +17,74 @@ export default function InventoryChecker({ protocolId }: InventoryCheckerProps) 
   const noneAvailable = availableCount === 0 && totalCount > 0;
 
   return (
-    <div className="rounded-xl border border-border bg-surface overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+    <div className="rounded-[5px] border border-line bg-surface overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-line bg-bg">
         <div className="flex items-center gap-2">
-          <Package size={16} className="text-amber" />
-          <h3 className="text-sm font-medium text-charcoal">Inventory Check</h3>
+          <span className="font-mono text-[10px] tracking-[0.04em] uppercase text-brand bg-brand-soft border border-brand/40 rounded-[2px] px-1.5 py-0.5">
+            INV
+          </span>
+          <Package size={14} className="text-brand" />
+          <h3 className="text-[14px] font-semibold tracking-[-0.01em] text-ink">
+            Inventory check
+          </h3>
         </div>
         <button
           onClick={() => checkInventory(protocolId)}
           disabled={loading}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-amber text-charcoal rounded-lg hover:bg-amber-light transition-colors disabled:opacity-60"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium bg-brand text-white rounded-[3px] hover:bg-brand-strong transition-colors disabled:opacity-60"
+          style={{ boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.06)" }}
         >
-          {loading ? <Loader2 size={12} className="animate-spin" /> : <Package size={12} />}
-          Check Inventory
+          {loading ? (
+            <Loader2 size={12} className="animate-spin" />
+          ) : (
+            <Package size={12} />
+          )}
+          Check inventory
         </button>
       </div>
 
       {inventoryCheck && inventoryCheck.length > 0 ? (
         <>
           <div className="overflow-auto">
-            <table className="w-full text-sm">
+            <table className="w-full">
               <thead>
-                <tr className="bg-cream/50">
-                  <th className="text-left px-4 py-2 text-xs font-medium text-muted">Reagent</th>
-                  <th className="text-left px-4 py-2 text-xs font-medium text-muted">Required</th>
-                  <th className="text-left px-4 py-2 text-xs font-medium text-muted">Available</th>
-                  <th className="text-center px-4 py-2 text-xs font-medium text-muted">Status</th>
+                <tr className="bg-bg">
+                  {["reagent", "required", "available", "status"].map((h, i) => (
+                    <th
+                      key={h}
+                      className={cn(
+                        "px-4 py-2.5 border-b border-line font-mono text-[10.5px] font-medium uppercase tracking-[0.06em] text-ink-subtle",
+                        i === 3 ? "text-center" : "text-left"
+                      )}
+                    >
+                      {h}
+                    </th>
+                  ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border/50">
+              <tbody>
                 {inventoryCheck.map((item, i) => (
-                  <tr key={i} className="hover:bg-cream/30 transition-colors">
-                    <td className="px-4 py-2 text-charcoal font-medium">{item.reagent_name}</td>
-                    <td className="px-4 py-2 text-muted">
+                  <tr
+                    key={i}
+                    className="border-b border-line last:border-b-0 hover:bg-bg transition-colors"
+                  >
+                    <td className="px-4 py-2.5 text-[13px] text-ink font-medium">
+                      {item.reagent_name}
+                    </td>
+                    <td className="px-4 py-2.5 font-mono text-[12px] text-ink-muted">
                       {item.required_volume} {item.required_unit}
                     </td>
-                    <td className="px-4 py-2 text-muted">
+                    <td className="px-4 py-2.5 font-mono text-[12px] text-ink-muted">
                       {item.available_volume.toFixed(1)} {item.required_unit}
                     </td>
-                    <td className="px-4 py-2 text-center">
+                    <td className="px-4 py-2.5 text-center">
                       {item.available ? (
-                        <CheckCircle2 size={16} className="text-emerald-500 inline" />
+                        <CheckCircle2
+                          size={14}
+                          className="text-brand inline"
+                        />
                       ) : (
-                        <XCircle size={16} className="text-red-500 inline" />
+                        <XCircle size={14} className="text-mch inline" />
                       )}
                     </td>
                   </tr>
@@ -67,22 +93,23 @@ export default function InventoryChecker({ protocolId }: InventoryCheckerProps) 
             </table>
           </div>
 
-          {/* Summary */}
           <div
-            className={`px-4 py-2.5 border-t text-xs font-medium ${
+            className={cn(
+              "px-4 py-2.5 border-t font-mono text-[11.5px] uppercase tracking-[0.04em]",
               allAvailable
-                ? "bg-emerald-50 text-emerald-700 border-emerald-100"
+                ? "bg-brand-soft text-brand border-brand/30"
                 : noneAvailable
-                ? "bg-red-50 text-red-700 border-red-100"
-                : "bg-amber-50 text-amber-700 border-amber-100"
-            }`}
+                ? "bg-mch-soft text-mch border-mch/30"
+                : "bg-bf-soft text-bf border-bf/30"
+            )}
           >
-            {availableCount} of {totalCount} reagents available
+            <span className="text-ink-subtle">›</span>{" "}
+            {availableCount} / {totalCount} reagents available
           </div>
         </>
       ) : (
-        <div className="px-4 py-8 text-center text-xs text-muted">
-          Click &quot;Check Inventory&quot; to verify reagent availability
+        <div className="px-4 py-8 text-center font-mono text-[11.5px] tracking-[0.02em] uppercase text-ink-subtle">
+          click <span className="text-ink">check inventory</span> to verify reagent availability
         </div>
       )}
     </div>

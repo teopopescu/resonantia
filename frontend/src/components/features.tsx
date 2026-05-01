@@ -1,137 +1,196 @@
 "use client";
 
-import { motion, useInView } from "framer-motion";
-import { useRef } from "react";
-import {
-  LayoutGrid,
-  Microscope,
-  LineChart,
-  FlaskConical,
-  MessageSquare,
-  ShieldCheck,
-} from "lucide-react";
+import { motion } from "framer-motion";
 
-const features = [
+/**
+ * Modules — a system manifest, not a marketing card grid.
+ * Each entry has a mono call-sign, a status, a specs strip, and a tiny
+ * inline telemetry line so the page reads as a spec sheet for the bench.
+ */
+
+type Status = "GA" | "BETA" | "PREVIEW";
+
+const modules: Array<{
+  code: string;
+  title: string;
+  desc: string;
+  status: Status;
+  ver: string;
+  specs: string[];
+  /** small inline telemetry line under the description */
+  telemetry?: string;
+}> = [
   {
-    icon: LayoutGrid,
-    title: "Intelligent Plate Mapping",
-    description:
-      "Source-destination plate design with worklist generation for any liquid handler. Drag, drop, and let AI optimize your layouts.",
+    code: "PLT/01",
+    title: "Plate Mapping",
+    desc:
+      "Source-destination layouts with cherry-pick, serial dilution, and replicate modes. Worklists exported in one click.",
+    status: "GA",
+    ver: "v1.2",
+    specs: ["96 / 384 / 1536", "Echo · STAR · OT-2", "5 tools"],
+    telemetry: "PM-2026-0428 · 63 transfers · 6.3 µL · 00:04:18",
   },
   {
-    icon: Microscope,
-    title: "Microscopy Image Browser",
-    description:
-      "Browse FOV images by well, plate, and channel with smart overlays. Navigate terabytes of imaging data effortlessly.",
+    code: "MIC/02",
+    title: "Microscopy Browser",
+    desc:
+      "Browse FOVs by plate, well, and channel. Smart overlays, side-by-side compare, terabyte-scale lazy loading.",
+    status: "GA",
+    ver: "v1.0",
+    specs: ["DAPI · GFP · mCh · BF", "TIFF · OME-Zarr", "6 fovs/well"],
+    telemetry: "Plate A · row B · 576 images · 1.4 GB",
   },
   {
-    icon: LineChart,
-    title: "Automated Data Processing",
-    description:
-      "Dose-response curves, plate normalization, qPCR analysis — all automated. From raw data to publication-ready figures in seconds.",
+    code: "DAT/03",
+    title: "Data Processing",
+    desc:
+      "4PL dose-response fits, Z-prime QC, plate normalization, ΔΔCt qPCR — all written back to the ELN with provenance.",
+    status: "GA",
+    ver: "v1.1",
+    specs: ["4PL · ΔΔCt · Z-prime", "Z′ = 0.71", "5 tools"],
+    telemetry: "STAUROSPORINE · IC₅₀ 42.3 nM · Hill −1.18",
   },
   {
-    icon: FlaskConical,
-    title: "Sample & Reagent Tracking",
-    description:
-      "Track every lot, every freeze-thaw, every storage location. Full chain of custody with barcode and RFID integration.",
+    code: "INV/04",
+    title: "Sample & Reagent Tracker",
+    desc:
+      "Every lot, every aliquot, every freeze-thaw. Barcode lookup, expiry alerts routed to the right scientist.",
+    status: "GA",
+    ver: "v1.0",
+    specs: ["Barcode · RFID", "Expiry · lot · location", "3 tools"],
+    telemetry: "22 samples · 3 expiring < 30d · sync 02:14 ago",
   },
   {
-    icon: MessageSquare,
-    title: "Natural Language Queries",
-    description:
-      "Ask your data anything. Get tables, figures, and insights conversationally. No SQL required — just plain English.",
+    code: "AGT/05",
+    title: "Agent Console",
+    desc:
+      "Natural-language instructions over 32 tools. Cites every call. Voice mode and a persistent right-rail across the lab.",
+    status: "BETA",
+    ver: "v0.7",
+    specs: ["32 tools · 7 categories", "Voice · plan mode", "Cited traces"],
+    telemetry: "fit_dose_response → IC₅₀ 42.3 nM · 14:32:11",
   },
   {
-    icon: ShieldCheck,
-    title: "Full Activity Logging",
-    description:
-      "Every action, upload, and analysis is timestamped and logged. Transparent history of who did what, when, and with which parameters.",
+    code: "AUD/06",
+    title: "Activity Log",
+    desc:
+      "Every action, parameter, and tool call timestamped and cited. Full audit export, immutable submitted entries.",
+    status: "PREVIEW",
+    ver: "v0.4",
+    specs: ["Timestamped trace", "CSV / JSON export", "Immutable on submit"],
+    telemetry: "108 / 108 tests · last sync 00:42 ago",
   },
 ];
 
-function FeatureCard({
-  feature,
+const statusTone: Record<Status, string> = {
+  GA: "bg-brand-soft text-brand border-brand/40",
+  BETA: "bg-bf-soft text-bf border-bf/40",
+  PREVIEW: "bg-bg-sunk text-ink-muted border-line-strong",
+};
+
+function ModuleRow({
+  m,
   index,
 }: {
-  feature: (typeof features)[number];
+  m: (typeof modules)[number];
   index: number;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const isInView = useInView(ref, { once: true, margin: "-80px" });
-
   return (
     <motion.div
-      ref={ref}
-      initial={{ opacity: 0, y: 40 }}
-      animate={isInView ? { opacity: 1, y: 0 } : {}}
-      transition={{ duration: 0.6, delay: index * 0.1 }}
-      className="group relative p-8 rounded-2xl bg-surface border border-border/60 hover:border-amber/40 transition-all duration-500 hover:shadow-lg hover:shadow-amber/5"
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.45, delay: index * 0.05 }}
+      className="group relative grid grid-cols-1 md:grid-cols-[120px_1fr_240px] gap-x-8 gap-y-4 px-6 lg:px-8 py-7 border-t border-line hover:bg-surface transition-colors"
     >
-      {/* Subtle gradient on hover */}
-      <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-amber/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+      {/* Call-sign + status (left) */}
+      <div className="flex flex-col gap-2">
+        <span className="font-mono text-[11px] tracking-[0.06em] text-ink-subtle uppercase">
+          {m.code}
+        </span>
+        <span
+          className={
+            "inline-flex items-center gap-1.5 self-start px-1.5 py-0.5 rounded-[2px] border font-mono text-[10.5px] font-semibold tracking-[0.04em] uppercase " +
+            statusTone[m.status]
+          }
+        >
+          <span className="inline-block w-[5px] h-[5px] rounded-full bg-current" />
+          {m.status}
+          <span className="opacity-60 normal-case font-normal">· {m.ver}</span>
+        </span>
+      </div>
 
-      <div className="relative">
-        {/* Icon */}
-        <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-cream-dark border border-border/60 mb-5 group-hover:border-amber/30 group-hover:bg-amber/10 transition-all duration-500">
-          <feature.icon
-            size={22}
-            className="text-muted group-hover:text-amber transition-colors duration-500"
-          />
-        </div>
-
-        {/* Title */}
-        <h3 className="font-serif text-lg font-semibold mb-3 text-charcoal">
-          {feature.title}
+      {/* Title + desc (center) */}
+      <div className="min-w-0">
+        <h3 className="text-[20px] font-semibold tracking-[-0.02em] text-ink mb-2 group-hover:text-brand transition-colors">
+          {m.title}
         </h3>
-
-        {/* Description */}
-        <p className="text-sm leading-relaxed text-muted">
-          {feature.description}
+        <p className="text-[14.5px] leading-relaxed text-ink-muted max-w-[60ch]">
+          {m.desc}
         </p>
+        {m.telemetry && (
+          <p className="mt-3 font-mono text-[11px] tracking-[0.02em] text-ink-subtle">
+            <span className="text-brand">›</span> {m.telemetry}
+          </p>
+        )}
+      </div>
+
+      {/* Specs strip (right) */}
+      <div className="flex flex-col gap-1.5 md:items-end">
+        {m.specs.map((s) => (
+          <span
+            key={s}
+            className="font-mono text-[11px] uppercase tracking-[0.04em] text-ink-muted"
+          >
+            {s}
+          </span>
+        ))}
       </div>
     </motion.div>
   );
 }
 
 export function Features() {
-  const headingRef = useRef<HTMLDivElement>(null);
-  const isInView = useInView(headingRef, { once: true, margin: "-80px" });
-
   return (
-    <section id="features" className="relative py-28 lg:py-36">
-      {/* Background */}
-      <div className="absolute inset-0 dot-pattern opacity-40 pointer-events-none" />
-
-      <div className="relative max-w-7xl mx-auto px-6 lg:px-8">
-        {/* Section heading */}
+    <section id="features" className="relative py-24 lg:py-32">
+      <div className="max-w-7xl mx-auto px-6 lg:px-8 mb-12 lg:mb-14">
         <motion.div
-          ref={headingRef}
-          initial={{ opacity: 0, y: 30 }}
-          animate={isInView ? { opacity: 1, y: 0 } : {}}
-          transition={{ duration: 0.7 }}
-          className="max-w-2xl mx-auto text-center mb-16 lg:mb-20"
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
+          className="grid grid-cols-1 lg:grid-cols-[1.15fr_1fr] gap-12 items-end"
         >
-          <span className="inline-block text-xs font-medium uppercase tracking-[0.2em] text-amber mb-4">
-            Platform
-          </span>
-          <h2 className="font-serif text-3xl sm:text-4xl lg:text-5xl font-semibold leading-tight mb-6">
-            The first Agentic Lab
-            <br />
-            Informatics Platform
-          </h2>
-          <p className="text-lg text-muted leading-relaxed">
-            A unified workspace where AI agents and scientists collaborate.
-            Every tool you need, intelligently connected, in one interface.
+          <div>
+            <div className="inline-flex items-center gap-2.5 mb-6 font-mono text-[11px] uppercase tracking-[0.06em] text-ink-muted">
+              <span className="font-semibold text-brand bg-brand-soft border border-brand/40 rounded-[2px] px-1.5 py-0.5">
+                03
+              </span>
+              <span>Modules · system manifest</span>
+            </div>
+            <h2 className="text-3xl sm:text-4xl lg:text-5xl font-semibold leading-[1.05] tracking-[-0.03em] text-ink">
+              Six modules.<br />
+              One <span className="text-brand">surface.</span>
+            </h2>
+          </div>
+          <p className="text-[15.5px] text-ink-muted leading-relaxed max-w-[42ch] md:justify-self-end">
+            Each module is wired into the agent and into the others — your plate
+            map knows the inventory; the curve fitter writes back to the ELN;
+            every action is logged, cited, and exportable.
           </p>
         </motion.div>
+      </div>
 
-        {/* Feature cards grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {features.map((feature, i) => (
-            <FeatureCard key={feature.title} feature={feature} index={i} />
-          ))}
+      {/* The manifest */}
+      <div className="max-w-7xl mx-auto border-b border-line">
+        {/* column header strip — like a CSV preamble */}
+        <div className="hidden md:grid grid-cols-[120px_1fr_240px] gap-x-8 px-6 lg:px-8 py-3 font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-subtle border-t border-line bg-bg">
+          <span>code · status</span>
+          <span>module</span>
+          <span className="md:text-right">specs</span>
         </div>
+
+        {modules.map((m, i) => (
+          <ModuleRow key={m.code} m={m} index={i} />
+        ))}
       </div>
     </section>
   );

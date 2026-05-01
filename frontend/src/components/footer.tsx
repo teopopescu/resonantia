@@ -33,29 +33,17 @@ export function Footer() {
           {/* Brand column */}
           <div className="col-span-2">
             <Link href="/" className="flex items-center gap-2.5 mb-4">
-              <div className="relative w-7 h-7">
-                <svg
-                  viewBox="0 0 32 32"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="w-full h-full"
-                >
-                  <path
-                    d="M8 4C8 4 12 10 16 16C20 22 24 28 24 28"
-                    stroke="#D4A843"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
-                  <path
-                    d="M24 4C24 4 20 10 16 16C12 22 8 28 8 28"
-                    stroke="#1A1A1A"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
-                  <circle cx="16" cy="16" r="2" fill="#D4A843" opacity="0.6" />
-                </svg>
-              </div>
-              <span className="font-serif text-lg font-semibold text-charcoal">
+              <span
+                className="inline-grid grid-cols-2 grid-rows-2 gap-[3px] p-[4px] rounded-[4px] bg-surface border border-line-strong"
+                style={{ width: 26, height: 26 }}
+                aria-hidden="true"
+              >
+                <span className="rounded-full bg-ink-subtle" />
+                <span className="rounded-full bg-ink-subtle" />
+                <span className="rounded-full bg-ink-subtle" />
+                <span className="rounded-full bg-brand" />
+              </span>
+              <span className="text-lg font-semibold tracking-[-0.02em] text-ink">
                 Resonantia
               </span>
             </Link>

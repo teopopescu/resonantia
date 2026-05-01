@@ -98,12 +98,12 @@ export default function PlateView({
   return (
     <div className="relative" ref={containerRef}>
       {label && (
-        <p className="text-xs font-medium text-muted mb-2 uppercase tracking-wider">
+        <p className="font-mono text-[10.5px] font-medium text-ink-subtle mb-2 uppercase tracking-[0.06em]">
           {label}
         </p>
       )}
       <div
-        className="relative bg-surface border border-border rounded-lg p-3 select-none overflow-x-auto"
+        className="relative bg-bg border border-line rounded-[5px] p-3 select-none overflow-x-auto"
         onMouseUp={handleMouseUp}
         onMouseLeave={() => {
           if (isDragging) handleMouseUp();
@@ -194,9 +194,9 @@ export default function PlateView({
                     opacity={isSelected || isDragSel ? 1 : 0.75}
                     stroke={
                       isSelected
-                        ? "#D4A843"
+                        ? "#1F4D3A"
                         : isDragSel
-                          ? "#D4A843"
+                          ? "#1F4D3A"
                           : "transparent"
                     }
                     strokeWidth={isSelected ? 2.5 : isDragSel ? 1.5 : 0}
@@ -211,7 +211,7 @@ export default function PlateView({
                       cy={cy}
                       r={radius + 2}
                       fill="none"
-                      stroke="#D4A843"
+                      stroke="#1F4D3A"
                       strokeWidth={1}
                       opacity={0.5}
                     />
@@ -230,7 +230,7 @@ export default function PlateView({
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 4 }}
               transition={{ duration: 0.12 }}
-              className="absolute z-50 pointer-events-none bg-charcoal text-white text-[11px] leading-tight rounded-md px-2.5 py-1.5 shadow-lg"
+              className="absolute z-50 pointer-events-none bg-ink text-bg text-[11px] font-mono leading-tight rounded-[3px] px-2.5 py-1.5 shadow-md"
               style={{
                 left: tooltip.x,
                 top: tooltip.y,
@@ -259,19 +259,19 @@ export default function PlateView({
 
       {/* Legend */}
       {!compact && (
-        <div className="flex flex-wrap gap-3 mt-3 text-[11px] text-muted">
+        <div className="flex flex-wrap gap-4 mt-3 font-mono text-[10.5px] uppercase tracking-[0.04em] text-ink-muted">
           {(
             [
-              ["empty", "Empty"],
-              ["sample", "Sample"],
-              ["control-positive", "Control (+)"],
-              ["control-negative", "Control (-)"],
-              ["compound", "Compound"],
+              ["empty", "empty"],
+              ["sample", "sample · DAPI"],
+              ["compound", "compound · GFP"],
+              ["control-negative", "control − · mCh"],
+              ["control-positive", "control + · BF"],
             ] as const
           ).map(([type, lbl]) => (
             <span key={type} className="flex items-center gap-1.5">
               <span
-                className="inline-block w-2.5 h-2.5 rounded-full"
+                className="inline-block w-2 h-2 rounded-full"
                 style={{ backgroundColor: wellColor(type) }}
               />
               {lbl}

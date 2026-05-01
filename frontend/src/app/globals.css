@@ -1,27 +1,65 @@
 @import "tailwindcss";
 
-/* ── Custom Theme (Tailwind v4 CSS-based config) ── */
+/* ──────────────────────────────────────────────────────────
+   Resonantia · v4 design tokens (Bench, instrumented · forest)
+   ────────────────────────────────────────────────────────── */
 
 @theme {
-  /* Brand palette */
-  --color-cream: #F5F0EB;
-  --color-cream-dark: #EDE5DC;
-  --color-charcoal: #1A1A1A;
-  --color-charcoal-light: #3A3A3A;
-  --color-amber: #D4A843;
-  --color-amber-light: #E4C06A;
-  --color-amber-dark: #B8922F;
-  --color-muted: #8A8478;
-  --color-border: #D8D0C6;
-  --color-surface: #FDFBF8;
+  /* Foundation: cool stone-grey, NOT cream */
+  --color-bg:           #ECEFE7;   /* page background, stone with faint sage */
+  --color-surface:      #FFFFFF;   /* clean white card */
+  --color-bg-sunk:      #E0E4DA;
+  --color-bg-deep:      #D2D6CB;
 
-  /* Font families */
-  --font-serif: "Playfair Display", "Georgia", serif;
-  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
-  --font-mono: "JetBrains Mono", "Fira Code", monospace;
+  /* Ink */
+  --color-ink:          #131512;
+  --color-ink-muted:    #4F544A;
+  --color-ink-subtle:   #828776;
+
+  /* Hairlines */
+  --color-line:         #CFD3C6;
+  --color-line-strong:  #A4AA99;
+
+  /* Brand: deep forest green */
+  --color-brand:        #1F4D3A;
+  --color-brand-soft:   #D9E5DC;
+  --color-brand-strong: #143527;
+  --color-brand-light:  #2A6649;
+
+  /* Fluorescence channels — used inside product (plate wells, signals) */
+  --color-gfp:          #82B82F;
+  --color-gfp-soft:     #EAF2D6;
+  --color-dapi:         #1F6CA0;
+  --color-dapi-soft:    #D9E7F1;
+  --color-mch:          #C32A55;
+  --color-mch-soft:     #F4DCE3;
+  --color-bf:           #A6711B;
+  --color-bf-soft:      #F1E5C4;
+
+  /* ── Backward-compat aliases ──
+     Old class names (bg-cream, text-charcoal, bg-amber, etc.) keep working
+     and now resolve to the v4 palette. Lets us refactor in stages. */
+  --color-cream:          #ECEFE7;
+  --color-cream-dark:     #E0E4DA;
+  --color-charcoal:       #131512;
+  --color-charcoal-light: #2A2A26;
+  --color-amber:          #1F4D3A;
+  --color-amber-light:    #2A6649;
+  --color-amber-dark:     #143527;
+  --color-muted:          #4F544A;
+  --color-border:         #CFD3C6;
+
+  /* Type — Inter Tight grotesque + JetBrains Mono.
+     The next/font/google variables are wired in app/layout.tsx. */
+  --font-sans:    var(--font-inter-tight), system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: var(--font-inter-tight), system-ui, sans-serif;
+  --font-mono:    var(--font-jetbrains-mono), ui-monospace, "SF Mono", Menlo, monospace;
+  /* font-serif aliased to grotesque too — every old `font-serif` className
+     now renders as Inter Tight, no rewrites needed. */
+  --font-serif:   var(--font-inter-tight), system-ui, sans-serif;
 }
 
-/* ── Base Styles ── */
+/* ── Base ─────────────────────────────────────────────── */
 
 html {
   scroll-behavior: smooth;
@@ -31,66 +69,76 @@ html {
 
 body {
   font-family: var(--font-sans);
-  background-color: var(--color-cream);
-  color: var(--color-charcoal);
-  line-height: 1.7;
+  background-color: var(--color-bg);
+  color: var(--color-ink);
+  line-height: 1.55;
+  letter-spacing: -0.005em;
+  font-feature-settings: "ss01", "cv11", "cv02";
 }
 
-/* Selection color */
 ::selection {
-  background-color: var(--color-amber);
-  color: var(--color-charcoal);
+  background-color: var(--color-brand);
+  color: #FFFFFF;
 }
 
-/* ── Scrollbar ── */
+/* ── Scrollbar ─────────────────────────────────────────── */
 
-::-webkit-scrollbar {
-  width: 8px;
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--color-bg); }
+::-webkit-scrollbar-thumb { background: var(--color-line); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-line-strong); }
+
+/* ── Pulse animation (ticker LEDs, live indicators) ───── */
+
+@keyframes pulse-led {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.45; transform: scale(0.85); }
 }
 
-::-webkit-scrollbar-track {
-  background: var(--color-cream);
+.pulse-led {
+  animation: pulse-led 2.4s ease-in-out infinite;
 }
 
-::-webkit-scrollbar-thumb {
-  background: var(--color-border);
-  border-radius: 4px;
-}
+/* ── Registration crosshair (lab-figure detail) ───────── */
 
-::-webkit-scrollbar-thumb:hover {
-  background: var(--color-muted);
+.reg {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  pointer-events: none;
 }
+.reg::before, .reg::after {
+  content: "";
+  position: absolute;
+  background: var(--color-line-strong);
+}
+.reg::before { width: 12px; height: 1px; top: 5.5px; left: 0; }
+.reg::after  { width: 1px; height: 12px; left: 5.5px; top: 0; }
 
-/* ── Decorative grid pattern ── */
+/* ── Decorative patterns (kept for backward compat) ───── */
 
 .grid-pattern {
   background-image:
-    linear-gradient(rgba(212, 168, 67, 0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(212, 168, 67, 0.05) 1px, transparent 1px);
-  background-size: 60px 60px;
+    linear-gradient(rgba(31, 77, 58, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(31, 77, 58, 0.04) 1px, transparent 1px);
+  background-size: 64px 64px;
 }
-
-/* ── Dot pattern ── */
 
 .dot-pattern {
   background-image: radial-gradient(
     circle,
-    rgba(212, 168, 67, 0.12) 1px,
+    rgba(31, 77, 58, 0.10) 1px,
     transparent 1px
   );
   background-size: 24px 24px;
 }
 
-/* ── Glow effect ── */
-
+/* Old amber-glow / text-gradient kept (now subtly forest-tinted) */
 .amber-glow {
-  box-shadow: 0 0 60px rgba(212, 168, 67, 0.15);
+  box-shadow: 0 0 60px rgba(31, 77, 58, 0.10);
 }
-
-/* ── Text gradient ── */
-
 .text-gradient {
-  background: linear-gradient(135deg, var(--color-charcoal) 0%, var(--color-amber-dark) 100%);
+  background: linear-gradient(135deg, var(--color-ink) 0%, var(--color-brand) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
