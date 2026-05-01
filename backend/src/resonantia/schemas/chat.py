@@ -31,10 +31,24 @@ class ChatRequest(BaseModel):
     )
 
 
+class CriticVerdictView(BaseModel):
+    """Public view of a single critic verdict for the chat response."""
+
+    task_id: str
+    decision: str
+    reason: str = ""
+
+
 class ChatResponse(BaseModel):
     message: str
     conversation_id: str
     tool_calls: list[dict[str, Any]] | None = None
+    routed_to: list[str] | None = Field(
+        None,
+        description="Names of specialist subagents that answered. "
+        "Only set when multi-agent mode is on.",
+    )
+    critic_verdicts: list[CriticVerdictView] | None = None
 
 
 class ChatHistoryResponse(BaseModel):

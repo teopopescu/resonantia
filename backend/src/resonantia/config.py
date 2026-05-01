@@ -28,6 +28,13 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     llm_model: str = "gpt-4o"
 
+    # --- Multi-agent topology ---
+    # When true, chat goes through the orchestrator + specialists + critic
+    # path in services/multi_agent/. When false, the legacy single-agent
+    # loop in services/agent.py serves chat. Default off so existing
+    # demos and tests keep their previous behavior.
+    multi_agent_enabled: bool = False
+
     # --- Clerk ---
     clerk_secret_key: str = ""
 

@@ -31,7 +31,7 @@ from resonantia.schemas.chat import (
     ConversationResponse,
     ConversationMessageResponse,
 )
-from resonantia.services import agent
+from resonantia.services import agent, agent_router
 
 logger = logging.getLogger(__name__)
 
@@ -97,15 +97,21 @@ async def send_message(body: ChatRequest) -> ChatResponse:
             "Temporal unavailable (%s), falling back to direct mode", exc
         )
 
-    # --- Direct fallback ---
-    result = await agent.chat(
+    # --- Direct fallback (multi-agent orchestrator if flag is on) ---
+    result = await agent_router.chat(
         message=body.message,
         conversation_id=conversation_id,
         context=body.context,
         clerk_user_id=clerk_user_id,
         org_id=org_id,
     )
-    return ChatResponse(**result)
+    return ChatResponse(
+        message=result["message"],
+        conversation_id=result["conversation_id"],
+        tool_calls=result.get("tool_calls"),
+        routed_to=result.get("routed_to"),
+        critic_verdicts=result.get("critic_verdicts"),
+    )
 
 
 # ---------------------------------------------------------------------------
