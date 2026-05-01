@@ -1,0 +1,5 @@
+db_password         = "CHANGE_ME"
+openai_api_key      = ""
+clerk_secret_key    = ""
+langfuse_public_key = ""
+langfuse_secret_key = ""
