@@ -104,6 +104,7 @@ async def send_message(body: ChatRequest) -> ChatResponse:
         context=body.context,
         clerk_user_id=clerk_user_id,
         org_id=org_id,
+        attachments=body.attachments,
     )
     return ChatResponse(**result)
 

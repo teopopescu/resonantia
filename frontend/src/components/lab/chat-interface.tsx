@@ -455,6 +455,10 @@ export default function ChatInterface() {
           conversation_id: activeConversationId || "new",
           clerk_user_id: user?.id,
           org_id: activeOrgId,
+          // Image-typed uploads are encoded as vision content blocks
+          // by the backend; non-image files pass through as text URLs
+          // and are read on demand via the read_file_contents tool.
+          attachments: uploadedFiles.length > 0 ? uploadedFiles.map((f) => f.id) : undefined,
         }),
       });
       if (res.ok) {

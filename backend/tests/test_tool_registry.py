@@ -90,7 +90,7 @@ class TestToolSchemaToAnthropic:
 class TestDefaultTools:
     def test_default_tools_count(self):
         tools = _default_tools()
-        assert len(tools) == 32
+        assert len(tools) == 33
 
     def test_default_tools_categories(self):
         tools = _default_tools()

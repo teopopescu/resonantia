@@ -21,13 +21,22 @@ class ChatMessage(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    message: str = Field(..., min_length=1)
+    message: str = Field(..., min_length=1, max_length=32_000)
     conversation_id: str | None = None
     clerk_user_id: str | None = None
     org_id: str | None = None
     context: dict[str, Any] | None = Field(
         None,
         description="Optional context like current plate map, experiment, etc.",
+    )
+    attachments: list[str] | None = Field(
+        None,
+        max_length=10,
+        description="Optional list of file IDs uploaded via /api/v1/files/upload. "
+        "Image-typed files are passed to the agent as vision content blocks. "
+        "Non-image files are referenced as URLs in the message text and "
+        "read on demand via the read_file_contents tool. Capped at 10 IDs; "
+        "the multimodal layer further caps actual image inlining per turn.",
     )
 
 
