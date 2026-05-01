@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { UserButton } from "@clerk/nextjs";
 import { useLabStore } from "@/stores/lab-store";
+import { cn } from "@/lib/utils";
 import {
   MessageSquare,
   LayoutGrid,
@@ -18,39 +19,30 @@ import {
 } from "lucide-react";
 
 const navItems = [
-  { icon: MessageSquare, label: "Chat", href: "/lab", tool: "chat" },
-  { icon: LayoutGrid, label: "Plates", href: "/lab/plates", tool: "plates" },
-  {
-    icon: Eye,
-    label: "Microscopy",
-    href: "/lab/microscopy",
-    tool: "microscopy",
-  },
-  {
-    icon: FlaskConical,
-    label: "Samples",
-    href: "/lab/samples",
-    tool: "samples",
-  },
-  {
-    icon: BookOpen,
-    label: "Notebook",
-    href: "/lab/eln",
-    tool: "eln",
-  },
-  {
-    icon: ClipboardList,
-    label: "Protocols",
-    href: "/lab/protocols",
-    tool: "protocols",
-  },
-  {
-    icon: BarChart3,
-    label: "Processing",
-    href: "/lab/processing",
-    tool: "processing",
-  },
+  { icon: MessageSquare, label: "Console",    href: "/lab",            tool: "chat" },
+  { icon: LayoutGrid,    label: "Plates",     href: "/lab/plates",     tool: "plates" },
+  { icon: Eye,           label: "Microscopy", href: "/lab/microscopy", tool: "microscopy" },
+  { icon: FlaskConical,  label: "Inventory",  href: "/lab/samples",    tool: "samples" },
+  { icon: BookOpen,      label: "Notebook",   href: "/lab/eln",        tool: "eln" },
+  { icon: ClipboardList, label: "Protocols",  href: "/lab/protocols",  tool: "protocols" },
+  { icon: BarChart3,     label: "Processing", href: "/lab/processing", tool: "processing" },
 ];
+
+/** 4-cell illuminated brand mark — same as marketing nav. */
+function BrandMark({ size = 32 }: { size?: number }) {
+  return (
+    <span
+      className="inline-grid grid-cols-2 grid-rows-2 gap-[3px] p-[5px] rounded-[5px] bg-surface border border-line-strong"
+      style={{ width: size, height: size }}
+      aria-hidden="true"
+    >
+      <span className="rounded-full bg-ink-subtle" />
+      <span className="rounded-full bg-ink-subtle" />
+      <span className="rounded-full bg-ink-subtle" />
+      <span className="rounded-full bg-brand" />
+    </span>
+  );
+}
 
 export default function Sidebar() {
   const pathname = usePathname();
@@ -63,13 +55,14 @@ export default function Sidebar() {
   }
 
   return (
-    <aside className="flex flex-col items-center w-14 shrink-0 bg-charcoal py-4 relative z-50">
-      {/* Logo */}
+    <aside className="flex flex-col items-center w-14 shrink-0 bg-bg border-r border-line py-4 relative z-50">
+      {/* Brand mark / Home */}
       <Link
         href="/lab"
-        className="flex items-center justify-center w-9 h-9 rounded-lg bg-amber text-charcoal font-serif font-bold text-lg mb-6 hover:bg-amber-light transition-colors"
+        className="mb-6 transition-opacity hover:opacity-80"
+        title="Resonantia"
       >
-        R
+        <BrandMark size={32} />
       </Link>
 
       {/* Navigation */}
@@ -87,20 +80,24 @@ export default function Sidebar() {
               <Link
                 href={item.href}
                 onClick={() => setActiveTool(item.tool)}
-                className={`flex items-center justify-center w-10 h-10 rounded-lg transition-all duration-150 ${
+                className={cn(
+                  "flex items-center justify-center w-10 h-10 rounded-md transition-colors duration-150",
                   active
-                    ? "bg-amber/20 text-amber"
-                    : "text-white/50 hover:text-white/80 hover:bg-white/5"
-                }`}
+                    ? "bg-brand-soft text-brand"
+                    : "text-ink-muted hover:text-ink hover:bg-bg-sunk"
+                )}
+                style={
+                  active
+                    ? { boxShadow: "inset 0 0 0 1px rgba(31, 77, 58, 0.25)" }
+                    : undefined
+                }
               >
-                <Icon size={20} strokeWidth={active ? 2 : 1.5} />
+                <Icon size={18} strokeWidth={active ? 2 : 1.6} />
               </Link>
 
-              {/* Tooltip */}
               {hoveredItem === item.tool && (
-                <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 bg-charcoal-light text-white text-xs font-medium px-2.5 py-1.5 rounded-md whitespace-nowrap shadow-lg pointer-events-none z-[100]">
+                <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 bg-ink text-bg text-xs font-medium px-2.5 py-1.5 rounded-[3px] whitespace-nowrap shadow-md pointer-events-none z-[100] font-mono tracking-[0.02em]">
                   {item.label}
-                  <div className="absolute right-full top-1/2 -translate-y-1/2 border-4 border-transparent border-r-charcoal-light" />
                 </div>
               )}
             </div>
@@ -117,14 +114,13 @@ export default function Sidebar() {
         >
           <Link
             href="/invite"
-            className="flex items-center justify-center w-10 h-10 rounded-lg text-white/50 hover:text-amber hover:bg-amber/10 transition-all duration-150"
+            className="flex items-center justify-center w-10 h-10 rounded-md text-ink-muted hover:text-brand hover:bg-brand-soft transition-colors"
           >
-            <UserPlus size={20} strokeWidth={1.5} />
+            <UserPlus size={18} strokeWidth={1.6} />
           </Link>
           {hoveredItem === "invite" && (
-            <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 bg-charcoal-light text-white text-xs font-medium px-2.5 py-1.5 rounded-md whitespace-nowrap shadow-lg pointer-events-none z-[100]">
+            <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 bg-ink text-bg text-xs font-medium px-2.5 py-1.5 rounded-[3px] whitespace-nowrap shadow-md pointer-events-none z-[100] font-mono tracking-[0.02em]">
               Invite
-              <div className="absolute right-full top-1/2 -translate-y-1/2 border-4 border-transparent border-r-charcoal-light" />
             </div>
           )}
         </div>
@@ -136,14 +132,13 @@ export default function Sidebar() {
         >
           <Link
             href="/lab/settings"
-            className="flex items-center justify-center w-10 h-10 rounded-lg text-white/50 hover:text-white/80 hover:bg-white/5 transition-all duration-150"
+            className="flex items-center justify-center w-10 h-10 rounded-md text-ink-muted hover:text-ink hover:bg-bg-sunk transition-colors"
           >
-            <Settings size={20} strokeWidth={1.5} />
+            <Settings size={18} strokeWidth={1.6} />
           </Link>
           {hoveredItem === "settings" && (
-            <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 bg-charcoal-light text-white text-xs font-medium px-2.5 py-1.5 rounded-md whitespace-nowrap shadow-lg pointer-events-none z-[100]">
+            <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 bg-ink text-bg text-xs font-medium px-2.5 py-1.5 rounded-[3px] whitespace-nowrap shadow-md pointer-events-none z-[100] font-mono tracking-[0.02em]">
               Settings
-              <div className="absolute right-full top-1/2 -translate-y-1/2 border-4 border-transparent border-r-charcoal-light" />
             </div>
           )}
         </div>
@@ -151,7 +146,7 @@ export default function Sidebar() {
         <UserButton
           appearance={{
             elements: {
-              avatarBox: "w-8 h-8 border-2 border-amber/50",
+              avatarBox: "w-7 h-7 border border-line-strong",
             },
           }}
         />

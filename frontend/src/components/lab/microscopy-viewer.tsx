@@ -111,42 +111,38 @@ export default function MicroscopyViewer({
   return (
     <div className="flex flex-col h-full">
       {/* Channel bar */}
-      <div className="flex items-center gap-2 px-4 py-2.5 bg-surface border-b border-border">
+      <div className="flex items-center gap-1.5 px-4 py-2 bg-bg border-b border-line">
         <button
           onClick={() => setCompositeMode(!compositeMode)}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-[3px] font-mono text-[11px] uppercase tracking-[0.04em] transition-colors ${
             compositeMode
-              ? "bg-charcoal text-white"
-              : "bg-cream-dark text-charcoal hover:bg-border"
+              ? "bg-brand-soft text-brand border border-brand/30"
+              : "bg-surface text-ink-muted border border-line hover:border-line-strong hover:text-ink"
           }`}
         >
-          <Layers size={14} />
-          Composite
+          <Layers size={12} />
+          composite
         </button>
-        <div className="w-px h-5 bg-border mx-1" />
+        <div className="w-px h-4 bg-line mx-1" />
         {CHANNELS.map((ch) => (
           <button
             key={ch.id}
             onClick={() => toggleChannel(ch.id)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-              activeChannels.includes(ch.id)
-                ? "ring-1 ring-offset-1 ring-offset-surface"
-                : "opacity-50 hover:opacity-80"
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-[3px] font-mono text-[11px] uppercase tracking-[0.04em] transition-all ${
+              activeChannels.includes(ch.id) ? "" : "opacity-50 hover:opacity-80"
             }`}
             style={{
               backgroundColor: activeChannels.includes(ch.id)
-                ? `${ch.color}20`
+                ? `${ch.color}1F`
                 : undefined,
-              color: activeChannels.includes(ch.id)
-                ? ch.color
-                : "var(--color-muted)",
+              color: activeChannels.includes(ch.id) ? ch.color : "var(--color-ink-muted)",
               boxShadow: activeChannels.includes(ch.id)
-                ? `0 0 0 1px ${ch.color}`
-                : undefined,
+                ? `inset 0 0 0 1px ${ch.color}`
+                : "inset 0 0 0 1px var(--color-line)",
             }}
           >
             <span
-              className="w-2 h-2 rounded-full"
+              className="w-1.5 h-1.5 rounded-full"
               style={{ backgroundColor: ch.color }}
             />
             {ch.label}
@@ -156,38 +152,38 @@ export default function MicroscopyViewer({
         <div className="flex-1" />
 
         {/* Zoom controls */}
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-0.5">
           <button
             onClick={handleZoomOut}
-            className="p-1.5 rounded-md hover:bg-cream-dark text-muted hover:text-charcoal transition-colors"
+            className="p-1.5 rounded-[3px] hover:bg-bg-sunk text-ink-muted hover:text-ink transition-colors"
           >
-            <ZoomOut size={16} />
+            <ZoomOut size={14} />
           </button>
-          <span className="text-xs font-mono text-muted w-12 text-center">
+          <span className="font-mono text-[11px] tracking-[0.02em] text-ink-subtle w-11 text-center">
             {Math.round(zoom * 100)}%
           </span>
           <button
             onClick={handleZoomIn}
-            className="p-1.5 rounded-md hover:bg-cream-dark text-muted hover:text-charcoal transition-colors"
+            className="p-1.5 rounded-[3px] hover:bg-bg-sunk text-ink-muted hover:text-ink transition-colors"
           >
-            <ZoomIn size={16} />
+            <ZoomIn size={14} />
           </button>
           <button
             onClick={handleResetZoom}
-            className="p-1.5 rounded-md hover:bg-cream-dark text-muted hover:text-charcoal transition-colors"
+            className="p-1.5 rounded-[3px] hover:bg-bg-sunk text-ink-muted hover:text-ink transition-colors"
           >
-            <Maximize2 size={16} />
+            <Maximize2 size={14} />
           </button>
-          <div className="w-px h-5 bg-border mx-1" />
+          <div className="w-px h-4 bg-line mx-1" />
           <button
             onClick={() => setShowInfo(!showInfo)}
-            className={`p-1.5 rounded-md transition-colors ${
+            className={`p-1.5 rounded-[3px] transition-colors ${
               showInfo
-                ? "bg-amber/20 text-amber"
-                : "hover:bg-cream-dark text-muted hover:text-charcoal"
+                ? "bg-brand-soft text-brand"
+                : "hover:bg-bg-sunk text-ink-muted hover:text-ink"
             }`}
           >
-            <Info size={16} />
+            <Info size={14} />
           </button>
         </div>
       </div>
@@ -219,74 +215,53 @@ export default function MicroscopyViewer({
         <button
           onClick={onPrevFov}
           disabled={fov <= 1}
-          className="absolute left-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/50 text-white/80 hover:bg-black/70 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all backdrop-blur-sm"
+          className="absolute left-3 top-1/2 -translate-y-1/2 p-2 rounded-[3px] bg-black/55 text-white/80 hover:bg-black/75 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all backdrop-blur-sm"
         >
-          <ChevronLeft size={20} />
+          <ChevronLeft size={18} />
         </button>
         <button
           onClick={onNextFov}
           disabled={fov >= totalFov}
-          className="absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/50 text-white/80 hover:bg-black/70 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all backdrop-blur-sm"
+          className="absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-[3px] bg-black/55 text-white/80 hover:bg-black/75 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all backdrop-blur-sm"
         >
-          <ChevronRight size={20} />
+          <ChevronRight size={18} />
         </button>
 
         {/* Scale bar */}
-        <div className="absolute bottom-4 left-4 flex items-end gap-2">
-          <div className="flex flex-col items-start">
-            <div className="w-20 h-0.5 bg-white" />
-            <span className="text-white/70 text-[10px] font-mono mt-0.5">
-              100 um
-            </span>
-          </div>
+        <div className="absolute bottom-4 left-4 flex flex-col items-start">
+          <div className="w-20 h-0.5 bg-white" />
+          <span className="text-white/70 text-[10px] font-mono mt-1 tracking-[0.04em] uppercase">
+            100 µm
+          </span>
         </div>
 
         {/* Info overlay */}
         {showInfo && (
-          <div className="absolute top-4 left-4 bg-black/60 backdrop-blur-md rounded-lg p-3 text-white/90 text-xs font-mono space-y-1 min-w-[180px]">
-            <div className="text-amber font-semibold text-[11px] mb-1.5">
-              Acquisition Info
+          <div className="absolute top-4 left-4 bg-black/65 backdrop-blur-md rounded-[3px] p-3 text-white/90 font-mono text-[11px] space-y-1 min-w-[200px]">
+            <div className="text-brand font-semibold text-[10.5px] uppercase tracking-[0.06em] mb-1.5">
+              <span className="text-brand">›</span> acquisition
             </div>
-            <div className="flex justify-between">
-              <span className="text-white/50">Plate</span>
-              <span>{plateName}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-white/50">Well</span>
-              <span>{wellLabel}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-white/50">FOV</span>
-              <span>
-                {fov} / {totalFov}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-white/50">Objective</span>
-              <span>20x</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-white/50">Exposure</span>
-              <span>200 ms</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-white/50">Gain</span>
-              <span>1.0</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-white/50">Pixels</span>
-              <span>512 x 512</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-white/50">Scale</span>
-              <span>0.65 um/px</span>
-            </div>
+            {[
+              ["plate", plateName],
+              ["well", wellLabel],
+              ["fov", `${fov} / ${totalFov}`],
+              ["objective", "20×"],
+              ["exposure", "200 ms"],
+              ["gain", "1.0"],
+              ["pixels", "512 × 512"],
+              ["scale", "0.65 µm/px"],
+            ].map(([k, v]) => (
+              <div key={k} className="flex justify-between gap-3">
+                <span className="text-white/45 uppercase tracking-[0.04em]">{k}</span>
+                <span>{v}</span>
+              </div>
+            ))}
           </div>
         )}
 
         {/* Well / FOV badge */}
-        <div className="absolute top-4 right-4 bg-black/50 backdrop-blur-sm rounded-md px-3 py-1.5 text-white/90 text-xs font-mono">
-          {wellLabel} &middot; FOV {fov}
+        <div className="absolute top-4 right-4 bg-black/55 backdrop-blur-sm rounded-[3px] px-2.5 py-1 text-white/90 font-mono text-[11px] tracking-[0.04em] uppercase">
+          {wellLabel} · FOV {fov}
         </div>
       </div>
     </div>

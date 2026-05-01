@@ -89,12 +89,19 @@ export default function LabLayout({ children }: { children: React.ReactNode }) {
   // Loading state while checking
   if (checking || !isLoaded || !orgLoaded) {
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-cream">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-charcoal flex items-center justify-center">
-            <span className="text-amber font-serif text-lg font-bold">R</span>
-          </div>
-          <div className="w-5 h-5 border-2 border-amber/30 border-t-amber rounded-full animate-spin" />
+      <div className="flex h-screen w-screen items-center justify-center bg-bg">
+        <div className="flex flex-col items-center gap-5">
+          <span
+            className="inline-grid grid-cols-2 grid-rows-2 gap-[3px] p-[5px] rounded-[5px] bg-surface border border-line-strong"
+            style={{ width: 36, height: 36 }}
+            aria-hidden="true"
+          >
+            <span className="rounded-full bg-ink-subtle" />
+            <span className="rounded-full bg-ink-subtle" />
+            <span className="rounded-full bg-ink-subtle" />
+            <span className="rounded-full bg-brand" />
+          </span>
+          <div className="w-4 h-4 border-2 border-line border-t-brand rounded-full animate-spin" />
         </div>
       </div>
     );
@@ -103,26 +110,39 @@ export default function LabLayout({ children }: { children: React.ReactNode }) {
   // No organization — user has no access
   if (!organization && orgLoaded && isLoaded) {
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-cream">
-        <div className="flex flex-col items-center gap-4 max-w-md text-center px-6">
-          <div className="w-16 h-16 rounded-2xl bg-charcoal flex items-center justify-center mb-2">
-            <span className="text-amber font-serif text-2xl font-bold">R</span>
-          </div>
-          <h1 className="font-serif text-2xl font-semibold text-charcoal">
+      <div className="flex h-screen w-screen items-center justify-center bg-bg">
+        <div className="flex flex-col items-center gap-5 max-w-md text-center px-6">
+          <span
+            className="inline-grid grid-cols-2 grid-rows-2 gap-[3px] p-[6px] rounded-[5px] bg-surface border border-line-strong"
+            style={{ width: 44, height: 44 }}
+            aria-hidden="true"
+          >
+            <span className="rounded-full bg-ink-subtle" />
+            <span className="rounded-full bg-ink-subtle" />
+            <span className="rounded-full bg-ink-subtle" />
+            <span className="rounded-full bg-brand" />
+          </span>
+          <h1 className="text-2xl font-semibold tracking-[-0.02em] text-ink">
             No access
           </h1>
-          <p className="text-muted leading-relaxed">
+          <p className="text-ink-muted leading-relaxed text-[15px]">
             You need to be part of an organization to access Resonantia Lab.
             Ask your administrator for an invitation, or contact us at{" "}
-            <a href="mailto:hello@resonantia.io" className="text-amber hover:underline">
+            <a
+              href="mailto:hello@resonantia.io"
+              className="text-brand hover:underline underline-offset-2"
+            >
               hello@resonantia.io
             </a>
+            .
           </p>
           <a
             href="/"
-            className="mt-4 px-6 py-2.5 bg-charcoal text-cream text-sm font-medium rounded-xl hover:bg-charcoal-light transition-colors"
+            className="mt-2 inline-flex items-center gap-2 px-5 py-2.5 bg-brand text-white text-sm font-medium rounded-[3px] hover:bg-brand-strong transition-colors"
+            style={{ boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.06)" }}
           >
             Back to home
+            <span className="font-mono text-[14px] leading-none">→</span>
           </a>
         </div>
       </div>
@@ -130,7 +150,7 @@ export default function LabLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-cream">
+    <div className="flex h-screen w-screen overflow-hidden bg-bg">
       {/* Icon sidebar */}
       <Sidebar />
 
@@ -141,7 +161,7 @@ export default function LabLayout({ children }: { children: React.ReactNode }) {
       {sidebarCollapsed && (
         <button
           onClick={toggleSidebar}
-          className="shrink-0 flex items-center justify-center w-5 bg-surface border-r border-border text-muted hover:text-charcoal transition-colors"
+          className="shrink-0 flex items-center justify-center w-5 bg-bg border-r border-line text-ink-muted hover:text-ink transition-colors"
         >
           <ChevronRight size={14} />
         </button>

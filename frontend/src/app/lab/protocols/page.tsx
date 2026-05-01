@@ -2,26 +2,40 @@
 
 import { useMemo, useState } from "react";
 import {
-  ClipboardList,
   Plus,
-  FileText,
-  BookTemplate,
-  Globe,
   ChevronRight,
   Send,
   Copy,
   X,
 } from "lucide-react";
-import { useProtocolStore, type Protocol, type ProtocolStatus } from "@/stores/protocol-store";
+import { useProtocolStore, type ProtocolStatus } from "@/stores/protocol-store";
 import ProtocolStepBuilder from "@/components/lab/protocol-step-builder";
 import InventoryChecker from "@/components/lab/inventory-checker";
 import DilutionCalculator from "@/components/lab/dilution-calculator";
+import {
+  PageHeader,
+  PageHeaderPrimary,
+} from "@/components/lab/primitives/page-header";
+import { KpiStrip, Kpi } from "@/components/lab/primitives/kpi-strip";
+import { Chip } from "@/components/lab/primitives/data-table";
+import { cn } from "@/lib/utils";
 
-const STATUS_CONFIG: Record<ProtocolStatus, { label: string; color: string; bg: string }> = {
-  draft: { label: "Draft", color: "text-amber-700", bg: "bg-amber-50" },
-  published: { label: "Published", color: "text-emerald-700", bg: "bg-emerald-50" },
-  archived: { label: "Archived", color: "text-gray-600", bg: "bg-gray-100" },
+const STATUS_TONE: Record<ProtocolStatus, "default" | "brand" | "bf"> = {
+  draft: "bf",
+  published: "brand",
+  archived: "default",
 };
+
+const inputBase =
+  "w-full px-3 py-2 rounded-[3px] border border-line bg-bg text-[13px] text-ink focus:outline-none focus:border-brand/40 transition-colors placeholder:text-ink-subtle";
+
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <label className="block font-mono text-[10.5px] font-medium uppercase tracking-[0.06em] text-ink-subtle mb-1.5">
+      {children}
+    </label>
+  );
+}
 
 export default function ProtocolsPage() {
   const {
@@ -31,20 +45,24 @@ export default function ProtocolsPage() {
     createProtocol,
     publishProtocol,
     newVersion,
-    loading,
   } = useProtocolStore();
 
   const [showNewForm, setShowNewForm] = useState(false);
   const [newName, setNewName] = useState("");
   const [newDescription, setNewDescription] = useState("");
   const [newIsTemplate, setNewIsTemplate] = useState(false);
-  const [activeTab, setActiveTab] = useState<"steps" | "inventory" | "dilution">("steps");
+  const [activeTab, setActiveTab] =
+    useState<"steps" | "inventory" | "dilution">("steps");
 
-  const stats = useMemo(() => ({
-    total: protocols.length,
-    templates: protocols.filter((p) => p.is_template).length,
-    published: protocols.filter((p) => p.status === "published").length,
-  }), [protocols]);
+  const stats = useMemo(
+    () => ({
+      total: protocols.length,
+      templates: protocols.filter((p) => p.is_template).length,
+      published: protocols.filter((p) => p.status === "published").length,
+      drafts: protocols.filter((p) => p.status === "draft").length,
+    }),
+    [protocols]
+  );
 
   const activeProtocol = protocols.find((p) => p.id === activeProtocolId);
 
@@ -61,105 +79,156 @@ export default function ProtocolsPage() {
   }
 
   return (
-    <div className="flex flex-col h-full bg-cream">
-      {/* Header */}
-      <div className="px-6 py-4 bg-surface border-b border-border">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-amber/15 flex items-center justify-center">
-              <ClipboardList size={18} className="text-amber" />
-            </div>
-            <div>
-              <h1 className="text-lg font-semibold text-charcoal">Protocol Builder</h1>
-              <p className="text-xs text-muted">Create, manage, and version lab protocols</p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
+    <div className="flex flex-col h-full bg-bg">
+      <PageHeader
+        marker="08"
+        markerLabel="Protocols · builder"
+        title={activeProtocol ? activeProtocol.name : "Protocol Builder"}
+        meta={
+          activeProtocol ? (
+            <>
+              v{activeProtocol.version} ·{" "}
+              <em
+                className="not-italic"
+                style={{
+                  color:
+                    activeProtocol.status === "published"
+                      ? "var(--color-brand)"
+                      : "var(--color-bf)",
+                }}
+              >
+                {activeProtocol.status}
+              </em>{" "}
+              · {activeProtocol.steps.length} steps
+            </>
+          ) : (
+            <>
+              {protocols.length} protocols · {stats.published} published ·{" "}
+              {stats.templates} templates
+            </>
+          )
+        }
+      >
+        {activeProtocol ? (
+          <>
             <button
-              onClick={() => setShowNewForm(true)}
-              className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium bg-amber text-charcoal rounded-lg hover:bg-amber-light transition-colors"
+              onClick={() => setActiveProtocol(null)}
+              className="px-3 py-2 text-[13px] font-medium text-ink-muted hover:text-ink transition-colors"
             >
-              <Plus size={15} />
-              New Protocol
+              ← Back
             </button>
-          </div>
-        </div>
-      </div>
+            {activeProtocol.status === "draft" && (
+              <PageHeaderPrimary onClick={() => publishProtocol(activeProtocol.id)}>
+                <Send size={13} />
+                Publish
+              </PageHeaderPrimary>
+            )}
+            {activeProtocol.status === "published" && (
+              <button
+                onClick={() => newVersion(activeProtocol.id)}
+                className="inline-flex items-center gap-2 px-3 py-2 text-[13px] font-medium text-ink border border-line-strong rounded-[3px] hover:border-ink hover:bg-surface transition-colors"
+              >
+                <Copy size={13} />
+                New version
+              </button>
+            )}
+          </>
+        ) : (
+          <PageHeaderPrimary onClick={() => setShowNewForm(true)}>
+            <Plus size={14} />
+            New protocol
+          </PageHeaderPrimary>
+        )}
+      </PageHeader>
 
-      {/* Dashboard cards */}
-      <div className="px-6 py-4 grid grid-cols-3 gap-4">
-        <DashCard
-          icon={<FileText size={18} className="text-amber" />}
-          label="Total Protocols"
-          value={stats.total}
-          bg="bg-amber/10"
-        />
-        <DashCard
-          icon={<BookTemplate size={18} className="text-blue-600" />}
-          label="Templates"
-          value={stats.templates}
-          bg="bg-blue-50"
-        />
-        <DashCard
-          icon={<Globe size={18} className="text-emerald-600" />}
-          label="Published"
-          value={stats.published}
-          bg="bg-emerald-50"
-        />
-      </div>
-
-      {/* New protocol form below */}
+      {!activeProtocol && (
+        <KpiStrip columns={4}>
+          <Kpi
+            label="total"
+            value={String(stats.total).padStart(2, "0")}
+            delta="all protocols"
+          />
+          <Kpi
+            label="published"
+            value={String(stats.published).padStart(2, "0")}
+            delta="active versions"
+            tone="brand"
+          />
+          <Kpi
+            label="drafts"
+            value={String(stats.drafts).padStart(2, "0")}
+            delta={stats.drafts > 0 ? "in progress" : "none"}
+            tone="bf"
+          />
+          <Kpi
+            label="templates"
+            value={String(stats.templates).padStart(2, "0")}
+            delta="reusable starting points"
+            tone="dapi"
+          />
+        </KpiStrip>
+      )}
 
       {/* New protocol form */}
       {showNewForm && (
-        <div className="mx-6 mb-4 bg-surface rounded-xl border border-amber/30 shadow-sm overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-            <h2 className="text-sm font-semibold text-charcoal">New Protocol</h2>
-            <button onClick={() => setShowNewForm(false)} className="p-1 text-muted hover:text-charcoal">
+        <div className="mx-6 mt-4 mb-2 bg-surface border border-brand/30 rounded-[5px] overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-line bg-bg">
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-[10px] font-semibold tracking-[0.04em] uppercase text-brand bg-brand-soft border border-brand/40 rounded-[2px] px-1.5 py-0.5">
+                NEW
+              </span>
+              <h2 className="text-[14px] font-semibold tracking-[-0.01em] text-ink">
+                New protocol
+              </h2>
+            </div>
+            <button
+              onClick={() => setShowNewForm(false)}
+              className="p-1 rounded-[3px] text-ink-muted hover:text-ink hover:bg-bg-sunk transition-colors"
+            >
               <X size={16} />
             </button>
           </div>
           <div className="p-4 space-y-3">
             <div>
-              <label className="block text-xs font-medium text-charcoal mb-1">Name</label>
+              <FieldLabel>name</FieldLabel>
               <input
                 type="text"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
-                placeholder="Protocol name..."
-                className="w-full px-3 py-2 rounded-xl border border-border bg-surface text-sm text-charcoal focus:outline-none focus:border-amber/40"
+                placeholder="protocol name…"
+                className={inputBase}
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-charcoal mb-1">Description</label>
+              <FieldLabel>description</FieldLabel>
               <textarea
                 value={newDescription}
                 onChange={(e) => setNewDescription(e.target.value)}
-                placeholder="Protocol description..."
+                placeholder="protocol description…"
                 rows={2}
-                className="w-full px-3 py-2 rounded-xl border border-border bg-surface text-sm text-charcoal focus:outline-none focus:border-amber/40 resize-none"
+                className={cn(inputBase, "resize-none")}
               />
             </div>
-            <label className="flex items-center gap-2 text-sm text-charcoal cursor-pointer">
+            <label className="flex items-center gap-2 font-mono text-[12px] uppercase tracking-[0.04em] text-ink-muted cursor-pointer">
               <input
                 type="checkbox"
                 checked={newIsTemplate}
                 onChange={(e) => setNewIsTemplate(e.target.checked)}
-                className="rounded border-border text-amber focus:ring-amber"
+                className="rounded-[2px] border-line-strong text-brand focus:ring-brand/30 accent-brand"
               />
-              Save as template
+              save as template
             </label>
-            <div className="flex items-center gap-2 pt-1">
+            <div className="flex items-center gap-2 pt-2 border-t border-line">
               <button
                 onClick={handleCreate}
-                className="px-4 py-2 text-sm font-medium bg-amber text-charcoal rounded-lg hover:bg-amber-light transition-colors"
+                className="inline-flex items-center gap-2 px-3.5 py-2 text-[13px] font-medium bg-brand text-white rounded-[3px] hover:bg-brand-strong transition-colors"
+                style={{ boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.06)" }}
               >
-                Create Protocol
+                Create protocol
               </button>
               <button
                 onClick={() => setShowNewForm(false)}
-                className="px-4 py-2 text-sm text-muted hover:text-charcoal rounded-lg border border-border transition-colors"
+                className="px-3 py-2 text-[13px] text-ink-muted hover:text-ink transition-colors"
               >
                 Cancel
               </button>
@@ -168,164 +237,110 @@ export default function ProtocolsPage() {
         </div>
       )}
 
-      {/* Protocol list or step builder */}
-      <div className="flex-1 mx-6 mb-6 bg-surface rounded-xl border border-border overflow-hidden flex flex-col">
+      {/* Body */}
+      <div className="flex-1 mx-6 my-4 bg-surface border border-line rounded-[5px] overflow-hidden flex flex-col min-h-0">
         {activeProtocol ? (
           <>
-            {/* Protocol detail header */}
-            <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => setActiveProtocol(null)}
-                  className="text-xs text-muted hover:text-charcoal transition-colors"
-                >
-                  Protocols
-                </button>
-                <ChevronRight size={12} className="text-muted" />
-                <span className="text-sm font-medium text-charcoal">{activeProtocol.name}</span>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-cream text-muted border border-border">
-                  v{activeProtocol.version}
-                </span>
-                <span
-                  className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${STATUS_CONFIG[activeProtocol.status].bg} ${STATUS_CONFIG[activeProtocol.status].color}`}
-                >
-                  {STATUS_CONFIG[activeProtocol.status].label}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                {activeProtocol.status === "draft" && (
+            <div className="px-4 py-2 border-b border-line flex items-center gap-1">
+              {(["steps", "inventory", "dilution"] as const).map((tab) => {
+                const isOn = activeTab === tab;
+                return (
                   <button
-                    onClick={() => publishProtocol(activeProtocol.id)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors"
+                    key={tab}
+                    onClick={() => setActiveTab(tab)}
+                    className={cn(
+                      "px-3 py-1.5 font-mono text-[11.5px] uppercase tracking-[0.04em] rounded-[3px] transition-colors",
+                      isOn
+                        ? "bg-brand-soft text-brand"
+                        : "text-ink-muted hover:text-ink hover:bg-bg"
+                    )}
                   >
-                    <Send size={12} />
-                    Publish
+                    {tab === "dilution" ? "dilution calc" : tab}
                   </button>
-                )}
-                {activeProtocol.status === "published" && (
-                  <button
-                    onClick={() => newVersion(activeProtocol.id)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-muted hover:text-charcoal rounded-lg border border-border transition-colors"
-                  >
-                    <Copy size={12} />
-                    New Version
-                  </button>
-                )}
-              </div>
+                );
+              })}
             </div>
 
-            {/* Tabs */}
-            <div className="px-4 py-2 border-b border-border flex items-center gap-4">
-              {(["steps", "inventory", "dilution"] as const).map((tab) => (
-                <button
-                  key={tab}
-                  onClick={() => setActiveTab(tab)}
-                  className={`text-xs font-medium pb-1 border-b-2 transition-colors ${
-                    activeTab === tab
-                      ? "text-charcoal border-amber"
-                      : "text-muted border-transparent hover:text-charcoal"
-                  }`}
-                >
-                  {tab === "steps" ? "Steps" : tab === "inventory" ? "Inventory" : "Dilution Calculator"}
-                </button>
-              ))}
-            </div>
-
-            {/* Tab content */}
             <div className="flex-1 overflow-auto p-4">
               {activeTab === "steps" && (
-                <ProtocolStepBuilder protocolId={activeProtocol.id} steps={activeProtocol.steps} />
+                <ProtocolStepBuilder
+                  protocolId={activeProtocol.id}
+                  steps={activeProtocol.steps}
+                />
               )}
-              {activeTab === "inventory" && <InventoryChecker protocolId={activeProtocol.id} />}
+              {activeTab === "inventory" && (
+                <InventoryChecker protocolId={activeProtocol.id} />
+              )}
               {activeTab === "dilution" && <DilutionCalculator />}
             </div>
           </>
         ) : (
           <>
-            <div className="px-4 py-3 border-b border-border">
-              <h2 className="text-sm font-medium text-charcoal">Protocols</h2>
+            <div className="px-4 py-2.5 border-b border-line bg-bg flex items-center justify-between">
+              <span className="font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-subtle">
+                <span className="text-brand">›</span> protocols
+              </span>
+              <span className="font-mono text-[11px] uppercase tracking-[0.02em] text-ink-subtle">
+                {protocols.length} total
+              </span>
             </div>
 
-            <div className="flex-1 overflow-auto divide-y divide-border/50">
-              {protocols.map((protocol) => {
-                const statusCfg = STATUS_CONFIG[protocol.status];
-                return (
-                  <button
-                    key={protocol.id}
-                    onClick={() => setActiveProtocol(protocol.id)}
-                    className="w-full flex items-center gap-4 px-4 py-3 hover:bg-cream/30 transition-colors text-left"
-                  >
-                    <div className="w-8 h-8 rounded-lg bg-amber/10 flex items-center justify-center shrink-0">
-                      <ClipboardList size={14} className="text-amber" />
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-charcoal truncate">{protocol.name}</span>
-                        <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-cream text-muted border border-border">
-                          v{protocol.version}
-                        </span>
-                      </div>
-                      <p className="text-xs text-muted mt-0.5 truncate">{protocol.description}</p>
-                    </div>
-
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span className="text-xs text-muted">{protocol.steps.length} steps</span>
-                      {protocol.is_template && (
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-50 text-blue-700">
-                          Template
-                        </span>
-                      )}
-                      <span
-                        className={`px-2.5 py-1 rounded-full text-xs font-medium ${statusCfg.bg} ${statusCfg.color}`}
-                      >
-                        {statusCfg.label}
+            <div className="flex-1 overflow-auto">
+              {protocols.map((protocol, idx) => (
+                <button
+                  key={protocol.id}
+                  onClick={() => setActiveProtocol(protocol.id)}
+                  className={cn(
+                    "w-full flex items-center gap-4 px-4 py-3 hover:bg-bg transition-colors text-left",
+                    idx > 0 && "border-t border-line"
+                  )}
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[13.5px] font-medium text-ink truncate">
+                        {protocol.name}
+                      </span>
+                      <span className="font-mono text-[10px] tracking-[0.04em] uppercase text-ink-subtle border border-line rounded-[2px] px-1 py-px">
+                        v{protocol.version}
                       </span>
                     </div>
+                    <p className="font-mono text-[11px] tracking-[0.02em] text-ink-subtle mt-1 truncate">
+                      {protocol.description || "—"}
+                    </p>
+                  </div>
 
-                    <ChevronRight size={14} className="text-muted shrink-0" />
-                  </button>
-                );
-              })}
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="font-mono text-[10.5px] uppercase tracking-[0.04em] text-ink-subtle">
+                      {protocol.steps.length} steps
+                    </span>
+                    {protocol.is_template && <Chip tone="dapi">template</Chip>}
+                    <Chip tone={STATUS_TONE[protocol.status]}>
+                      {protocol.status}
+                    </Chip>
+                  </div>
+
+                  <ChevronRight
+                    size={14}
+                    className="text-ink-subtle shrink-0"
+                  />
+                </button>
+              ))}
 
               {protocols.length === 0 && (
-                <div className="flex flex-col items-center justify-center py-16 text-muted">
-                  <ClipboardList size={32} className="mb-2 opacity-40" />
-                  <p className="text-sm">No protocols yet</p>
-                  <p className="text-xs mt-1">Create your first protocol to get started</p>
+                <div className="flex flex-col items-center justify-center py-16">
+                  <p className="text-[13px] text-ink-muted">No protocols yet</p>
+                  <p className="font-mono text-[11px] tracking-[0.02em] text-ink-subtle mt-1.5 uppercase">
+                    create your first protocol to get started
+                  </p>
                 </div>
               )}
             </div>
 
-            <div className="px-4 py-2.5 border-t border-border text-xs text-muted">
-              Showing {protocols.length} protocols
+            <div className="px-4 py-2.5 border-t border-line bg-bg font-mono text-[11.5px] tracking-[0.02em] text-ink-subtle">
+              showing {protocols.length} protocols
             </div>
           </>
         )}
-      </div>
-    </div>
-  );
-}
-
-function DashCard({
-  icon,
-  label,
-  value,
-  bg,
-  highlight,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: number;
-  bg: string;
-  highlight?: string;
-}) {
-  return (
-    <div className="bg-surface rounded-xl border border-border p-4 flex items-center gap-3">
-      <div className={`w-10 h-10 rounded-lg ${bg} flex items-center justify-center shrink-0`}>{icon}</div>
-      <div>
-        <div className={`text-2xl font-semibold ${highlight || "text-charcoal"}`}>{value}</div>
-        <div className="text-xs text-muted">{label}</div>
       </div>
     </div>
   );

@@ -38,14 +38,14 @@ function Thumbnail({
   return (
     <button
       onClick={onClick}
-      className={`relative shrink-0 rounded-lg overflow-hidden transition-all duration-150 ${
+      className={`relative shrink-0 rounded-[3px] overflow-hidden transition-all duration-150 ${
         active
-          ? "ring-2 ring-amber ring-offset-2 ring-offset-charcoal scale-105"
+          ? "ring-2 ring-brand ring-offset-2 ring-offset-ink scale-105"
           : "ring-1 ring-white/10 hover:ring-white/30 opacity-70 hover:opacity-100"
       }`}
     >
       <canvas ref={canvasRef} className="w-16 h-16 object-cover" />
-      <span className="absolute bottom-0 inset-x-0 text-center text-[9px] font-mono text-white/80 bg-black/50 py-0.5">
+      <span className="absolute bottom-0 inset-x-0 text-center text-[9px] font-mono text-white/80 bg-black/55 py-0.5 tracking-[0.04em] uppercase">
         FOV {fov}
       </span>
     </button>
@@ -72,7 +72,7 @@ export default function ThumbnailStrip({
   }, [activeFov]);
 
   return (
-    <div className="bg-charcoal/95 border-t border-white/10 px-4 py-3">
+    <div className="bg-ink border-t border-line/10 px-4 py-3">
       <div
         ref={containerRef}
         className="flex gap-2 overflow-x-auto pb-1 scrollbar-thin"

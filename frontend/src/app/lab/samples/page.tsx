@@ -1,19 +1,17 @@
 "use client";
 
 import { useMemo } from "react";
-import {
-  FlaskConical,
-  Plus,
-  Package,
-  AlertTriangle,
-  TrendingDown,
-  Clock,
-  Search,
-} from "lucide-react";
+import { Plus, ScanLine, Upload } from "lucide-react";
 import SampleTable from "@/components/lab/sample-table";
 import SampleModal from "@/components/lab/sample-modal";
 import BarcodeScanner from "@/components/lab/barcode-scanner";
 import { useSampleStore } from "@/stores/sample-store";
+import {
+  PageHeader,
+  PageHeaderPrimary,
+  PageHeaderGhost,
+} from "@/components/lab/primitives/page-header";
+import { KpiStrip, Kpi } from "@/components/lab/primitives/kpi-strip";
 
 export default function SamplesPage() {
   const { samples, openModal, setScannerMode } = useSampleStore();
@@ -21,133 +19,96 @@ export default function SamplesPage() {
   const stats = useMemo(() => {
     const now = Date.now();
     const thirtyDays = 30 * 24 * 60 * 60 * 1000;
+    const sevenDays = 7 * 24 * 60 * 60 * 1000;
 
     const expiringSoon = samples.filter((s) => {
       const diff = new Date(s.expiryDate).getTime() - now;
       return diff > 0 && diff < thirtyDays;
-    }).length;
+    });
 
-    const lowStock = samples.filter(
-      (s) => s.status === "low_stock"
-    ).length;
+    const lowStock = samples.filter((s) => s.status === "low_stock");
 
-    const recentCount = samples.filter((s) => {
-      const diff = now - new Date(s.addedDate).getTime();
-      return diff < 7 * 24 * 60 * 60 * 1000;
-    }).length;
+    const recent = samples.filter(
+      (s) => now - new Date(s.addedDate).getTime() < sevenDays
+    );
+
+    const expiringSummary =
+      expiringSoon
+        .slice(0, 3)
+        .map((s) => s.name.split(" ")[0])
+        .join(" · ") || "none";
 
     return {
       total: samples.length,
-      expiringSoon,
-      lowStock,
-      recentCount,
+      expiringCount: expiringSoon.length,
+      expiringSummary,
+      lowCount: lowStock.length,
+      recentCount: recent.length,
+      recentName: recent[0]?.name,
     };
   }, [samples]);
 
   return (
-    <div className="flex flex-col h-full bg-cream">
-      {/* Header */}
-      <div className="px-6 py-4 bg-surface border-b border-border">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-amber/15 flex items-center justify-center">
-              <FlaskConical size={18} className="text-amber" />
-            </div>
-            <div>
-              <h1 className="text-lg font-semibold text-charcoal">
-                Sample & Reagent Tracker
-              </h1>
-              <p className="text-xs text-muted">
-                Manage inventory, track expiry dates, and scan barcodes
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setScannerMode("find")}
-              className="flex items-center gap-1.5 px-3 py-2 text-sm text-muted hover:text-charcoal rounded-lg border border-border hover:border-muted bg-cream hover:bg-cream-dark transition-colors"
+    <div className="flex flex-col h-full bg-bg">
+      <PageHeader
+        marker="04"
+        markerLabel="Inventory · samples & reagents"
+        title="Inventory"
+        meta={
+          <>
+            {stats.total} samples ·{" "}
+            <em
+              className="not-italic"
+              style={{ color: stats.expiringCount > 0 ? "var(--color-bf)" : undefined }}
             >
-              <Search size={15} />
-              Lookup
-            </button>
-            <button
-              onClick={() => openModal()}
-              className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium bg-amber text-charcoal rounded-lg hover:bg-amber-light transition-colors"
-            >
-              <Plus size={15} />
-              Add Sample
-            </button>
-          </div>
-        </div>
-      </div>
+              {stats.expiringCount} expiring in 30d
+            </em>{" "}
+            · sync 02:14 ago
+          </>
+        }
+      >
+        <PageHeaderGhost onClick={() => setScannerMode("find")}>
+          <ScanLine size={14} />
+          Scanner
+        </PageHeaderGhost>
+        <PageHeaderGhost>
+          <Upload size={14} />
+          Import CSV
+        </PageHeaderGhost>
+        <PageHeaderPrimary onClick={() => openModal()}>
+          <Plus size={14} />
+          Add sample
+        </PageHeaderPrimary>
+      </PageHeader>
 
-      {/* Dashboard cards */}
-      <div className="px-6 py-4 grid grid-cols-4 gap-4">
-        <DashCard
-          icon={<Package size={18} className="text-amber" />}
-          label="Total Samples"
-          value={stats.total}
-          bg="bg-amber/10"
+      <KpiStrip columns={4}>
+        <Kpi label="total" value={stats.total} delta="all samples" />
+        <Kpi
+          label="expiring < 30d"
+          value={String(stats.expiringCount).padStart(2, "0")}
+          delta={stats.expiringSummary}
+          tone="bf"
         />
-        <DashCard
-          icon={<AlertTriangle size={18} className="text-yellow-600" />}
-          label="Expiring Soon"
-          value={stats.expiringSoon}
-          bg="bg-yellow-50"
-          highlight={stats.expiringSoon > 0 ? "text-yellow-700" : undefined}
+        <Kpi
+          label="low stock"
+          value={String(stats.lowCount).padStart(2, "0")}
+          delta={stats.lowCount > 0 ? `${stats.lowCount} reorders queued` : "stock healthy"}
+          tone="mch"
         />
-        <DashCard
-          icon={<TrendingDown size={18} className="text-orange-600" />}
-          label="Low Stock"
-          value={stats.lowStock}
-          bg="bg-orange-50"
-          highlight={stats.lowStock > 0 ? "text-orange-700" : undefined}
+        <Kpi
+          label="added this wk"
+          value={String(stats.recentCount).padStart(2, "0")}
+          delta={stats.recentName || "none added"}
+          tone="brand"
         />
-        <DashCard
-          icon={<Clock size={18} className="text-blue-600" />}
-          label="Added This Week"
-          value={stats.recentCount}
-          bg="bg-blue-50"
-        />
-      </div>
+      </KpiStrip>
 
-      {/* Main table area */}
-      <div className="flex-1 mx-6 mb-6 bg-surface rounded-xl border border-border overflow-hidden flex flex-col">
+      <div className="flex-1 mx-6 my-6 min-h-0 flex flex-col">
         <SampleTable />
       </div>
 
-      {/* Modals */}
       <SampleModal />
       <BarcodeScanner />
-    </div>
-  );
-}
-
-function DashCard({
-  icon,
-  label,
-  value,
-  bg,
-  highlight,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: number;
-  bg: string;
-  highlight?: string;
-}) {
-  return (
-    <div className="bg-surface rounded-xl border border-border p-4 flex items-center gap-3">
-      <div className={`w-10 h-10 rounded-lg ${bg} flex items-center justify-center shrink-0`}>
-        {icon}
-      </div>
-      <div>
-        <div className={`text-2xl font-semibold ${highlight || "text-charcoal"}`}>
-          {value}
-        </div>
-        <div className="text-xs text-muted">{label}</div>
-      </div>
     </div>
   );
 }
