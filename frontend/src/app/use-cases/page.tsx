@@ -212,20 +212,20 @@ const useCases: UseCase[] = [
 ];
 
 /* ---------------------------------------------------------------------- */
-/*  Page                                                                  */
+/*  Card                                                                  */
 /* ---------------------------------------------------------------------- */
 
-function StatusPill({ status }: { status: Status }) {
+function StatusChip({ status }: { status: Status }) {
   if (status === "ready") {
     return (
-      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-brand-soft border border-brand/30 font-mono text-[10px] uppercase tracking-[0.06em] text-brand">
-        <span className="w-1.5 h-1.5 rounded-full bg-brand" />
+      <span className="inline-flex items-center gap-1.5 px-1.5 py-0.5 rounded-[2px] font-mono text-[10px] tracking-[0.04em] uppercase bg-brand-soft border border-brand/30 text-brand font-semibold">
+        <span className="w-1.5 h-1.5 rounded-full bg-brand pulse-led" />
         Ready
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-bg-sunk border border-line font-mono text-[10px] uppercase tracking-[0.06em] text-ink-muted">
+    <span className="inline-flex items-center gap-1.5 px-1.5 py-0.5 rounded-[2px] font-mono text-[10px] tracking-[0.04em] uppercase bg-bg-sunk border border-line text-ink-muted font-semibold">
       <span className="w-1.5 h-1.5 rounded-full bg-ink-subtle" />
       Preview
     </span>
@@ -241,51 +241,59 @@ function UseCaseCard({ c, index }: { c: UseCase; index: number }) {
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, delay: Math.min(index * 0.03, 0.25) }}
+      className="relative"
     >
+      {/* Registration crosshairs at corners — lab-figure detail */}
+      <span className="reg" style={{ top: -7, left: -7 }} aria-hidden />
+      <span className="reg" style={{ top: -7, right: -7 }} aria-hidden />
+      <span className="reg" style={{ bottom: -7, left: -7 }} aria-hidden />
+      <span className="reg" style={{ bottom: -7, right: -7 }} aria-hidden />
+
       <Link
         href={href}
-        className="group block h-full rounded-[6px] border border-line bg-surface hover:border-brand/40 hover:shadow-[0_4px_20px_-8px_rgba(31,77,58,0.15)] transition-all duration-200 p-5"
+        className="group block h-full rounded-[3px] border border-line bg-surface hover:border-brand/40 hover:shadow-[0_4px_20px_-8px_rgba(31,77,58,0.18)] transition-all duration-150 p-5"
       >
-        <div className="flex items-start justify-between gap-3 mb-3">
+        {/* Header: code + status */}
+        <div className="flex items-center justify-between gap-3 mb-4 pb-3 border-b border-dashed border-line">
           <div className="flex items-center gap-2.5">
-            <span className="inline-flex items-center justify-center w-8 h-8 rounded-[4px] bg-brand-soft text-brand">
-              <Icon width={16} height={16} aria-hidden />
+            <span className="inline-flex items-center justify-center w-7 h-7 rounded-[2px] bg-brand-soft text-brand">
+              <Icon width={15} height={15} aria-hidden />
             </span>
-            <span className="font-mono text-[10.5px] uppercase tracking-[0.08em] text-ink-subtle">
+            <span className="font-mono text-[10.5px] uppercase tracking-[0.08em] text-ink-subtle font-semibold">
               {c.code}
             </span>
           </div>
-          <StatusPill status={c.status} />
+          <StatusChip status={c.status} />
         </div>
 
-        <h3 className="text-[16px] font-semibold leading-snug text-ink mb-1.5 tracking-[-0.01em]">
+        {/* Title + blurb */}
+        <h3 className="text-[16.5px] font-semibold leading-[1.25] tracking-[-0.015em] text-ink mb-2 group-hover:text-brand transition-colors">
           {c.title}
         </h3>
-        <p className="text-[13px] leading-relaxed text-ink-muted mb-4">
+        <p className="text-[13px] leading-[1.55] text-ink-muted mb-4">
           {c.blurb}
         </p>
 
-        <div className="flex flex-wrap gap-1.5 mb-4">
+        {/* Step row */}
+        <div className="flex flex-wrap items-center gap-1.5 mb-4 font-mono text-[10px] uppercase tracking-[0.06em] text-ink-muted">
           {c.steps.map((s, i) => (
-            <span
-              key={s}
-              className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.05em] text-ink-muted"
-            >
+            <span key={s} className="inline-flex items-center gap-1.5">
               {i > 0 && <span className="text-ink-subtle">·</span>}
-              {s}
+              <span>{s}</span>
             </span>
           ))}
         </div>
 
-        <div className="pt-3 border-t border-line flex items-center justify-between">
-          <div className="font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-subtle truncate">
+        {/* Footer: tools + CTA */}
+        <div className="pt-3 border-t border-dashed border-line flex items-center justify-between gap-2">
+          <div className="font-mono text-[10px] uppercase tracking-[0.05em] text-ink-subtle truncate min-w-0">
             {c.tools.join(" · ")}
           </div>
-          <span className="inline-flex items-center gap-1 text-[12px] text-ink-muted group-hover:text-brand transition-colors shrink-0">
+          <span className="inline-flex items-center gap-1 font-mono text-[10.5px] uppercase tracking-[0.04em] text-ink-muted group-hover:text-brand transition-colors shrink-0">
             Try in lab
             <ArrowRight
-              width={12}
-              height={12}
+              width={11}
+              height={11}
               className="transition-transform group-hover:translate-x-0.5"
               aria-hidden
             />
@@ -296,6 +304,41 @@ function UseCaseCard({ c, index }: { c: UseCase; index: number }) {
   );
 }
 
+/* ---------------------------------------------------------------------- */
+/*  Section header (mono label + count + right-aligned secondary action)  */
+/* ---------------------------------------------------------------------- */
+
+function SectionHeader({
+  label,
+  count,
+  right,
+}: {
+  label: string;
+  count: number;
+  right?: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-baseline justify-between mb-6 pb-3 border-b border-dashed border-line-strong">
+      <div className="inline-flex items-baseline gap-3 font-mono text-[11px] uppercase tracking-[0.08em] text-ink-muted">
+        <span className="font-semibold text-ink">{label}</span>
+        <span className="text-ink-subtle">·</span>
+        <span className="font-semibold text-brand">
+          {String(count).padStart(2, "0")}
+        </span>
+      </div>
+      {right ? (
+        <div className="font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-subtle">
+          {right}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/*  Page                                                                  */
+/* ---------------------------------------------------------------------- */
+
 export default function UseCasesPage() {
   const ready = useCases.filter((c) => c.status === "ready");
   const preview = useCases.filter((c) => c.status === "preview");
@@ -304,99 +347,158 @@ export default function UseCasesPage() {
     <div className="min-h-screen bg-bg flex flex-col">
       <Navbar />
 
-      <main className="flex-1 pt-24 pb-20">
-        <div className="max-w-6xl mx-auto px-6 lg:px-8">
-          {/* Header */}
-          <motion.div
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4 }}
-            className="text-center mb-14"
-          >
-            <span className="inline-block font-mono text-[10.5px] uppercase tracking-[0.12em] text-ink-subtle mb-4">
-              Use cases
-            </span>
-            <h1 className="font-serif text-[44px] leading-[1.05] tracking-[-0.015em] text-ink mb-4">
-              What scientists do{" "}
-              <span className="text-brand italic">with the agent</span>
-            </h1>
-            <p className="max-w-2xl mx-auto text-[15px] leading-relaxed text-ink-muted">
-              Wet-lab workflows the agent runs against your real plates, samples,
-              and protocols. Every action is a typed tool call with an audit
-              trail. Ready cases work today; preview cases land in upcoming
-              releases.
-            </p>
-          </motion.div>
+      <main className="flex-1 pt-28 pb-24">
+        <div className="max-w-7xl mx-auto px-6 lg:px-8">
+          {/* ── Header ───────────────────────────────────────── */}
+          <section className="relative mb-16 lg:mb-20">
+            <span className="reg" style={{ top: -2, left: -22 }} aria-hidden />
+            <span className="reg" style={{ top: -2, right: -22 }} aria-hidden />
 
-          {/* Ready section */}
-          <section className="mb-16">
-            <div className="flex items-center justify-between mb-5">
-              <h2 className="font-mono text-[11px] uppercase tracking-[0.1em] text-ink-muted">
-                Ready · {ready.length}
-              </h2>
-              <Link
-                href="/lab"
-                className="font-mono text-[11px] uppercase tracking-[0.06em] text-ink-muted hover:text-brand transition-colors inline-flex items-center gap-1"
-              >
-                Open the lab
-                <ArrowRight width={11} height={11} aria-hidden />
-              </Link>
+            <motion.div
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4 }}
+              className="inline-flex items-center gap-2.5 mb-6 font-mono text-[11px] uppercase tracking-[0.08em] text-ink-muted"
+            >
+              <span className="font-semibold text-brand px-1.5 py-0.5 border border-brand bg-brand-soft rounded-[2px]">
+                UC
+              </span>
+              <span>Use-case gallery · {useCases.length} workflows</span>
+            </motion.div>
+
+            <motion.h1
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.1 }}
+              className="text-[44px] sm:text-[56px] lg:text-[72px] xl:text-[80px] leading-[1] tracking-[-0.04em] text-ink"
+            >
+              <span className="font-light">What scientists do</span>
+              <br />
+              <span className="relative inline-block font-bold text-brand">
+                <span className="relative z-10">with the agent.</span>
+                <span
+                  aria-hidden
+                  className="absolute left-0 right-0 bottom-[2px] h-[6px] bg-brand-soft -z-0"
+                />
+              </span>
+            </motion.h1>
+
+            <motion.p
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.25 }}
+              className="mt-8 max-w-2xl text-[15.5px] leading-[1.55] text-ink-muted"
+            >
+              Wet-lab workflows the agent runs against your real plates,
+              samples, and protocols. Every action is a typed tool call with
+              an audit trail. Where{" "}
+              <strong className="text-ink font-medium">
+                bioinformatics tools
+              </strong>{" "}
+              end (a primer set, a hit list, a target panel), Resonantia
+              picks up — and writes the result back to your{" "}
+              <strong className="text-ink font-medium">existing ELN/LIMS</strong>.
+            </motion.p>
+
+            {/* Meta strip — Ready / Preview / Tools / Coverage */}
+            <div className="mt-10 grid grid-cols-2 lg:grid-cols-4 gap-x-8 gap-y-4 pt-6 border-t border-dashed border-line-strong">
+              {[
+                { k: "Ready today", v: `${ready.length} workflows` },
+                { k: "Shipping next", v: `${preview.length} workflows` },
+                { k: "Tools called", v: "33 typed actions" },
+                { k: "Substrate", v: "Wet-lab only" },
+              ].map((m) => (
+                <div key={m.k}>
+                  <div className="font-mono text-[10.5px] uppercase tracking-[0.08em] text-ink-subtle">
+                    {m.k}
+                  </div>
+                  <div className="mt-1 text-[15px] font-semibold tracking-[-0.01em] text-ink">
+                    {m.v}
+                  </div>
+                </div>
+              ))}
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          </section>
+
+          {/* ── Ready section ────────────────────────────────── */}
+          <section className="mb-20">
+            <SectionHeader
+              label="Ready"
+              count={ready.length}
+              right={
+                <Link
+                  href="/lab"
+                  className="hover:text-brand transition-colors inline-flex items-center gap-1"
+                >
+                  Open the lab
+                  <ArrowRight width={11} height={11} aria-hidden />
+                </Link>
+              }
+            />
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
               {ready.map((c, i) => (
                 <UseCaseCard key={c.code} c={c} index={i} />
               ))}
             </div>
           </section>
 
-          {/* Preview section */}
-          <section className="mb-16">
-            <div className="flex items-center justify-between mb-5">
-              <h2 className="font-mono text-[11px] uppercase tracking-[0.1em] text-ink-muted">
-                Preview · {preview.length}
-              </h2>
-              <span className="font-mono text-[11px] uppercase tracking-[0.06em] text-ink-subtle">
-                shipping next
-              </span>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {/* ── Preview section ──────────────────────────────── */}
+          <section className="mb-20">
+            <SectionHeader
+              label="Preview"
+              count={preview.length}
+              right="Shipping next"
+            />
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
               {preview.map((c, i) => (
                 <UseCaseCard key={c.code} c={c} index={i} />
               ))}
             </div>
           </section>
 
-          {/* Honest scope footer */}
-          <section className="rounded-[6px] border border-line bg-surface px-6 py-5 text-[13px] leading-relaxed text-ink-muted">
-            <h3 className="font-mono text-[10.5px] uppercase tracking-[0.08em] text-ink mb-2">
-              What this page does NOT cover
-            </h3>
-            <p className="mb-2">
-              Resonantia is a wet-lab operations layer. It does not run
-              bioinformatics analyses (RNA-seq, variant annotation, structure
-              prediction, microbiome). Pair it with a computational tool of
-              your choice — the structured outputs of those tools (primer
-              sets, hit lists, target panels) become Resonantia inputs at the{" "}
-              <span className="font-mono text-[12px] text-ink">
-                cherry-pick
-              </span>{" "}
-              and{" "}
-              <span className="font-mono text-[12px] text-ink">
-                serial dilution
-              </span>{" "}
-              steps above.
-            </p>
-            <p>
-              Substrate-only features (raw microscopy viewer, full ELN editor)
-              are deliberately scoped down — see{" "}
-              <a
-                href="https://github.com/teopopescu/resonantia/blob/main/docs/decommission-list.md"
-                className="text-brand hover:underline"
-              >
-                docs/decommission-list.md
-              </a>
-              .
-            </p>
+          {/* ── Honest scope footer ──────────────────────────── */}
+          <section className="relative">
+            <span className="reg" style={{ top: -7, left: -7 }} aria-hidden />
+            <span className="reg" style={{ top: -7, right: -7 }} aria-hidden />
+            <span className="reg" style={{ bottom: -7, left: -7 }} aria-hidden />
+            <span className="reg" style={{ bottom: -7, right: -7 }} aria-hidden />
+
+            <div className="rounded-[3px] border border-line bg-surface p-6 lg:p-8">
+              <div className="inline-flex items-center gap-2 mb-3 font-mono text-[10.5px] uppercase tracking-[0.08em] text-ink-muted">
+                <span className="w-1.5 h-1.5 rounded-full bg-bf" />
+                <span className="font-semibold text-ink">
+                  What this page does NOT cover
+                </span>
+              </div>
+              <p className="text-[13.5px] leading-[1.6] text-ink-muted max-w-[68ch] mb-2">
+                Resonantia is a wet-lab operations layer. It does{" "}
+                <strong className="text-ink font-medium">not</strong> run
+                bioinformatics analyses (RNA-seq, variant annotation, structure
+                prediction, microbiome). Pair it with a computational tool of
+                your choice — the structured outputs of those tools (primer
+                sets, hit lists, target panels) become Resonantia inputs at
+                the{" "}
+                <code className="font-mono text-[12px] text-ink bg-bg-sunk px-1 py-0.5 rounded-[2px] border border-line">
+                  cherry_pick
+                </code>{" "}
+                and{" "}
+                <code className="font-mono text-[12px] text-ink bg-bg-sunk px-1 py-0.5 rounded-[2px] border border-line">
+                  serial_dilution
+                </code>{" "}
+                steps above.
+              </p>
+              <p className="text-[13.5px] leading-[1.6] text-ink-muted max-w-[68ch]">
+                Substrate-only features (raw microscopy viewer, full ELN
+                editor) are deliberately scoped down — see{" "}
+                <a
+                  href="https://github.com/teopopescu/resonantia/blob/main/docs/decommission-list.md"
+                  className="text-brand hover:underline underline-offset-2"
+                >
+                  docs/decommission-list.md
+                </a>
+                .
+              </p>
+            </div>
           </section>
         </div>
       </main>
