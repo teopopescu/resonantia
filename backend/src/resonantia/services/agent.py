@@ -22,6 +22,7 @@ from resonantia.config import get_settings
 from resonantia.db.session import async_session_factory
 from resonantia.models.conversation import Conversation, ConversationMessage
 from resonantia.services.guardrails import GUARDRAIL_SYSTEM_PROMPT, check_guardrails
+from resonantia.services.multimodal import build_user_content
 from resonantia.services.tool_executor import execute_tool
 from resonantia.services.tracing import trace_llm_call
 
@@ -145,6 +146,7 @@ async def chat(
     context: dict[str, Any] | None = None,
     clerk_user_id: str | None = None,
     org_id: str | None = None,
+    attachments: list[str] | None = None,
 ) -> dict[str, Any]:
     """Send a user message and return the assistant's response.
 
@@ -167,14 +169,26 @@ async def chat(
         )
         return {"message": guardrail_result[1], "conversation_id": cid, "tool_calls": None}
 
-    user_content = message
+    text_content = message
     if context:
-        user_content = f"[Context: {json.dumps(context)}]\n\n{message}"
+        text_content = f"[Context: {json.dumps(context)}]\n\n{message}"
+
+    # Resolve image attachments into multimodal content blocks. Returns
+    # a plain string when there are no images so non-multimodal turns
+    # are byte-identical to the pre-multimodal code path. The org_id
+    # scope here is the security boundary: only files owned by the
+    # caller's org are eligible to be encoded.
+    user_content = build_user_content(
+        text_content, attachments=attachments, org_id=org,
+    )
 
     history.append({"role": "user", "content": user_content})
 
-    # Persist user message
-    await _persist_message(conv_uuid, "user", content=user_content)
+    # Persist the text representation; binary image bytes are NOT
+    # written to the conversation row — the file registry is the source
+    # of truth for image bytes. Tracing below also receives the text-only
+    # form so image bytes don't egress to Langfuse.
+    await _persist_message(conv_uuid, "user", content=text_content)
 
     # Auto-generate title from first message
     if len(history) == 1:
