@@ -100,8 +100,25 @@ def _extract_messages(
         # Regular user / assistant messages.
         content = msg.get("content", "")
         if isinstance(content, list):
-            # Already structured content (e.g. multimodal blocks).
-            conversation.append({"role": role, "content": content})
+            # Convert OpenAI-style image blocks to Anthropic format.
+            anthropic_blocks: list[dict[str, Any]] = []
+            for block in content:
+                if block.get("type") == "image_url":
+                    url = block.get("image_url", {}).get("url", "")
+                    if url.startswith("data:"):
+                        parts = url.split(",", 1)
+                        header = parts[0]  # data:image/png;base64
+                        b64_data = parts[1] if len(parts) > 1 else ""
+                        media_type = header.replace("data:", "").replace(";base64", "")
+                        anthropic_blocks.append({
+                            "type": "image",
+                            "source": {"type": "base64", "media_type": media_type, "data": b64_data},
+                        })
+                    else:
+                        anthropic_blocks.append({"type": "image", "source": {"type": "url", "url": url}})
+                else:
+                    anthropic_blocks.append(block)
+            conversation.append({"role": role, "content": anthropic_blocks})
         else:
             conversation.append({"role": role, "content": str(content or "")})
 
