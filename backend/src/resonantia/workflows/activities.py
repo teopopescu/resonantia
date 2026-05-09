@@ -47,51 +47,29 @@ async def call_llm_activity(
     Returns a dict with ``content`` (str) and ``tool_calls`` (list of dicts).
     All values are JSON-serializable for Temporal.
     """
-    from openai import AsyncOpenAI
-
     from resonantia.config import get_settings
     from resonantia.services.guardrails import GUARDRAIL_SYSTEM_PROMPT
+    from resonantia.services.llm import get_provider
 
     settings = get_settings()
-    client = AsyncOpenAI(api_key=settings.openai_api_key)
+    provider = get_provider()
 
     full_messages = [{"role": "system", "content": GUARDRAIL_SYSTEM_PROMPT}] + messages
 
-    kwargs: dict[str, Any] = {
-        "model": settings.llm_model,
-        "max_tokens": 4096,
-        "messages": full_messages,
-    }
-
-    # Convert tool schemas to OpenAI function format if provided
-    if tools:
-        openai_tools = []
-        for t in tools:
-            openai_tools.append({
-                "type": "function",
-                "function": {
-                    "name": t["name"],
-                    "description": t["description"],
-                    "parameters": t["input_schema"],
-                },
-            })
-        kwargs["tools"] = openai_tools
-
-    response = await client.chat.completions.create(**kwargs)
-    choice = response.choices[0]
+    response = await provider.completion(
+        messages=full_messages,
+        tools=tools if tools else None,
+        model=settings.planner_model,
+        max_tokens=4096,
+    )
 
     result: dict[str, Any] = {
-        "content": choice.message.content or "",
-        "tool_calls": [],
+        "content": response.content or "",
+        "tool_calls": [
+            {"id": tc.id, "name": tc.name, "arguments": tc.arguments}
+            for tc in response.tool_calls
+        ],
     }
-
-    if choice.finish_reason == "tool_calls" and choice.message.tool_calls:
-        for tc in choice.message.tool_calls:
-            result["tool_calls"].append({
-                "id": tc.id,
-                "name": tc.function.name,
-                "arguments": json.loads(tc.function.arguments),
-            })
 
     return result
 
