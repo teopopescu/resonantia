@@ -10,44 +10,40 @@ from temporalio.worker import Worker
 
 from resonantia.config import get_settings
 from resonantia.workflows.activities import (
+    call_llm_activity,
     compile_results,
     evaluate_result,
-    execute_in_sandbox,
-    generate_code,
+    execute_tool_activity,
     generate_figures,
     generate_mapping,
     generate_worklist,
-    llm_plan,
     load_experiment_data,
-    retrieve_relevant_tools,
-    review_for_hallucinations,
+    persist_conversation_activity,
     run_processing,
     save_plate_map,
     save_results,
     validate_mapping,
     validate_source_plates,
 )
-from resonantia.workflows.agent_workflow import AgentRunWorkflow
+from resonantia.workflows.agent_workflow import AgentToolCallWorkflow
 from resonantia.workflows.plate_workflow import PlateMapWorkflow
 from resonantia.workflows.processing_workflow import DataProcessingWorkflow
 
 logger = logging.getLogger(__name__)
 
 ALL_WORKFLOWS = [
-    AgentRunWorkflow,
+    AgentToolCallWorkflow,
     PlateMapWorkflow,
     DataProcessingWorkflow,
 ]
 
 ALL_ACTIVITIES = [
-    # Agent activities
-    retrieve_relevant_tools,
-    llm_plan,
-    generate_code,
-    execute_in_sandbox,
+    # Agent activities (safe — no code generation / subprocess)
+    call_llm_activity,
+    execute_tool_activity,
+    persist_conversation_activity,
     evaluate_result,
     compile_results,
-    review_for_hallucinations,
     # Plate mapping activities
     validate_source_plates,
     generate_mapping,
