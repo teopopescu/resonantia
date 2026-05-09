@@ -11,6 +11,7 @@ from openai import AsyncOpenAI
 
 from resonantia.config import get_settings
 from resonantia.services.agent import chat as agent_chat
+from resonantia.services.voice_safety import is_voice_safe, voice_block_message
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -66,6 +67,20 @@ async def voice_chat(
             conversation_id=conversation_id,
         )
         response_text = chat_result.get("message", "")
+
+        # 3b. Voice safety check — if agent used unsafe tools, warn the user
+        tool_calls = chat_result.get("tool_calls") or []
+        blocked_tools = [
+            tc.get("name", tc.get("function", {}).get("name", ""))
+            for tc in (tool_calls if isinstance(tool_calls, list) else [])
+            if isinstance(tc, dict) and not is_voice_safe(
+                tc.get("name", tc.get("function", {}).get("name", ""))
+            )
+        ]
+        if blocked_tools:
+            blocked_names = ", ".join(blocked_tools)
+            response_text = voice_block_message(blocked_names)
+            logger.info("Voice safety blocked tools: %s", blocked_names)
 
         # 4. TTS — generate spoken response
         tts_response = await client.audio.speech.create(
