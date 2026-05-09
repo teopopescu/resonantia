@@ -330,7 +330,9 @@ export const useProtocolStore = create<ProtocolState>()(
       checkInventory: async (id) => {
         set({ loading: true, inventoryCheck: null });
         try {
-          const result = await api<InventoryCheckResult[]>(`/api/v1/protocols/${id}/inventory-check`);
+          const result = await api<InventoryCheckResult[]>(`/api/v1/protocols/${id}/inventory-check`, {
+            method: "POST",
+          });
           set({ inventoryCheck: result, loading: false });
         } catch {
           // Generate mock inventory check from protocol reagents
@@ -358,10 +360,11 @@ export const useProtocolStore = create<ProtocolState>()(
           const result = await api<DilutionResult>("/api/v1/protocols/dilution-calculator", {
             method: "POST",
             body: JSON.stringify({
-              stock_concentration: stockConc,
-              target_concentration: targetConc,
-              target_volume: targetVol,
-              unit,
+              c1: stockConc,
+              c2: targetConc,
+              v2: targetVol,
+              unit_concentration: unit,
+              unit_volume: unit,
             }),
           });
           set({ dilutionResult: result, loading: false });

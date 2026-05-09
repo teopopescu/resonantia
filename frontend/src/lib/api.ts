@@ -11,6 +11,46 @@ export function getActiveOrgId(): string {
   return _activeOrgId;
 }
 
+/* ── Case conversion helpers ── */
+
+/**
+ * Recursively convert all snake_case object keys to camelCase.
+ * Arrays are traversed; primitives pass through unchanged.
+ */
+export function snakeToCamel(obj: unknown): unknown {
+  if (Array.isArray(obj)) return obj.map(snakeToCamel);
+  if (obj !== null && typeof obj === "object" && !(obj instanceof Date)) {
+    return Object.keys(obj as Record<string, unknown>).reduce(
+      (acc, key) => {
+        const camelKey = key.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
+        acc[camelKey] = snakeToCamel((obj as Record<string, unknown>)[key]);
+        return acc;
+      },
+      {} as Record<string, unknown>,
+    );
+  }
+  return obj;
+}
+
+/**
+ * Recursively convert all camelCase object keys to snake_case.
+ * Used for outgoing request bodies so the backend receives the format it expects.
+ */
+export function camelToSnake(obj: unknown): unknown {
+  if (Array.isArray(obj)) return obj.map(camelToSnake);
+  if (obj !== null && typeof obj === "object" && !(obj instanceof Date)) {
+    return Object.keys(obj as Record<string, unknown>).reduce(
+      (acc, key) => {
+        const snakeKey = key.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
+        acc[snakeKey] = camelToSnake((obj as Record<string, unknown>)[key]);
+        return acc;
+      },
+      {} as Record<string, unknown>,
+    );
+  }
+  return obj;
+}
+
 export async function api<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     ...options,
@@ -24,7 +64,8 @@ export async function api<T>(path: string, options?: RequestInit): Promise<T> {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail || `API error: ${res.status}`);
   }
-  return res.json();
+  const data = await res.json();
+  return snakeToCamel(data) as T;
 }
 
 /**
@@ -69,5 +110,6 @@ export async function apiUpload<T>(path: string, file: File, extraFields?: Recor
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail || `API error: ${res.status}`);
   }
-  return res.json();
+  const data = await res.json();
+  return snakeToCamel(data) as T;
 }
