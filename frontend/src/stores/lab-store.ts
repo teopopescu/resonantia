@@ -66,14 +66,7 @@ export const useLabStore = create<LabState>()(
         try {
           const uid = clerkUserId || "";
           if (!uid) return;
-          const raw = await api<any[]>(`/api/v1/chat/conversations?clerk_user_id=${encodeURIComponent(uid)}`);
-          // Map snake_case from API to camelCase
-          const data: Conversation[] = raw.map((c) => ({
-            id: c.id,
-            title: c.title,
-            createdAt: c.created_at || c.createdAt || "",
-            updatedAt: c.updated_at || c.updatedAt || c.created_at || "",
-          }));
+          const data = await api<Conversation[]>(`/api/v1/chat/conversations?clerk_user_id=${encodeURIComponent(uid)}`);
           set({ conversations: data });
         } catch (err) {
           console.error("Failed to fetch conversations:", err);
@@ -93,10 +86,10 @@ export const useLabStore = create<LabState>()(
           let pendingToolCalls: ToolCall[] = [];
           for (const m of raw) {
             if (m.role === "tool") continue; // skip tool result messages
-            if (m.role === "assistant" && Array.isArray(m.tool_calls) && m.tool_calls.length > 0) {
+            if (m.role === "assistant" && Array.isArray(m.toolCalls) && m.toolCalls.length > 0) {
               // assistant message that triggered tool calls — collect them
               pendingToolCalls.push(
-                ...m.tool_calls.map((tc: any) => ({
+                ...m.toolCalls.map((tc: any) => ({
                   id: tc.id,
                   name: tc.function?.name || tc.name || "unknown",
                   input: tc.function?.arguments
@@ -111,7 +104,7 @@ export const useLabStore = create<LabState>()(
                   role: m.role,
                   content: m.content,
                   toolCalls: [...pendingToolCalls],
-                  timestamp: m.created_at || m.timestamp || new Date().toISOString(),
+                  timestamp: m.createdAt || m.timestamp || new Date().toISOString(),
                 });
                 pendingToolCalls = [];
               }
@@ -122,7 +115,7 @@ export const useLabStore = create<LabState>()(
               id: m.id || generateId(),
               role: m.role,
               content: m.content || "",
-              timestamp: m.created_at || m.timestamp || new Date().toISOString(),
+              timestamp: m.createdAt || m.timestamp || new Date().toISOString(),
             };
             // Attach any pending tool calls to the next assistant text response
             if (m.role === "assistant" && pendingToolCalls.length > 0) {
