@@ -1591,6 +1591,12 @@ TOOL_HANDLERS: dict[str, Any] = {
     "qpcr_analysis": _qpcr_analysis_tool,
     # Experiment design (closed-loop)
     "design_next_experiment": None,  # populated below
+    "propose_follow_up_experiment": None,  # populated below
+    # Worklist
+    "generate_worklist": None,  # populated below
+    "create_plate_map": None,  # populated below via plate handlers
+    "cherry_pick": None,
+    "serial_dilution": None,
     # Generic
     "design_protocol": _query_experiments,
     "search_literature": _query_experiments,
@@ -1599,3 +1605,168 @@ TOOL_HANDLERS: dict[str, Any] = {
 # Late import to avoid circular dependency
 from resonantia.services.experiment_designer import get_design_tool_handler  # noqa: E402
 TOOL_HANDLERS["design_next_experiment"] = get_design_tool_handler()
+
+
+# ---------------------------------------------------------------------------
+# P1.4b: Agent-driven follow-up proposal
+# ---------------------------------------------------------------------------
+
+async def _propose_follow_up(params: dict, org_id: str = "org_default") -> dict:
+    """Analyze experiment results and propose 2-3 follow-up experiments."""
+    experiment_id = params.get("experiment_id", "")
+    context = params.get("context", "")
+
+    if not experiment_id:
+        return {"error": "experiment_id is required"}
+
+    async with async_session_factory() as session:
+        import uuid as _uuid
+        exp = await session.get(Experiment, _uuid.UUID(experiment_id))
+        if not exp:
+            return {"error": f"Experiment {experiment_id} not found"}
+        if exp.org_id != org_id:
+            return {"error": "Experiment not accessible"}
+
+        results = exp.results or {}
+        ic50 = results.get("ic50")
+        hill = results.get("hill_slope")
+        r_squared = results.get("r_squared")
+        z_prime = results.get("z_prime")
+
+        options = []
+
+        if ic50 is not None:
+            ic50_val = float(ic50)
+            low = max(ic50_val / 10, 0.1)
+            high = min(ic50_val * 10, 100000)
+            options.append({
+                "option_number": 1,
+                "title": "Hit Confirmation",
+                "rationale": f"Confirm IC50 of {ic50_val:.1f} nM with tighter range and more replicates",
+                "plate_type": 384,
+                "concentration_range": {
+                    "start_nM": round(low, 1),
+                    "end_nM": round(high, 1),
+                    "points": 10,
+                    "fold": 2,
+                },
+                "replicates": 4,
+                "controls": {"positive": "DMSO", "negative": "vehicle", "positions": "columns 1 and 24"},
+                "estimated_wells": 88,
+                "compounds": [exp.name or "compound"],
+            })
+
+        if r_squared is not None and float(r_squared) < 0.9:
+            options.append({
+                "option_number": len(options) + 1,
+                "title": "Re-test with Outlier Removal",
+                "rationale": f"R² = {r_squared} is below 0.9. Re-test with tighter QC and outlier exclusion.",
+                "plate_type": 96,
+                "concentration_range": {"start_nM": 0.5, "end_nM": 10000, "points": 10, "fold": 3},
+                "replicates": 4,
+                "controls": {"positive": "DMSO", "negative": "vehicle", "positions": "columns 1 and 12"},
+                "estimated_wells": 48,
+                "compounds": [exp.name or "compound"],
+            })
+
+        if z_prime is not None and float(z_prime) < 0.5:
+            options.append({
+                "option_number": len(options) + 1,
+                "title": "Assay Optimization",
+                "rationale": f"Z' = {z_prime} is below 0.5, indicating poor assay quality. Optimize controls and signal window.",
+                "plate_type": 96,
+                "concentration_range": {"start_nM": 1, "end_nM": 10000, "points": 8, "fold": 3},
+                "replicates": 6,
+                "controls": {"positive": "DMSO", "negative": "vehicle", "positions": "columns 1 and 12"},
+                "estimated_wells": 56,
+                "compounds": [exp.name or "compound"],
+            })
+
+        if len(options) < 2:
+            options.append({
+                "option_number": len(options) + 1,
+                "title": "Selectivity Panel",
+                "rationale": "Test compound selectivity across related targets",
+                "plate_type": 384,
+                "concentration_range": {"start_nM": 1, "end_nM": 10000, "points": 5, "fold": 10},
+                "replicates": 3,
+                "controls": {"positive": "DMSO", "negative": "vehicle", "positions": "columns 1 and 24"},
+                "estimated_wells": 120,
+                "compounds": [exp.name or "compound", "target_2", "target_3", "target_4"],
+            })
+
+        if len(options) < 3:
+            options.append({
+                "option_number": len(options) + 1,
+                "title": "Cell Line Comparison",
+                "rationale": "Verify potency is not cell-line-specific",
+                "plate_type": 96,
+                "concentration_range": {"start_nM": 0.5, "end_nM": 10000, "points": 10, "fold": 3},
+                "replicates": 3,
+                "controls": {"positive": "DMSO", "negative": "vehicle", "positions": "columns 1 and 12"},
+                "estimated_wells": 36,
+                "compounds": [exp.name or "compound"],
+            })
+
+        return {
+            "experiment_id": experiment_id,
+            "summary": f"Based on results for {exp.name}: IC50={ic50}, Hill={hill}, R²={r_squared}, Z'={z_prime}",
+            "options": options[:3],
+            "recommended": 1,
+        }
+
+
+TOOL_HANDLERS["propose_follow_up_experiment"] = _propose_follow_up
+
+
+# ---------------------------------------------------------------------------
+# P1.5: Worklist generation with approval gate awareness
+# ---------------------------------------------------------------------------
+
+async def _generate_worklist_tool(params: dict, org_id: str = "org_default") -> dict:
+    """Generate a worklist file for a liquid handler (Echo, Hamilton, Opentrons)."""
+    from resonantia.services.plate_mapper import generate_worklist
+
+    plate_map_id = params.get("plate_map_id", "")
+    instrument = params.get("instrument", "echo")
+    volume_nl = params.get("volume_nl", 100)
+
+    if not plate_map_id:
+        return {"error": "plate_map_id is required"}
+
+    async with async_session_factory() as session:
+        import uuid as _uuid
+        plate_map = await session.get(PlateMap, _uuid.UUID(plate_map_id))
+        if not plate_map:
+            return {"error": f"Plate map {plate_map_id} not found"}
+        if plate_map.org_id != org_id:
+            return {"error": "Plate map not accessible"}
+
+        mappings = plate_map.well_mappings or []
+        if not mappings:
+            return {"error": "Plate map has no well mappings"}
+
+        try:
+            worklist_content = generate_worklist(mappings, instrument, volume_nl)
+        except Exception as e:
+            return {"error": f"Worklist generation failed: {e}"}
+
+        ext = {"echo": "csv", "hamilton": "gwl", "opentrons": "py"}.get(instrument, "csv")
+        filename = f"worklist_{plate_map.name.replace(' ', '_')}_{instrument}.{ext}"
+
+        preview_lines = worklist_content.strip().split("\n")[:11]
+
+        return {
+            "filename": filename,
+            "instrument": instrument,
+            "format": ext,
+            "total_transfers": len(mappings),
+            "total_volume_nl": volume_nl * len(mappings),
+            "preview": "\n".join(preview_lines),
+            "content": worklist_content,
+            "plate_map_id": plate_map_id,
+            "plate_map_name": plate_map.name,
+        }
+
+
+TOOL_HANDLERS["generate_worklist"] = _generate_worklist_tool
