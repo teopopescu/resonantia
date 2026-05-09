@@ -131,22 +131,22 @@ describe('generateSerialDilution', () => {
 
 describe('wellColor', () => {
   it('returns correct hex for sample', () => {
-    expect(wellColor('sample')).toBe('#5B8FB9')
+    expect(wellColor('sample')).toBe('#1F6CA0')
   })
 
   it('returns correct hex for control-positive', () => {
-    expect(wellColor('control-positive')).toBe('#6BAF6B')
+    expect(wellColor('control-positive')).toBe('#A6711B')
   })
 
   it('returns correct hex for control-negative', () => {
-    expect(wellColor('control-negative')).toBe('#C45B5B')
+    expect(wellColor('control-negative')).toBe('#C32A55')
   })
 
   it('returns correct hex for compound', () => {
-    expect(wellColor('compound')).toBe('#8B6BAF')
+    expect(wellColor('compound')).toBe('#82B82F')
   })
 
   it('returns correct hex for empty', () => {
-    expect(wellColor('empty')).toBe('#E8E4DF')
+    expect(wellColor('empty')).toBe('#E0E4DA')
   })
 })
