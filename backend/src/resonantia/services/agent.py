@@ -80,7 +80,7 @@ async def _get_or_create_conversation(
         # Try loading existing conversation
         if _is_valid_uuid(conversation_id):
             conv = await session.get(Conversation, uuid.UUID(conversation_id))
-            if conv:
+            if conv and conv.org_id == org_id:
                 # Build history from persisted messages
                 history: list[dict[str, Any]] = []
                 for msg in conv.messages:
@@ -93,6 +93,8 @@ async def _get_or_create_conversation(
                         entry["tool_call_id"] = msg.tool_call_id
                     history.append(entry)
                 return conv.id, history
+            if conv and conv.org_id != org_id:
+                raise ValueError("Conversation not accessible")
 
         # Create new conversation
         conv = Conversation(
