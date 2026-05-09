@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from resonantia.api import chat, eln, evals, experiments, files, integrations, microscopy, onboarding, plates, processing, protocols, samples, tools, voice
+from resonantia.api import chat, eln, experiments, files, integrations, microscopy, onboarding, plates, processing, protocols, samples, tools, voice
 
 api_router = APIRouter(prefix="/api/v1")
 
@@ -14,7 +14,6 @@ api_router.include_router(chat.router, prefix="/chat", tags=["chat"])
 api_router.include_router(processing.router, prefix="/processing", tags=["processing"])
 api_router.include_router(tools.router, prefix="/tools", tags=["tools"])
 api_router.include_router(files.router, prefix="/files", tags=["files"])
-api_router.include_router(evals.router, prefix="/evals", tags=["evals"])
 api_router.include_router(onboarding.router, prefix="/onboarding", tags=["onboarding"])
 api_router.include_router(eln.router, prefix="/eln", tags=["eln"])
 api_router.include_router(protocols.router, prefix="/protocols", tags=["protocols"])
