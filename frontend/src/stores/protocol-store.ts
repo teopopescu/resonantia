@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { api } from "@/lib/api";
+import { showErrorToast } from "@/lib/demo-mode";
 
 export interface Reagent {
   name: string;
@@ -202,6 +203,7 @@ export const useProtocolStore = create<ProtocolState>()(
           const data = await api<Protocol[]>("/api/v1/protocols");
           set({ protocols: data.length > 0 ? data : DEMO_PROTOCOLS, loading: false });
         } catch {
+          showErrorToast("save changes");
           set({ loading: false });
         }
       },
@@ -226,6 +228,7 @@ export const useProtocolStore = create<ProtocolState>()(
           });
           set((s) => ({ protocols: [created, ...s.protocols], loading: false }));
         } catch {
+          showErrorToast("save changes");
           set((s) => ({ protocols: [protocol, ...s.protocols], loading: false }));
         }
       },
@@ -239,6 +242,7 @@ export const useProtocolStore = create<ProtocolState>()(
           });
           set((s) => ({ protocols: [generated, ...s.protocols], loading: false }));
         } catch {
+          showErrorToast("save changes");
           set({ loading: false });
         }
       },
@@ -309,6 +313,7 @@ export const useProtocolStore = create<ProtocolState>()(
             loading: false,
           }));
         } catch {
+          showErrorToast("save changes");
           set((s) => ({
             protocols: s.protocols.map((p) =>
               p.id === id ? { ...p, status: "published" as const, updated_at: new Date().toISOString() } : p
@@ -333,6 +338,7 @@ export const useProtocolStore = create<ProtocolState>()(
           const result = await api<InventoryCheckResult[]>(`/api/v1/protocols/${id}/inventory-check`);
           set({ inventoryCheck: result, loading: false });
         } catch {
+          showErrorToast("generate mock inventory check from protocol reagents");
           // Generate mock inventory check from protocol reagents
           const protocol = get().protocols.find((p) => p.id === id);
           if (protocol) {
@@ -366,6 +372,7 @@ export const useProtocolStore = create<ProtocolState>()(
           });
           set({ dilutionResult: result, loading: false });
         } catch {
+          showErrorToast("c1v1 = c2v2 -> v1 = c2*v2/c1");
           // C1V1 = C2V2 -> V1 = C2*V2/C1
           const stockVol = (targetConc * targetVol) / stockConc;
           const diluentVol = targetVol - stockVol;
