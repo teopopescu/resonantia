@@ -40,7 +40,7 @@ from resonantia.services.multi_agent.messages import (
 )
 from resonantia.services.multi_agent.prompts import ORCHESTRATOR_PROMPT
 from resonantia.services.multi_agent.subagents import SPECIALISTS, run_specialist
-from resonantia.services.tracing import trace_llm_call
+from resonantia.services.tracing import trace_llm_call, trace_routing_decision
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +103,7 @@ async def _execute_assignments(
     plan: OrchestrationPlan,
     org_id: str,
     provider: LLMProvider,
+    conversation_id: str | None = None,
 ) -> list[TaskResult]:
     """Run specialist assignments either in parallel or sequentially.
 
@@ -116,7 +117,10 @@ async def _execute_assignments(
         return []
     if plan.can_run_parallel and len(plan.assignments) > 1:
         return await asyncio.gather(
-            *(run_specialist(a, org_id, provider=provider) for a in plan.assignments)
+            *(
+                run_specialist(a, org_id, provider=provider, conversation_id=conversation_id)
+                for a in plan.assignments
+            )
         )
 
     results: list[TaskResult] = []
@@ -137,7 +141,9 @@ async def _execute_assignments(
                     }
                 }
             )
-        results.append(await run_specialist(assignment, org_id, provider=provider))
+        results.append(
+            await run_specialist(assignment, org_id, provider=provider, conversation_id=conversation_id)
+        )
     return results
 
 
@@ -145,11 +151,19 @@ async def _critic_pass(
     user_request: str,
     results: list[TaskResult],
     provider: LLMProvider,
+    org_id: str | None = None,
+    conversation_id: str | None = None,
 ) -> list[CriticVerdict]:
     if not results:
         return []
     return await asyncio.gather(
-        *(critic_module.review(user_request, r, provider=provider) for r in results)
+        *(
+            critic_module.review(
+                user_request, r, provider=provider,
+                org_id=org_id, conversation_id=conversation_id,
+            )
+            for r in results
+        )
     )
 
 
@@ -272,8 +286,22 @@ async def chat(
     start = time.monotonic()
 
     plan = await _decompose(message, provider)
-    results = await _execute_assignments(plan, org, provider)
-    verdicts = await _critic_pass(message, results, provider)
+
+    # Trace the routing decision (P4.2)
+    decompose_latency = (time.monotonic() - start) * 1000
+    trace_routing_decision(
+        user_message=message,
+        rationale=plan.rationale,
+        assigned_agents=[a.assigned_agent for a in plan.assignments],
+        can_run_parallel=plan.can_run_parallel,
+        model=settings.planner_model,
+        org_id=org,
+        conversation_id=cid,
+        latency_ms=decompose_latency,
+    )
+
+    results = await _execute_assignments(plan, org, provider, conversation_id=cid)
+    verdicts = await _critic_pass(message, results, provider, org_id=org, conversation_id=cid)
     final_text = await _synthesize_answer(message, results, verdicts, provider)
 
     routed: list[AgentName] = [r.assigned_agent for r in results]
@@ -298,11 +326,18 @@ async def chat(
         system_prompt=ORCHESTRATOR_PROMPT,
         response=final_text,
         model=settings.planner_model,
+        org_id=org,
         conversation_id=cid,
+        agent_role="orchestrator",
+        tool_calls=[tc["name"] for tc in all_tool_calls],
         tools_used=[tc["name"] for tc in all_tool_calls],
         guardrail_result=guardrail_result,
         latency_ms=latency_ms,
-        metadata={"provider": provider.provider_name},
+        metadata={
+            "provider": provider.provider_name,
+            "routed_to": list(routed),
+            "num_specialists": len(results),
+        },
     )
 
     reply = OrchestratorReply(
