@@ -1,7 +1,7 @@
 """Agent chat endpoints (Anthropic Claude).
 
 Supports two execution modes:
-- **Temporal** (default): starts an ``AgentRunWorkflow`` for durable execution.
+- **Temporal** (default): starts an ``AgentToolCallWorkflow`` for durable execution.
 - **Direct** (fallback): calls the LLM inline when Temporal is unreachable.
 
 Includes conversation CRUD for persistent chat history.
@@ -9,6 +9,7 @@ Includes conversation CRUD for persistent chat history.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from typing import Any
@@ -64,9 +65,9 @@ class WorkflowStatusResponse(BaseModel):
 async def send_message(body: ChatRequest) -> ChatResponse:
     """Send a user message.
 
-    Attempts to start an ``AgentRunWorkflow`` via Temporal.  If the Temporal
-    server is unavailable the request falls back to the direct LLM call so
-    development and demos work without infrastructure.
+    Attempts to start an ``AgentToolCallWorkflow`` via Temporal.  If the
+    Temporal server is unavailable the request falls back to the direct
+    LLM call so development and demos work without infrastructure.
     """
     conversation_id = body.conversation_id or uuid.uuid4().hex
     clerk_user_id = body.clerk_user_id or "anonymous"
@@ -80,11 +81,12 @@ async def send_message(body: ChatRequest) -> ChatResponse:
             message=body.message,
             conversation_id=conversation_id,
             user_id=clerk_user_id,
+            org_id=org_id,
             context=body.context,
         )
 
-        # Wait for the workflow to complete (bounded timeout for HTTP request)
-        result = await handle.result()
+        # Wait for the workflow to complete with a 30-second timeout
+        result = await asyncio.wait_for(handle.result(), timeout=30.0)
 
         return ChatResponse(
             message=result.response,
@@ -92,10 +94,28 @@ async def send_message(body: ChatRequest) -> ChatResponse:
             tool_calls=None,
         )
 
-    except Exception as exc:
-        logger.warning(
-            "Temporal unavailable (%s), falling back to direct mode", exc
+    except asyncio.TimeoutError:
+        # Workflow is still running — tell user to wait
+        logger.warning("Temporal workflow timed out after 30s for conversation %s", conversation_id)
+        return ChatResponse(
+            message="Processing is taking longer than expected. Check back shortly.",
+            conversation_id=conversation_id,
+            tool_calls=None,
         )
+
+    except (RPCError, ServiceError) as exc:
+        # Temporal is actually unavailable — fall back to direct mode
+        logger.warning(
+            "Temporal unavailable (%s: %s), falling back to direct mode",
+            type(exc).__name__, exc,
+        )
+
+    except ValueError as exc:
+        # Cross-org conversation access or similar validation error
+        logger.warning("Validation error in Temporal workflow: %s", exc)
+        raise HTTPException(status_code=403, detail=str(exc))
+
+    # All other exceptions propagate as 500 — do NOT catch and hide
 
     # --- Direct fallback (multi-agent orchestrator if flag is on) ---
     result = await agent_router.chat(
@@ -252,3 +272,22 @@ async def delete_conversation(
     if not conv or conv.org_id != org_id:
         raise HTTPException(status_code=404, detail="Conversation not found")
     await db.delete(conv)
+
+
+# ---------------------------------------------------------------------------
+# Temporal error imports (deferred to avoid import errors when Temporal
+# SDK is not installed in lightweight test environments)
+# ---------------------------------------------------------------------------
+
+try:
+    from grpc import RpcError as RPCError  # type: ignore[import-untyped]
+    from temporalio.service import ServiceError
+except ImportError:
+    # Define fallback classes that will never match if Temporal is not
+    # installed — the except clause in send_message will simply not
+    # trigger, and the error will propagate as a generic exception.
+    class RPCError(Exception):  # type: ignore[no-redef]
+        pass
+
+    class ServiceError(Exception):  # type: ignore[no-redef]
+        pass
