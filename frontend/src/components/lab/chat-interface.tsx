@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import type { ToolCall } from "@/stores/lab-store";
 import VoiceMode from "./voice-mode";
+import VoicePtt from "./voice-ptt";
 import { ElabFTWLogo, BenchlingLogo, DotmaticsLogo } from "@/components/icons/integration-logos";
 
 /* ---------- Attachment type ---------- */
@@ -325,7 +326,8 @@ export default function ChatInterface() {
   const [showSkills, setShowSkills] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [voiceModeActive, setVoiceModeActive] = useState(false);
+  // null = text composer, "vad" = auto-stop voice mode, "ptt" = push-to-talk.
+  const [voicePanel, setVoicePanel] = useState<null | "vad" | "ptt">(null);
   const [showMentions, setShowMentions] = useState(false);
   const [mentionFilter, setMentionFilter] = useState("");
   const [mentionStartIndex, setMentionStartIndex] = useState(-1);
@@ -723,16 +725,27 @@ export default function ChatInterface() {
       {/* Input area (always visible at bottom) */}
       <div className="shrink-0 px-6 pb-5">
         <AnimatePresence mode="wait">
-          {voiceModeActive ? (
+          {voicePanel === "vad" ? (
             <motion.div
-              key="voice"
+              key="voice-vad"
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 8 }}
               transition={{ duration: 0.2 }}
               className="max-w-3xl mx-auto relative"
             >
-              <VoiceMode onExit={() => setVoiceModeActive(false)} />
+              <VoiceMode onExit={() => setVoicePanel(null)} />
+            </motion.div>
+          ) : voicePanel === "ptt" ? (
+            <motion.div
+              key="voice-ptt"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 8 }}
+              transition={{ duration: 0.2 }}
+              className="max-w-3xl mx-auto relative"
+            >
+              <VoicePtt onExit={() => setVoicePanel(null)} />
             </motion.div>
           ) : (
             <motion.div
@@ -832,13 +845,24 @@ export default function ChatInterface() {
                       <Paperclip size={13} />
                     </button>
 
-                    {/* Voice mode */}
+                    {/* Voice mode (auto-stop) */}
                     <button
-                      onClick={() => setVoiceModeActive(true)}
+                      onClick={() => setVoicePanel("vad")}
                       className="flex items-center gap-1.5 px-2 py-1.5 rounded-[3px] font-mono text-[11px] tracking-[0.02em] uppercase text-ink-muted hover:text-brand hover:bg-brand-soft transition-colors"
-                      title="Voice mode"
+                      title="Voice mode (auto-stops on silence)"
                     >
                       <Mic size={13} />
+                    </button>
+
+                    {/* Push-to-talk — bench-friendly: hold Space or the
+                        on-screen button. No silence detection. */}
+                    <button
+                      onClick={() => setVoicePanel("ptt")}
+                      className="flex items-center gap-1.5 px-2 py-1.5 rounded-[3px] font-mono text-[11px] tracking-[0.02em] uppercase text-ink-muted hover:text-brand hover:bg-brand-soft transition-colors"
+                      title="Push-to-talk (hold Space to speak)"
+                    >
+                      <Mic size={13} />
+                      <span className="text-[10px] tracking-[0.04em]">ptt</span>
                     </button>
 
                     {/* Resource dropdown */}
