@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -28,6 +29,7 @@ from resonantia.services.multi_agent.messages import (
 from resonantia.services.multi_agent.prompts import SPECIALIST_PROMPTS
 from resonantia.services.tool_executor import execute_tool
 from resonantia.services.tool_registry import get_tools_as_anthropic
+from resonantia.services.tracing import trace_specialist_call
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +110,7 @@ async def run_specialist(
     org_id: str,
     *,
     provider: LLMProvider | None = None,
+    conversation_id: str | None = None,
 ) -> TaskResult:
     """Run a single specialist subagent against a TaskAssignment.
 
@@ -125,6 +128,8 @@ async def run_specialist(
         {"role": "user", "content": _format_assignment(task)},
     ]
     tool_calls_seen: list[dict[str, Any]] = []
+
+    start_time = time.monotonic()
 
     for _ in range(MAX_TOOL_ROUNDS):
         messages = [{"role": "system", "content": system_prompt}, *history]
@@ -164,7 +169,8 @@ async def run_specialist(
 
         if not llm_response.tool_calls:
             text = llm_response.content or ""
-            return TaskResult(
+            latency_ms = (time.monotonic() - start_time) * 1000
+            result = TaskResult(
                 task_id=task.task_id,
                 assigned_agent=task.assigned_agent,
                 status="completed",
@@ -173,6 +179,22 @@ async def run_specialist(
                 tool_calls=tool_calls_seen,
                 confidence=0.8 if tool_calls_seen else 0.6,
             )
+            # Langfuse span for the specialist call
+            trace_specialist_call(
+                agent_role=task.assigned_agent,
+                objective=task.objective,
+                response=text,
+                model=settings.specialist_model,
+                org_id=org_id,
+                conversation_id=conversation_id,
+                tool_calls=[tc["name"] for tc in tool_calls_seen],
+                latency_ms=latency_ms,
+                token_usage={
+                    "input_tokens": llm_response.input_tokens,
+                    "output_tokens": llm_response.output_tokens,
+                },
+            )
+            return result
 
         # tool_calls round
         tool_calls_for_history = [
@@ -210,7 +232,8 @@ async def run_specialist(
                 }
             )
 
-    return TaskResult(
+    latency_ms = (time.monotonic() - start_time) * 1000
+    failed_result = TaskResult(
         task_id=task.task_id,
         assigned_agent=task.assigned_agent,
         status="failed",
@@ -218,3 +241,15 @@ async def run_specialist(
         rationale="max_rounds_reached",
         tool_calls=tool_calls_seen,
     )
+    trace_specialist_call(
+        agent_role=task.assigned_agent,
+        objective=task.objective,
+        response=failed_result.output,
+        model=settings.specialist_model,
+        org_id=org_id,
+        conversation_id=conversation_id,
+        tool_calls=[tc["name"] for tc in tool_calls_seen],
+        latency_ms=latency_ms,
+        metadata={"status": "failed", "rationale": "max_rounds_reached"},
+    )
+    return failed_result
