@@ -9,7 +9,7 @@ from typing import Any
 from temporalio.client import Client, WorkflowHandle
 
 from resonantia.config import get_settings
-from resonantia.workflows.agent_workflow import AgentRunInput, AgentRunWorkflow
+from resonantia.workflows.agent_workflow import AgentToolCallInput, AgentToolCallWorkflow
 from resonantia.workflows.plate_workflow import (
     DestinationPlate,
     PlateMapInput,
@@ -42,26 +42,37 @@ async def start_agent_workflow(
     message: str,
     conversation_id: str,
     user_id: str,
+    org_id: str = "org_default",
     context: dict[str, Any] | None = None,
 ) -> WorkflowHandle:
-    """Start an AgentRunWorkflow and return its handle."""
+    """Start an AgentToolCallWorkflow and return its handle."""
     client = await get_temporal_client()
     settings = get_settings()
 
     workflow_id = f"agent-{conversation_id}-{uuid.uuid4().hex[:8]}"
 
+    # Load tool schemas for the LLM
+    try:
+        from resonantia.services.tool_registry import get_tools_as_anthropic
+
+        tools = await get_tools_as_anthropic()
+    except Exception:
+        tools = []
+
+    messages: list[dict[str, Any]] = [{"role": "user", "content": message}]
+
     handle = await client.start_workflow(
-        AgentRunWorkflow.run,
-        AgentRunInput(
-            user_message=message,
+        AgentToolCallWorkflow.run,
+        AgentToolCallInput(
+            messages=messages,
+            tools=tools,
+            org_id=org_id,
             conversation_id=conversation_id,
-            user_id=user_id,
-            context=context,
         ),
         id=workflow_id,
         task_queue=settings.temporal_task_queue,
     )
-    logger.info("Started agent workflow %s", workflow_id)
+    logger.info("Started agent workflow %s (org=%s)", workflow_id, org_id)
     return handle
 
 

@@ -1,4 +1,9 @@
-"""Agent execution workflow — orchestrates the LLM agent loop via Temporal."""
+"""Agent tool-call workflow — safe agentic loop via Temporal.
+
+Replaces the old AgentRunWorkflow that generated and executed arbitrary
+Python code via subprocess.  This workflow uses only registered tool
+handlers from the tool_executor module.
+"""
 
 from __future__ import annotations
 
@@ -11,13 +16,9 @@ from temporalio.common import RetryPolicy
 
 with workflow.unsafe.imports_passed_through():
     from resonantia.workflows.activities import (
-        compile_results,
-        evaluate_result,
-        execute_in_sandbox,
-        generate_code,
-        llm_plan,
-        retrieve_relevant_tools,
-        review_for_hallucinations,
+        call_llm_activity,
+        execute_tool_activity,
+        persist_conversation_activity,
     )
 
 
@@ -25,47 +26,21 @@ with workflow.unsafe.imports_passed_through():
 # Data classes
 # ---------------------------------------------------------------------------
 
-@dataclass
-class AgentRunInput:
-    user_message: str
-    conversation_id: str
-    user_id: str
-    context: dict[str, Any] | None = None
-
 
 @dataclass
-class PlanStep:
-    description: str
-    tool_hint: str | None = None
-    order: int = 0
+class AgentToolCallInput:
+    messages: list[dict[str, Any]]
+    tools: list[dict[str, Any]]
+    org_id: str
+    conversation_id: str | None = None
+    max_iterations: int = 10
 
 
 @dataclass
-class Plan:
-    steps: list[PlanStep] = field(default_factory=list)
-    reasoning: str = ""
-
-
-@dataclass
-class EvalResult:
-    success: bool
-    output: str
-    revised_step: PlanStep | None = None
-
-
-@dataclass
-class StepOutput:
-    step: PlanStep
-    code: str
-    execution_output: str
-    eval: EvalResult
-
-
-@dataclass
-class AgentRunOutput:
+class AgentToolCallOutput:
     response: str
+    tool_calls_made: list[dict[str, Any]]
     conversation_id: str
-    step_outputs: list[dict[str, Any]] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -81,98 +56,92 @@ RETRY_POLICY = RetryPolicy(
 
 
 @workflow.defn
-class AgentRunWorkflow:
-    """Orchestrates a full agent run: plan, generate, execute, evaluate."""
+class AgentToolCallWorkflow:
+    """Orchestrates the agentic tool-call loop: LLM -> tool calls -> repeat.
+
+    Each tool execution is its own Temporal activity (individually retriable,
+    timed at 30s).  The loop runs until the LLM produces a text response or
+    ``max_iterations`` is reached.
+    """
 
     @workflow.run
-    async def run(self, inp: AgentRunInput) -> AgentRunOutput:
-        # 1. Retrieve relevant tools
-        tools = await workflow.execute_activity(
-            retrieve_relevant_tools,
-            args=[inp.user_message],
-            start_to_close_timeout=timedelta(seconds=30),
-            retry_policy=RETRY_POLICY,
-        )
+    async def run(self, inp: AgentToolCallInput) -> AgentToolCallOutput:
+        messages = list(inp.messages)
+        iterations = 0
+        tool_calls_log: list[dict[str, Any]] = []
+        last_response_text = ""
 
-        # 2. Create a step-by-step plan
-        plan: Plan = await workflow.execute_activity(
-            llm_plan,
-            args=[inp.user_message, tools],
-            start_to_close_timeout=timedelta(seconds=60),
-            retry_policy=RETRY_POLICY,
-        )
-
-        # 3. Loop over plan steps
-        all_outputs: list[StepOutput] = []
-        context: dict[str, Any] = {"conversation_id": inp.conversation_id}
-
-        for step in plan.steps:
-            # Check for cancellation between steps
-            workflow.check_condition(lambda: False, timeout=timedelta(seconds=0))
-
-            # 3a. Generate code
-            code: str = await workflow.execute_activity(
-                generate_code,
-                args=[step, context],
-                start_to_close_timeout=timedelta(seconds=60),
-                retry_policy=RETRY_POLICY,
-            )
-
-            # 3b. Execute in sandbox (long-running — uses heartbeat)
-            execution_output: str = await workflow.execute_activity(
-                execute_in_sandbox,
-                args=[code, 300],
-                start_to_close_timeout=timedelta(seconds=360),
-                heartbeat_timeout=timedelta(seconds=60),
-                retry_policy=RETRY_POLICY,
-            )
-
-            # 3c. Evaluate result
-            eval_result: EvalResult = await workflow.execute_activity(
-                evaluate_result,
-                args=[step, execution_output],
+        while iterations < inp.max_iterations:
+            # 1. Call LLM via activity
+            llm_result: dict[str, Any] = await workflow.execute_activity(
+                call_llm_activity,
+                args=[messages, inp.tools],
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RETRY_POLICY,
             )
 
-            step_out = StepOutput(
-                step=step,
-                code=code,
-                execution_output=execution_output,
-                eval=eval_result,
+            response_text: str = llm_result.get("content", "")
+            tool_calls: list[dict[str, Any]] = llm_result.get("tool_calls", [])
+
+            if not tool_calls:
+                # Final text response — no more tool calls
+                last_response_text = response_text
+                break
+
+            # Append the assistant message (with tool_calls) to history
+            assistant_msg: dict[str, Any] = {"role": "assistant", "content": response_text}
+            if tool_calls:
+                assistant_msg["tool_calls"] = tool_calls
+            messages.append(assistant_msg)
+
+            # 2. Execute each tool call as its own activity
+            for tc in tool_calls:
+                tc_name: str = tc.get("name", "")
+                tc_args: dict[str, Any] = tc.get("arguments", {})
+                tc_id: str = tc.get("id", "")
+
+                tool_result: str = await workflow.execute_activity(
+                    execute_tool_activity,
+                    args=[tc_name, tc_args, inp.org_id],
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=RETRY_POLICY,
+                )
+
+                # Feed tool result back into conversation
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc_id,
+                    "content": tool_result,
+                })
+
+                tool_calls_log.append({
+                    "name": tc_name,
+                    "args": tc_args,
+                    "result": tool_result,
+                })
+
+            iterations += 1
+
+        # If we exhausted iterations without a text response, use whatever
+        # the last LLM call returned.
+        if not last_response_text and iterations >= inp.max_iterations:
+            last_response_text = (
+                "I've gathered the data but reached the processing limit. "
+                "Please try a more specific query."
             )
-            all_outputs.append(step_out)
 
-            # Update context with latest output for next step
-            context[f"step_{step.order}_output"] = execution_output
+        # 3. Persist conversation
+        conversation_id = inp.conversation_id or ""
+        if conversation_id:
+            await workflow.execute_activity(
+                persist_conversation_activity,
+                args=[conversation_id, inp.org_id, messages],
+                start_to_close_timeout=timedelta(seconds=10),
+                retry_policy=RETRY_POLICY,
+            )
 
-        # 4. Compile results
-        serialised_outputs = [o.execution_output for o in all_outputs]
-        compiled: str = await workflow.execute_activity(
-            compile_results,
-            args=[serialised_outputs],
-            start_to_close_timeout=timedelta(seconds=60),
-            retry_policy=RETRY_POLICY,
-        )
-
-        # 5. Review for hallucinations
-        sources = [o.execution_output for o in all_outputs]
-        reviewed: str = await workflow.execute_activity(
-            review_for_hallucinations,
-            args=[compiled, sources],
-            start_to_close_timeout=timedelta(seconds=60),
-            retry_policy=RETRY_POLICY,
-        )
-
-        return AgentRunOutput(
-            response=reviewed,
-            conversation_id=inp.conversation_id,
-            step_outputs=[
-                {
-                    "step": o.step.description,
-                    "success": o.eval.success,
-                    "output_preview": o.execution_output[:500],
-                }
-                for o in all_outputs
-            ],
+        return AgentToolCallOutput(
+            response=last_response_text,
+            tool_calls_made=tool_calls_log,
+            conversation_id=conversation_id,
         )

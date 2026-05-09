@@ -2,14 +2,16 @@
 
 Each function decorated with @activity.defn is registered with the Temporal
 worker and executed as an activity inside a workflow.  Activities contain the
-*real* side-effecting logic (LLM calls, DB queries, sandbox execution, etc.).
+*real* side-effecting logic (LLM calls, DB queries, tool execution, etc.).
+
+SECURITY NOTE: The generate_code, execute_in_sandbox, and
+review_for_hallucinations activities have been deliberately removed.
+Code generation + subprocess execution is unsafe and unauditable.
+All tool execution now goes through registered TOOL_HANDLERS only.
 """
 
 from __future__ import annotations
 
-import asyncio
-import csv
-import io
 import json
 import logging
 import os
@@ -31,156 +33,155 @@ class ToolDescription(dict):
 
 
 # ============================================================================
-# Agent workflow activities
+# Agent workflow activities (safe — no code generation / subprocess)
 # ============================================================================
 
 
 @activity.defn
-async def retrieve_relevant_tools(query: str) -> list[dict[str, Any]]:
-    """Return tool descriptions relevant to the user query.
+async def call_llm_activity(
+    messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Call the LLM with messages and tool definitions.
 
-    In production this would query a vector store of tool embeddings. For now
-    it returns the static tool catalogue.
+    Returns a dict with ``content`` (str) and ``tool_calls`` (list of dicts).
+    All values are JSON-serializable for Temporal.
     """
-    from resonantia.services.agent import TOOLS_FALLBACK
+    from openai import AsyncOpenAI
 
-    logger.info("retrieve_relevant_tools: query=%s", query[:80])
-    # Simple keyword matching for now — swap for embedding similarity later
-    return [dict(t) for t in TOOLS_FALLBACK]
-
-
-@activity.defn
-async def llm_plan(query: str, tools: list[dict[str, Any]]) -> dict[str, Any]:
-    """Ask the LLM to produce a step-by-step execution plan.
-
-    Returns a dict with ``steps`` (list of step dicts) and ``reasoning``.
-    """
     from resonantia.config import get_settings
-    from resonantia.services.llm import get_provider
+    from resonantia.services.guardrails import GUARDRAIL_SYSTEM_PROMPT
 
     settings = get_settings()
-    provider = get_provider()
+    client = AsyncOpenAI(api_key=settings.openai_api_key)
 
-    tool_names = [t.get("name", "unknown") for t in tools]
+    full_messages = [{"role": "system", "content": GUARDRAIL_SYSTEM_PROMPT}] + messages
 
-    response = await provider.completion(
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You are a planning agent. Given a user query and available tools, "
-                    "produce a JSON plan with keys: reasoning (string) and steps (array of "
-                    "objects with description, tool_hint, order)."
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"Query: {query}\n\nAvailable tools: {json.dumps(tool_names)}\n\n"
-                    "Respond ONLY with valid JSON."
-                ),
-            },
-        ],
-        model=settings.planner_model,
-        max_tokens=2048,
-    )
+    kwargs: dict[str, Any] = {
+        "model": settings.llm_model,
+        "max_tokens": 4096,
+        "messages": full_messages,
+    }
 
-    text = response.content or ""
-    try:
-        plan = json.loads(text)
-    except json.JSONDecodeError:
-        plan = {
-            "reasoning": "Direct response — no multi-step plan needed.",
-            "steps": [{"description": query, "tool_hint": None, "order": 0}],
-        }
+    # Convert tool schemas to OpenAI function format if provided
+    if tools:
+        openai_tools = []
+        for t in tools:
+            openai_tools.append({
+                "type": "function",
+                "function": {
+                    "name": t["name"],
+                    "description": t["description"],
+                    "parameters": t["input_schema"],
+                },
+            })
+        kwargs["tools"] = openai_tools
 
-    return plan
+    response = await client.chat.completions.create(**kwargs)
+    choice = response.choices[0]
 
+    result: dict[str, Any] = {
+        "content": choice.message.content or "",
+        "tool_calls": [],
+    }
 
-@activity.defn
-async def generate_code(step: dict[str, Any], context: dict[str, Any]) -> str:
-    """Generate executable Python code for a plan step."""
-    from resonantia.config import get_settings
-    from resonantia.services.llm import get_provider
+    if choice.finish_reason == "tool_calls" and choice.message.tool_calls:
+        for tc in choice.message.tool_calls:
+            result["tool_calls"].append({
+                "id": tc.id,
+                "name": tc.function.name,
+                "arguments": json.loads(tc.function.arguments),
+            })
 
-    settings = get_settings()
-    provider = get_provider()
-
-    response = await provider.completion(
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You are a code generation agent for a lab-informatics platform. "
-                    "Generate safe, executable Python code for the given step. "
-                    "Output ONLY the Python code, no markdown fences."
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"Step: {json.dumps(step)}\n"
-                    f"Context: {json.dumps(context)}\n\n"
-                    "Generate Python code."
-                ),
-            },
-        ],
-        model=settings.specialist_model,
-        max_tokens=2048,
-    )
-
-    return response.content or ""
+    return result
 
 
 @activity.defn
-async def execute_in_sandbox(code: str, timeout: int = 300) -> str:
-    """Execute generated code in a sandboxed subprocess.
+async def execute_tool_activity(
+    tool_name: str,
+    tool_args: dict[str, Any],
+    org_id: str,
+) -> str:
+    """Execute a registered tool handler and return the JSON result.
 
-    Sends heartbeats every 10 seconds so Temporal knows we are still alive
-    during long-running computations.
+    Uses the TOOL_HANDLERS registry from tool_executor — no arbitrary
+    code execution.
     """
-    logger.info("execute_in_sandbox: timeout=%d, code_len=%d", timeout, len(code))
+    from resonantia.services.tool_executor import execute_tool
 
-    proc = await asyncio.create_subprocess_exec(
-        "python",
-        "-c",
-        code,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
+    logger.info("execute_tool_activity: tool=%s, org_id=%s", tool_name, org_id)
+    result = await execute_tool(tool_name, tool_args, org_id=org_id)
+    return result
+
+
+@activity.defn
+async def persist_conversation_activity(
+    conversation_id: str,
+    org_id: str,
+    messages: list[dict[str, Any]],
+) -> None:
+    """Persist conversation messages to the database.
+
+    This ensures the Temporal path writes the same DB records as the
+    direct path in agent.py.
+    """
+    from resonantia.db.session import async_session_factory
+    from resonantia.models.conversation import Conversation, ConversationMessage
+
+    logger.info(
+        "persist_conversation_activity: conv=%s, org=%s, msgs=%d",
+        conversation_id, org_id, len(messages),
     )
 
-    # Heartbeat while waiting
-    async def _heartbeat_loop() -> None:
-        while True:
-            await asyncio.sleep(10)
-            activity.heartbeat("sandbox running")
+    async with async_session_factory() as session:
+        conv = await session.get(Conversation, uuid.UUID(conversation_id))
+        if not conv:
+            logger.warning("Conversation %s not found, skipping persist", conversation_id)
+            return
 
-    hb_task = asyncio.create_task(_heartbeat_loop())
-    try:
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-    except asyncio.TimeoutError:
-        proc.kill()
-        await proc.communicate()
-        return "ERROR: execution timed out"
-    finally:
-        hb_task.cancel()
+        # Only persist messages not already in the DB.  Count existing
+        # messages and persist the tail.
+        from sqlalchemy import select, func
 
-    output = stdout.decode(errors="replace")
-    if stderr:
-        output += f"\nSTDERR:\n{stderr.decode(errors='replace')}"
-    return output
+        existing_count_result = await session.execute(
+            select(func.count()).select_from(ConversationMessage).where(
+                ConversationMessage.conversation_id == conv.id
+            )
+        )
+        existing_count = existing_count_result.scalar() or 0
+
+        new_messages = messages[existing_count:]
+        for msg in new_messages:
+            role = msg.get("role", "user")
+            content = msg.get("content")
+            tool_calls = msg.get("tool_calls")
+            tool_call_id = msg.get("tool_call_id")
+
+            db_msg = ConversationMessage(
+                conversation_id=conv.id,
+                role=role,
+                content=content if isinstance(content, str) else json.dumps(content) if content else None,
+                tool_calls=tool_calls,
+                tool_call_id=tool_call_id,
+            )
+            session.add(db_msg)
+
+        await session.commit()
 
 
 @activity.defn
 async def evaluate_result(step: dict[str, Any], output: str) -> dict[str, Any]:
     """Evaluate whether the execution output satisfies the plan step."""
+    from openai import AsyncOpenAI
+
     from resonantia.config import get_settings
-    from resonantia.services.llm import get_provider
 
     settings = get_settings()
-    provider = get_provider()
+    client = AsyncOpenAI(api_key=settings.openai_api_key)
 
-    response = await provider.completion(
+    response = await client.chat.completions.create(
+        model=settings.llm_model,
+        max_tokens=1024,
         messages=[
             {
                 "role": "system",
@@ -198,11 +199,9 @@ async def evaluate_result(step: dict[str, Any], output: str) -> dict[str, Any]:
                 ),
             },
         ],
-        model=settings.critic_model,
-        max_tokens=1024,
     )
 
-    text = response.content or ""
+    text = response.choices[0].message.content or ""
     try:
         return json.loads(text)
     except json.JSONDecodeError:
@@ -212,15 +211,18 @@ async def evaluate_result(step: dict[str, Any], output: str) -> dict[str, Any]:
 @activity.defn
 async def compile_results(outputs: list[str]) -> str:
     """Compile all step outputs into a coherent final response."""
+    from openai import AsyncOpenAI
+
     from resonantia.config import get_settings
-    from resonantia.services.llm import get_provider
 
     settings = get_settings()
-    provider = get_provider()
+    client = AsyncOpenAI(api_key=settings.openai_api_key)
 
     combined = "\n---\n".join(outputs)
 
-    response = await provider.completion(
+    response = await client.chat.completions.create(
+        model=settings.llm_model,
+        max_tokens=4096,
         messages=[
             {
                 "role": "system",
@@ -232,48 +234,9 @@ async def compile_results(outputs: list[str]) -> str:
             },
             {"role": "user", "content": f"Step outputs:\n{combined}\n\nCompile."},
         ],
-        model=settings.planner_model,
-        max_tokens=4096,
     )
 
-    return response.content or ""
-
-
-@activity.defn
-async def review_for_hallucinations(response: str, sources: list[str]) -> str:
-    """Review the compiled response against source outputs for hallucinations."""
-    from resonantia.config import get_settings
-    from resonantia.services.llm import get_provider
-
-    settings = get_settings()
-    provider = get_provider()
-
-    source_text = "\n---\n".join(sources)
-
-    review = await provider.completion(
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You are a fact-checker. Compare the response against the source outputs. "
-                    "If anything is fabricated or unsupported, correct it. "
-                    "Return the corrected response text only."
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"Response:\n{response}\n\n"
-                    f"Sources:\n{source_text}\n\n"
-                    "Review and correct if needed."
-                ),
-            },
-        ],
-        model=settings.critic_model,
-        max_tokens=4096,
-    )
-
-    return review.content or ""
+    return response.choices[0].message.content or ""
 
 
 # ============================================================================
