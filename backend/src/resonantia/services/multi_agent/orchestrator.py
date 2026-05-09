@@ -23,13 +23,12 @@ import time
 import uuid
 from typing import Any
 
-from openai import APIConnectionError, AsyncOpenAI, AuthenticationError
-
 from resonantia.config import get_settings
 from resonantia.services.guardrails import (
     GUARDRAIL_SYSTEM_PROMPT,
     check_guardrails,
 )
+from resonantia.services.llm import LLMProvider, get_provider
 from resonantia.services.multi_agent import critic as critic_module
 from resonantia.services.multi_agent.messages import (
     AgentName,
@@ -46,29 +45,29 @@ from resonantia.services.tracing import trace_llm_call
 logger = logging.getLogger(__name__)
 
 
-def _client() -> AsyncOpenAI:
-    return AsyncOpenAI(api_key=get_settings().openai_api_key)
+def _get_provider() -> LLMProvider:
+    return get_provider()
 
 
-async def _decompose(message: str, client: AsyncOpenAI) -> OrchestrationPlan:
+async def _decompose(message: str, provider: LLMProvider) -> OrchestrationPlan:
     """Ask the orchestrator LLM to emit a structured plan."""
     settings = get_settings()
     try:
-        response = await client.chat.completions.create(
-            model=settings.llm_model,
-            temperature=0.0,
-            max_tokens=600,
+        response = await provider.completion(
             messages=[
                 {"role": "system", "content": ORCHESTRATOR_PROMPT},
                 {"role": "user", "content": message},
             ],
+            model=settings.planner_model,
+            temperature=0.0,
+            max_tokens=600,
             response_format={"type": "json_object"},
         )
-    except (AuthenticationError, APIConnectionError) as exc:
+    except Exception as exc:
         logger.warning("Orchestrator decompose failed: %s", exc)
         return OrchestrationPlan(rationale="orchestrator_unavailable", assignments=[])
 
-    raw = response.choices[0].message.content or "{}"
+    raw = response.content or "{}"
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError:
@@ -103,7 +102,7 @@ async def _decompose(message: str, client: AsyncOpenAI) -> OrchestrationPlan:
 async def _execute_assignments(
     plan: OrchestrationPlan,
     org_id: str,
-    client: AsyncOpenAI,
+    provider: LLMProvider,
 ) -> list[TaskResult]:
     """Run specialist assignments either in parallel or sequentially.
 
@@ -117,7 +116,7 @@ async def _execute_assignments(
         return []
     if plan.can_run_parallel and len(plan.assignments) > 1:
         return await asyncio.gather(
-            *(run_specialist(a, org_id, client=client) for a in plan.assignments)
+            *(run_specialist(a, org_id, provider=provider) for a in plan.assignments)
         )
 
     results: list[TaskResult] = []
@@ -138,19 +137,19 @@ async def _execute_assignments(
                     }
                 }
             )
-        results.append(await run_specialist(assignment, org_id, client=client))
+        results.append(await run_specialist(assignment, org_id, provider=provider))
     return results
 
 
 async def _critic_pass(
     user_request: str,
     results: list[TaskResult],
-    client: AsyncOpenAI,
+    provider: LLMProvider,
 ) -> list[CriticVerdict]:
     if not results:
         return []
     return await asyncio.gather(
-        *(critic_module.review(user_request, r, client=client) for r in results)
+        *(critic_module.review(user_request, r, provider=provider) for r in results)
     )
 
 
@@ -158,7 +157,7 @@ async def _synthesize_answer(
     user_message: str,
     results: list[TaskResult],
     verdicts: list[CriticVerdict],
-    client: AsyncOpenAI,
+    provider: LLMProvider,
 ) -> str:
     """Compose a single reply from the specialists' outputs and the critic."""
     settings = get_settings()
@@ -166,22 +165,22 @@ async def _synthesize_answer(
     warnings = [v for v in verdicts if v.decision == "soft_warn"]
 
     if not results:
-        # No specialist was selected — fall back to a direct LLM reply with
+        # No specialist was selected -- fall back to a direct LLM reply with
         # the standard guardrail prompt so the answer still goes through
         # Resonantia's tone/safety policy.
         try:
-            response = await client.chat.completions.create(
-                model=settings.llm_model,
-                temperature=0.3,
-                max_tokens=800,
+            response = await provider.completion(
                 messages=[
                     {"role": "system", "content": GUARDRAIL_SYSTEM_PROMPT},
                     {"role": "user", "content": user_message},
                 ],
+                model=settings.planner_model,
+                temperature=0.3,
+                max_tokens=800,
             )
-        except (AuthenticationError, APIConnectionError) as exc:
+        except Exception as exc:
             return f"I couldn't reach the language model ({exc.__class__.__name__})."
-        return response.choices[0].message.content or ""
+        return response.content or ""
 
     # Single-specialist short-circuit: only when the critic explicitly
     # passed. An empty verdict list (e.g. critic skipped) is NOT the same
@@ -258,18 +257,24 @@ async def chat(
         await _update_conversation_title(conv_uuid, message)
 
     settings = get_settings()
-    if not settings.openai_api_key:
-        msg = "Multi-agent mode requires an LLM API key. Configure OPENAI_API_KEY."
+    provider_name = settings.default_provider
+    has_key = (
+        (provider_name == "openai" and settings.openai_api_key)
+        or (provider_name == "anthropic" and settings.anthropic_api_key)
+        or settings.openai_api_key
+    )
+    if not has_key:
+        msg = f"Multi-agent mode requires an LLM API key. Configure the key for '{provider_name}' provider."
         await _persist_message(conv_uuid, "assistant", content=msg)
         return {"message": msg, "conversation_id": cid, "tool_calls": None, "routed_to": []}
 
-    client = _client()
+    provider = _get_provider()
     start = time.monotonic()
 
-    plan = await _decompose(message, client)
-    results = await _execute_assignments(plan, org, client)
-    verdicts = await _critic_pass(message, results, client)
-    final_text = await _synthesize_answer(message, results, verdicts, client)
+    plan = await _decompose(message, provider)
+    results = await _execute_assignments(plan, org, provider)
+    verdicts = await _critic_pass(message, results, provider)
+    final_text = await _synthesize_answer(message, results, verdicts, provider)
 
     routed: list[AgentName] = [r.assigned_agent for r in results]
     all_tool_calls = [tc for r in results for tc in r.tool_calls]
@@ -277,7 +282,7 @@ async def chat(
     # Persistence mirrors the legacy single-agent shape: tool_calls is
     # the actual list of {id, name, input}. Multi-agent metadata
     # (which specialists ran, critic verdicts) is returned in the live
-    # response but not persisted in v1 — replay/audit needs a dedicated
+    # response but not persisted in v1 -- replay/audit needs a dedicated
     # column, tracked as a follow-up rather than overloading existing
     # JSON columns.
     await _persist_message(
@@ -292,11 +297,12 @@ async def chat(
         user_message=message,
         system_prompt=ORCHESTRATOR_PROMPT,
         response=final_text,
-        model=settings.llm_model,
+        model=settings.planner_model,
         conversation_id=cid,
         tools_used=[tc["name"] for tc in all_tool_calls],
         guardrail_result=guardrail_result,
         latency_ms=latency_ms,
+        metadata={"provider": provider.provider_name},
     )
 
     reply = OrchestratorReply(

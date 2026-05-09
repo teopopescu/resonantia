@@ -55,35 +55,37 @@ async def llm_plan(query: str, tools: list[dict[str, Any]]) -> dict[str, Any]:
 
     Returns a dict with ``steps`` (list of step dicts) and ``reasoning``.
     """
-    import anthropic
-
     from resonantia.config import get_settings
+    from resonantia.services.llm import get_provider
 
     settings = get_settings()
-    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+    provider = get_provider()
 
     tool_names = [t.get("name", "unknown") for t in tools]
 
-    response = await client.messages.create(
-        model=settings.anthropic_model,
-        max_tokens=2048,
-        system=(
-            "You are a planning agent. Given a user query and available tools, "
-            "produce a JSON plan with keys: reasoning (string) and steps (array of "
-            "objects with description, tool_hint, order)."
-        ),
+    response = await provider.completion(
         messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are a planning agent. Given a user query and available tools, "
+                    "produce a JSON plan with keys: reasoning (string) and steps (array of "
+                    "objects with description, tool_hint, order)."
+                ),
+            },
             {
                 "role": "user",
                 "content": (
                     f"Query: {query}\n\nAvailable tools: {json.dumps(tool_names)}\n\n"
                     "Respond ONLY with valid JSON."
                 ),
-            }
+            },
         ],
+        model=settings.planner_model,
+        max_tokens=2048,
     )
 
-    text = response.content[0].text
+    text = response.content or ""
     try:
         plan = json.loads(text)
     except json.JSONDecodeError:
@@ -98,22 +100,22 @@ async def llm_plan(query: str, tools: list[dict[str, Any]]) -> dict[str, Any]:
 @activity.defn
 async def generate_code(step: dict[str, Any], context: dict[str, Any]) -> str:
     """Generate executable Python code for a plan step."""
-    import anthropic
-
     from resonantia.config import get_settings
+    from resonantia.services.llm import get_provider
 
     settings = get_settings()
-    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+    provider = get_provider()
 
-    response = await client.messages.create(
-        model=settings.anthropic_model,
-        max_tokens=2048,
-        system=(
-            "You are a code generation agent for a lab-informatics platform. "
-            "Generate safe, executable Python code for the given step. "
-            "Output ONLY the Python code, no markdown fences."
-        ),
+    response = await provider.completion(
         messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are a code generation agent for a lab-informatics platform. "
+                    "Generate safe, executable Python code for the given step. "
+                    "Output ONLY the Python code, no markdown fences."
+                ),
+            },
             {
                 "role": "user",
                 "content": (
@@ -121,11 +123,13 @@ async def generate_code(step: dict[str, Any], context: dict[str, Any]) -> str:
                     f"Context: {json.dumps(context)}\n\n"
                     "Generate Python code."
                 ),
-            }
+            },
         ],
+        model=settings.specialist_model,
+        max_tokens=2048,
     )
 
-    return response.content[0].text
+    return response.content or ""
 
 
 @activity.defn
@@ -170,21 +174,21 @@ async def execute_in_sandbox(code: str, timeout: int = 300) -> str:
 @activity.defn
 async def evaluate_result(step: dict[str, Any], output: str) -> dict[str, Any]:
     """Evaluate whether the execution output satisfies the plan step."""
-    import anthropic
-
     from resonantia.config import get_settings
+    from resonantia.services.llm import get_provider
 
     settings = get_settings()
-    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+    provider = get_provider()
 
-    response = await client.messages.create(
-        model=settings.anthropic_model,
-        max_tokens=1024,
-        system=(
-            "You evaluate code execution results. Respond with JSON: "
-            '{"success": bool, "output": "summary", "revised_step": null | step_dict}'
-        ),
+    response = await provider.completion(
         messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You evaluate code execution results. Respond with JSON: "
+                    '{"success": bool, "output": "summary", "revised_step": null | step_dict}'
+                ),
+            },
             {
                 "role": "user",
                 "content": (
@@ -192,11 +196,13 @@ async def evaluate_result(step: dict[str, Any], output: str) -> dict[str, Any]:
                     f"Execution output:\n{output[:3000]}\n\n"
                     "Evaluate. Respond ONLY with JSON."
                 ),
-            }
+            },
         ],
+        model=settings.critic_model,
+        max_tokens=1024,
     )
 
-    text = response.content[0].text
+    text = response.content or ""
     try:
         return json.loads(text)
     except json.JSONDecodeError:
@@ -206,52 +212,54 @@ async def evaluate_result(step: dict[str, Any], output: str) -> dict[str, Any]:
 @activity.defn
 async def compile_results(outputs: list[str]) -> str:
     """Compile all step outputs into a coherent final response."""
-    import anthropic
-
     from resonantia.config import get_settings
+    from resonantia.services.llm import get_provider
 
     settings = get_settings()
-    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+    provider = get_provider()
 
     combined = "\n---\n".join(outputs)
 
-    response = await client.messages.create(
-        model=settings.anthropic_model,
-        max_tokens=4096,
-        system=(
-            "You synthesise multiple step outputs into a single, clear, "
-            "well-structured response for a scientist. Include relevant data, "
-            "tables, and conclusions."
-        ),
+    response = await provider.completion(
         messages=[
-            {"role": "user", "content": f"Step outputs:\n{combined}\n\nCompile."}
+            {
+                "role": "system",
+                "content": (
+                    "You synthesise multiple step outputs into a single, clear, "
+                    "well-structured response for a scientist. Include relevant data, "
+                    "tables, and conclusions."
+                ),
+            },
+            {"role": "user", "content": f"Step outputs:\n{combined}\n\nCompile."},
         ],
+        model=settings.planner_model,
+        max_tokens=4096,
     )
 
-    return response.content[0].text
+    return response.content or ""
 
 
 @activity.defn
 async def review_for_hallucinations(response: str, sources: list[str]) -> str:
     """Review the compiled response against source outputs for hallucinations."""
-    import anthropic
-
     from resonantia.config import get_settings
+    from resonantia.services.llm import get_provider
 
     settings = get_settings()
-    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+    provider = get_provider()
 
     source_text = "\n---\n".join(sources)
 
-    review = await client.messages.create(
-        model=settings.anthropic_model,
-        max_tokens=4096,
-        system=(
-            "You are a fact-checker. Compare the response against the source outputs. "
-            "If anything is fabricated or unsupported, correct it. "
-            "Return the corrected response text only."
-        ),
+    review = await provider.completion(
         messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are a fact-checker. Compare the response against the source outputs. "
+                    "If anything is fabricated or unsupported, correct it. "
+                    "Return the corrected response text only."
+                ),
+            },
             {
                 "role": "user",
                 "content": (
@@ -259,11 +267,13 @@ async def review_for_hallucinations(response: str, sources: list[str]) -> str:
                     f"Sources:\n{source_text}\n\n"
                     "Review and correct if needed."
                 ),
-            }
+            },
         ],
+        model=settings.critic_model,
+        max_tokens=4096,
     )
 
-    return review.content[0].text
+    return review.content or ""
 
 
 # ============================================================================
