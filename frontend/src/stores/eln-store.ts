@@ -97,7 +97,7 @@ export const useELNStore = create<ELNState>()(
       fetchEntries: async () => {
         set({ loading: true });
         try {
-          const data = await api<ELNEntry[]>("/api/v1/eln/entries");
+          const data = await api<ELNEntry[]>("/api/v1/eln");
           set({ entries: data.length > 0 ? data : DEMO_ENTRIES, synced: data.length > 0, loading: false });
         } catch {
           set({ synced: false, loading: false });
@@ -121,7 +121,7 @@ export const useELNStore = create<ELNState>()(
         };
         set({ loading: true });
         try {
-          const created = await api<ELNEntry>("/api/v1/eln/entries", {
+          const created = await api<ELNEntry>("/api/v1/eln", {
             method: "POST",
             body: JSON.stringify(entry),
           });
@@ -156,7 +156,7 @@ export const useELNStore = create<ELNState>()(
         if (!entry) return;
         set({ loading: true });
         try {
-          await api<ELNEntry>(`/api/v1/eln/entries/${id}/submit`, { method: "POST" });
+          await api<ELNEntry>(`/api/v1/eln/${id}/submit`, { method: "POST" });
           set((s) => ({
             entries: s.entries.map((e) =>
               e.id === id ? { ...e, status: "submitted", submitted_at: new Date().toISOString() } : e
@@ -184,7 +184,7 @@ export const useELNStore = create<ELNState>()(
 
       exportPdf: async (id) => {
         try {
-          const res = await apiRaw(`/api/v1/eln/entries/${id}/export/pdf`);
+          const res = await apiRaw(`/api/v1/eln/${id}/export/pdf`);
           const blob = await res.blob();
           const url = URL.createObjectURL(blob);
           const a = document.createElement("a");
