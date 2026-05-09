@@ -1,8 +1,8 @@
 """LLM agent service with agentic tool execution loop.
 
-The agent calls OpenAI, and when the LLM decides to use a tool,
-we execute it against the real database and feed the result back
-so the LLM can generate a final answer grounded in real data.
+The agent calls the configured LLM provider, and when the model decides
+to use a tool, we execute it against the real database and feed the result
+back so the model can generate a final answer grounded in real data.
 
 Conversations are persisted to PostgreSQL for history/multi-tenancy.
 """
@@ -14,14 +14,11 @@ import time
 import uuid
 from typing import Any, AsyncGenerator
 
-from openai import AsyncOpenAI, AuthenticationError, APIConnectionError
-from sqlalchemy import select
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
-
 from resonantia.config import get_settings
 from resonantia.db.session import async_session_factory
 from resonantia.models.conversation import Conversation, ConversationMessage
 from resonantia.services.guardrails import GUARDRAIL_SYSTEM_PROMPT, check_guardrails
+from resonantia.services.llm import LLMProvider, ToolCall, get_provider
 from resonantia.services.multimodal import build_user_content
 from resonantia.services.tool_executor import execute_tool
 from resonantia.services.tracing import trace_llm_call
@@ -32,31 +29,20 @@ MAX_TOOL_ROUNDS = 5  # prevent infinite loops
 
 
 async def _load_tools() -> list[dict[str, Any]]:
-    """Load tool schemas from Redis, convert to OpenAI function format."""
+    """Load tool schemas from Redis in provider-agnostic (Anthropic) format."""
     try:
         from resonantia.services.tool_registry import get_tools_as_anthropic
 
         anthropic_tools = await get_tools_as_anthropic()
         if anthropic_tools:
-            return [
-                {
-                    "type": "function",
-                    "function": {
-                        "name": t["name"],
-                        "description": t["description"],
-                        "parameters": t["input_schema"],
-                    },
-                }
-                for t in anthropic_tools
-            ]
+            return anthropic_tools
     except Exception:
         pass
     return []
 
 
-def _get_client() -> AsyncOpenAI:
-    settings = get_settings()
-    return AsyncOpenAI(api_key=settings.openai_api_key)
+def _get_provider() -> LLMProvider:
+    return get_provider()
 
 
 def _is_valid_uuid(val: str | None) -> bool:
@@ -196,17 +182,24 @@ async def chat(
 
     settings = get_settings()
 
-    if not settings.openai_api_key:
+    # Check for API key based on the configured provider.
+    provider_name = settings.default_provider
+    has_key = (
+        (provider_name == "openai" and settings.openai_api_key)
+        or (provider_name == "anthropic" and settings.anthropic_api_key)
+        or settings.openai_api_key  # fallback check
+    )
+    if not has_key:
         no_key_msg = (
-            "I'm Resonantia Lab Assistant. The OpenAI API key is not configured yet. "
+            "I'm Resonantia Lab Assistant. The LLM API key is not configured yet. "
             "You can still use all lab tools directly via the sidebar tabs.\n\n"
-            "To enable AI chat, set `OPENAI_API_KEY` in your environment."
+            f"To enable AI chat, set the API key for the '{provider_name}' provider."
         )
         history.append({"role": "assistant", "content": no_key_msg})
         await _persist_message(conv_uuid, "assistant", content=no_key_msg)
         return {"message": no_key_msg, "conversation_id": cid, "tool_calls": None}
 
-    client = _get_client()
+    provider = _get_provider()
     tools = await _load_tools()
     all_tool_calls: list[dict[str, Any]] = []
 
@@ -217,39 +210,38 @@ async def chat(
         messages = [{"role": "system", "content": SYSTEM_PROMPT}] + history
 
         try:
-            kwargs: dict[str, Any] = {"model": settings.llm_model, "max_tokens": 4096, "messages": messages}
-            if tools:
-                kwargs["tools"] = tools
-            response = await client.chat.completions.create(**kwargs)
-        except AuthenticationError:
+            llm_response = await provider.completion(
+                messages, tools=tools if tools else None, max_tokens=4096,
+            )
+        except Exception as exc:
+            exc_name = exc.__class__.__name__
+            if "auth" in exc_name.lower():
+                history.pop()
+                return {"message": "Invalid API key.", "conversation_id": cid, "tool_calls": None}
             history.pop()
-            return {"message": "Invalid OpenAI API key.", "conversation_id": cid, "tool_calls": None}
-        except APIConnectionError:
-            history.pop()
-            return {"message": "Could not connect to OpenAI API.", "conversation_id": cid, "tool_calls": None}
+            return {"message": f"Could not connect to LLM provider ({exc_name}).", "conversation_id": cid, "tool_calls": None}
 
-        choice = response.choices[0]
-
-        # If the LLM finished (no tool calls), return the text
-        if choice.finish_reason != "tool_calls" or not choice.message.tool_calls:
-            assistant_text = choice.message.content or ""
+        # If no tool calls, return the text
+        if not llm_response.tool_calls:
+            assistant_text = llm_response.content or ""
             history.append({"role": "assistant", "content": assistant_text})
 
             latency_ms = (time.monotonic() - start_time) * 1000
             token_usage = None
-            if response.usage:
-                token_usage = {"input": response.usage.prompt_tokens, "output": response.usage.completion_tokens}
+            if llm_response.input_tokens or llm_response.output_tokens:
+                token_usage = {"input": llm_response.input_tokens, "output": llm_response.output_tokens}
 
             # Persist assistant message
             await _persist_message(conv_uuid, "assistant", content=assistant_text, token_usage=token_usage)
 
             trace_llm_call(
                 user_message=message, system_prompt=SYSTEM_PROMPT,
-                response=assistant_text, model=settings.llm_model,
+                response=assistant_text, model=llm_response.model,
                 conversation_id=cid,
                 tools_used=[tc["name"] for tc in all_tool_calls],
                 guardrail_result=guardrail_result,
                 latency_ms=latency_ms, token_usage=token_usage,
+                metadata={"provider": llm_response.provider},
             )
 
             return {"message": assistant_text, "conversation_id": cid, "tool_calls": all_tool_calls or None}
@@ -259,27 +251,27 @@ async def chat(
             {
                 "id": tc.id,
                 "type": "function",
-                "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                "function": {"name": tc.name, "arguments": json.dumps(tc.arguments)},
             }
-            for tc in choice.message.tool_calls
+            for tc in llm_response.tool_calls
         ]
         history.append({
             "role": "assistant",
-            "content": choice.message.content,
+            "content": llm_response.content,
             "tool_calls": tool_calls_data,
         })
 
         # Persist assistant message with tool calls
         await _persist_message(
             conv_uuid, "assistant",
-            content=choice.message.content,
+            content=llm_response.content,
             tool_calls=tool_calls_data,
         )
 
         # Execute each tool and add results
-        for tc in choice.message.tool_calls:
-            tool_name = tc.function.name
-            tool_input = json.loads(tc.function.arguments)
+        for tc in llm_response.tool_calls:
+            tool_name = tc.name
+            tool_input = tc.arguments
             all_tool_calls.append({"id": tc.id, "name": tool_name, "input": tool_input})
 
             # Execute the tool against the real database, scoped to org_id

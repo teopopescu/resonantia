@@ -1,6 +1,6 @@
-"""Critic agent — reviews specialist outputs before they reach the user.
+"""Critic agent -- reviews specialist outputs before they reach the user.
 
-Per docs/agentic-architecture.md §2: pharma scientists won't trust an
+Per docs/agentic-architecture.md S2: pharma scientists won't trust an
 agent twice if they catch it lying once. The critic is a separate LLM
 call with no tools, lower temperature, and a purely adversarial prompt.
 """
@@ -10,14 +10,8 @@ from __future__ import annotations
 import json
 import logging
 
-from openai import (
-    APIConnectionError,
-    AsyncOpenAI,
-    AuthenticationError,
-    RateLimitError,
-)
-
 from resonantia.config import get_settings
+from resonantia.services.llm import LLMProvider, get_provider
 from resonantia.services.multi_agent.messages import CriticVerdict, TaskResult
 from resonantia.services.multi_agent.prompts import CRITIC_PROMPT
 
@@ -47,10 +41,10 @@ async def review(
     user_request: str,
     result: TaskResult,
     *,
-    client: AsyncOpenAI | None = None,
+    provider: LLMProvider | None = None,
 ) -> CriticVerdict:
     """Run the critic. Failures degrade to ``soft_warn`` so the user is
-    never blocked by an unavailable critic — but they are warned that
+    never blocked by an unavailable critic -- but they are warned that
     the answer was not reviewed.
     """
     settings = get_settings()
@@ -67,10 +61,17 @@ async def review(
             reason=reason,
         )
 
-    if not settings.openai_api_key:
+    # Check for API key availability.
+    provider_name = settings.default_provider
+    has_key = (
+        (provider_name == "openai" and settings.openai_api_key)
+        or (provider_name == "anthropic" and settings.anthropic_api_key)
+        or settings.openai_api_key
+    )
+    if not has_key:
         return _degrade("critic_unavailable_no_api_key")
 
-    client = client or AsyncOpenAI(api_key=settings.openai_api_key)
+    provider = provider or get_provider()
 
     payload = {
         "user_request": user_request,
@@ -81,27 +82,24 @@ async def review(
     }
 
     try:
-        response = await client.chat.completions.create(
-            model=settings.llm_model,
-            temperature=0.0,
-            max_tokens=200,
+        response = await provider.completion(
             messages=[
                 {"role": "system", "content": CRITIC_PROMPT},
                 {"role": "user", "content": json.dumps(payload)},
             ],
+            model=settings.critic_model,
+            temperature=0.0,
+            max_tokens=200,
             response_format={"type": "json_object"},
         )
-    except (RateLimitError, APIConnectionError) as exc:
-        # Transient — degrade per fail_closed.
-        logger.warning("Critic transient failure: %s", exc)
-        return _degrade(f"critic_transient_{exc.__class__.__name__}")
-    except AuthenticationError:
-        return _degrade("critic_auth_error")
-    except Exception as exc:  # parsing / unexpected
-        logger.exception("Critic unexpected failure")
-        return _degrade(f"critic_error_{exc.__class__.__name__}")
+    except Exception as exc:
+        exc_name = exc.__class__.__name__
+        if "auth" in exc_name.lower():
+            return _degrade("critic_auth_error")
+        logger.warning("Critic failure: %s", exc)
+        return _degrade(f"critic_error_{exc_name}")
 
-    raw = response.choices[0].message.content or "{}"
+    raw = response.content or "{}"
     try:
         parsed = json.loads(raw)
         decision = parsed.get("decision", "soft_warn")
