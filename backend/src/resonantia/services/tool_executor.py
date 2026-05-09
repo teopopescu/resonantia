@@ -328,9 +328,9 @@ async def _get_sample_stats(params: dict, org_id: str = "org_default") -> dict:
 # ---------------------------------------------------------------------------
 
 async def _list_files(params: dict, org_id: str = "org_default") -> dict:
-    """List all uploaded files."""
+    """List all uploaded files for the current org."""
     from resonantia.api.files import _file_registry
-    files = list(_file_registry.values())
+    files = [f for f in _file_registry.values() if f.get("org_id", "org_default") == org_id]
     return {
         "found": len(files),
         "files": [
@@ -342,14 +342,17 @@ async def _list_files(params: dict, org_id: str = "org_default") -> dict:
 
 
 async def _get_file_info(params: dict, org_id: str = "org_default") -> dict:
-    """Get details about a specific uploaded file."""
+    """Get details about a specific uploaded file (scoped to org)."""
     from resonantia.api.files import _file_registry
     file_id = params.get("file_id", "")
     if file_id in _file_registry:
         f = _file_registry[file_id]
+        if f.get("org_id", "org_default") != org_id:
+            return {"found": False, "message": "File not found or not accessible"}
         return {"found": True, **f}
-    # Search by filename
     for f in _file_registry.values():
+        if f.get("org_id", "org_default") != org_id:
+            continue
         if params.get("filename", "").lower() in f.get("filename", "").lower():
             return {"found": True, **f}
     return {"found": False, "message": f"No file found with id or name matching '{file_id or params.get('filename', '')}'"}
@@ -368,14 +371,18 @@ async def _read_file_contents(params: dict, org_id: str = "org_default") -> dict
     path = None
     matched_file = None
 
-    # Search by ID
+    # Search by ID (with org_id check)
     if file_id and file_id in _file_registry:
         matched_file = _file_registry[file_id]
+        if matched_file.get("org_id", "org_default") != org_id:
+            return {"error": "File not found or not accessible"}
         path = matched_file.get("stored_path") or matched_file.get("path")
 
-    # Search by filename
+    # Search by filename (with org_id check)
     if not path and filename:
         for f in _file_registry.values():
+            if f.get("org_id", "org_default") != org_id:
+                continue
             if filename.lower() in f.get("filename", "").lower():
                 matched_file = f
                 path = f.get("path")
@@ -542,6 +549,8 @@ async def _create_eln_entry(params: dict, org_id: str = "org_default") -> dict:
         if experiment_id:
             import uuid as _uuid
             exp = await session.get(Experiment, _uuid.UUID(experiment_id))
+            if exp and exp.org_id != org_id:
+                return {"error": "Experiment not found or not accessible"}
             if exp:
                 sections = [f"# {exp.name}\n", f"## Objective\n{exp.description or ''}\n", f"## Protocol\n{exp.protocol or ''}\n"]
                 if exp.results:
