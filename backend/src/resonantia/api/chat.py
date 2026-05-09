@@ -100,14 +100,19 @@ async def send_message(
         )
 
     # --- Direct fallback (multi-agent orchestrator if flag is on) ---
-    result = await agent_router.chat(
-        message=body.message,
-        conversation_id=conversation_id,
-        context=body.context,
-        clerk_user_id=clerk_user_id,
-        org_id=org_id,
-        attachments=body.attachments,
-    )
+    try:
+        result = await agent_router.chat(
+            message=body.message,
+            conversation_id=conversation_id,
+            context=body.context,
+            clerk_user_id=clerk_user_id,
+            org_id=org_id,
+            attachments=body.attachments,
+        )
+    except ValueError as exc:
+        if "not accessible" in str(exc):
+            raise HTTPException(status_code=403, detail="Conversation not accessible")
+        raise
     return ChatResponse(
         message=result["message"],
         conversation_id=result["conversation_id"],
