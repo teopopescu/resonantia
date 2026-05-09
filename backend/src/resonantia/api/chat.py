@@ -61,7 +61,10 @@ class WorkflowStatusResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 @router.post("/message", response_model=ChatResponse)
-async def send_message(body: ChatRequest) -> ChatResponse:
+async def send_message(
+    body: ChatRequest,
+    org_id: str = Depends(get_org_context),
+) -> ChatResponse:
     """Send a user message.
 
     Attempts to start an ``AgentRunWorkflow`` via Temporal.  If the Temporal
@@ -70,7 +73,6 @@ async def send_message(body: ChatRequest) -> ChatResponse:
     """
     conversation_id = body.conversation_id or uuid.uuid4().hex
     clerk_user_id = body.clerk_user_id or "anonymous"
-    org_id = body.org_id or "org_default"
 
     # --- Try Temporal first ---
     try:
@@ -120,14 +122,17 @@ async def send_message(body: ChatRequest) -> ChatResponse:
 # ---------------------------------------------------------------------------
 
 @router.post("/message/stream")
-async def stream_message(body: ChatRequest) -> EventSourceResponse:
+async def stream_message(
+    body: ChatRequest,
+    org_id: str = Depends(get_org_context),
+) -> EventSourceResponse:
     return EventSourceResponse(
         agent.chat_stream(
             message=body.message,
             conversation_id=body.conversation_id,
             context=body.context,
-            clerk_user_id=body.clerk_user_id,
-            org_id=body.org_id,
+            clerk_user_id=body.clerk_user_id or "anonymous",
+            org_id=org_id,
         )
     )
 
