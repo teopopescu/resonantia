@@ -1,9 +1,8 @@
 """Tests for the multi-agent orchestrator and specialist subagents.
 
 These exercise the routing logic, tool-scoping, and structured-message
-contracts without hitting the LLM. The OpenAI client is replaced with
-an ``AsyncMock`` whose ``chat.completions.create`` returns canned
-responses shaped like the real SDK.
+contracts without hitting the LLM. The LLM provider is replaced with
+a mock whose ``completion`` returns canned ``LLMResponse`` objects.
 """
 
 from __future__ import annotations
@@ -14,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from resonantia.services.llm.provider import LLMResponse, ToolCall
 from resonantia.services.multi_agent import (
     SPECIALISTS,
     TaskAssignment,
@@ -25,37 +25,24 @@ from resonantia.services.multi_agent import subagents as subagents_module
 from resonantia.services.multi_agent.messages import OrchestrationPlan
 
 
-def _fake_completion(content: str, *, with_tool_calls: list[dict] | None = None):
-    """Build an object shaped like an OpenAI ChatCompletion response."""
-    if with_tool_calls:
-        message = SimpleNamespace(
-            content=content,
-            tool_calls=[
-                SimpleNamespace(
-                    id=tc["id"],
-                    function=SimpleNamespace(
-                        name=tc["name"],
-                        arguments=json.dumps(tc.get("arguments", {})),
-                    ),
-                )
-                for tc in with_tool_calls
-            ],
-        )
-        finish = "tool_calls"
-    else:
-        message = SimpleNamespace(content=content, tool_calls=None)
-        finish = "stop"
-    return SimpleNamespace(
-        choices=[SimpleNamespace(message=message, finish_reason=finish)],
-        usage=SimpleNamespace(prompt_tokens=10, completion_tokens=20),
+def _fake_response(content: str, *, tool_calls: list[ToolCall] | None = None) -> LLMResponse:
+    """Build a mock LLMResponse."""
+    return LLMResponse(
+        content=content,
+        tool_calls=tool_calls or [],
+        model="test-model",
+        provider="test",
+        input_tokens=10,
+        output_tokens=20,
     )
 
 
-def _mock_client(*responses):
-    """Create an AsyncOpenAI-like mock that returns ``responses`` in order."""
-    client = MagicMock()
-    client.chat.completions.create = AsyncMock(side_effect=list(responses))
-    return client
+def _mock_provider(*responses: LLMResponse) -> MagicMock:
+    """Create a mock LLMProvider that returns ``responses`` in order."""
+    provider = MagicMock()
+    provider.provider_name = "test"
+    provider.completion = AsyncMock(side_effect=list(responses))
+    return provider
 
 
 # ---------------------------------------------------------------------------
@@ -105,15 +92,19 @@ async def test_run_specialist_returns_completed_when_llm_answers_directly():
         assigned_agent="sample_agent",
         objective="Look up the lot of anti-GFP",
     )
-    client = _mock_client(_fake_completion("Lot AB123, expires 2026-12-01."))
+    provider = _mock_provider(_fake_response("Lot AB123, expires 2026-12-01."))
 
     with patch.object(subagents_module, "_scoped_tools", new=AsyncMock(return_value=[])):
         with patch.object(
             subagents_module, "get_settings",
-            return_value=SimpleNamespace(openai_api_key="x", llm_model="gpt-4o"),
+            return_value=SimpleNamespace(
+                openai_api_key="x", anthropic_api_key="x",
+                default_provider="anthropic",
+                specialist_model="test-model",
+            ),
         ):
             result = await subagents_module.run_specialist(
-                task, org_id="org_test", client=client
+                task, org_id="org_test", provider=provider
             )
 
     assert result.status == "completed"
@@ -130,15 +121,18 @@ async def test_run_specialist_executes_tools_then_returns_answer():
         objective="Fit dose-response for staurosporine",
     )
     # Round 1: LLM asks for a tool. Round 2: LLM produces final text.
-    client = _mock_client(
-        _fake_completion(
+    provider = _mock_provider(
+        _fake_response(
             "calling tool",
-            with_tool_calls=[
-                {"id": "call_1", "name": "fit_dose_response",
-                 "arguments": {"concentrations": [], "responses": []}}
+            tool_calls=[
+                ToolCall(
+                    id="call_1",
+                    name="fit_dose_response",
+                    arguments={"concentrations": [], "responses": []},
+                )
             ],
         ),
-        _fake_completion("IC50 = 12 nM, Z' = 0.78"),
+        _fake_response("IC50 = 12 nM, Z' = 0.78"),
     )
 
     with patch.object(subagents_module, "_scoped_tools", new=AsyncMock(return_value=[])):
@@ -148,10 +142,14 @@ async def test_run_specialist_executes_tools_then_returns_answer():
         ):
             with patch.object(
                 subagents_module, "get_settings",
-                return_value=SimpleNamespace(openai_api_key="x", llm_model="gpt-4o"),
+                return_value=SimpleNamespace(
+                    openai_api_key="x", anthropic_api_key="x",
+                    default_provider="anthropic",
+                    specialist_model="test-model",
+                ),
             ):
                 result = await subagents_module.run_specialist(
-                    task, org_id="org_test", client=client
+                    task, org_id="org_test", provider=provider
                 )
 
     assert result.status == "completed"
@@ -178,12 +176,16 @@ async def test_decompose_drops_unknown_specialists():
             "can_run_parallel": True,
         }
     )
-    client = _mock_client(_fake_completion(raw))
+    provider = _mock_provider(_fake_response(raw))
     with patch.object(
         orchestrator, "get_settings",
-        return_value=SimpleNamespace(openai_api_key="x", llm_model="gpt-4o"),
+        return_value=SimpleNamespace(
+            openai_api_key="x", anthropic_api_key="x",
+            default_provider="anthropic",
+            planner_model="test-model",
+        ),
     ):
-        plan = await orchestrator._decompose("anything", client)
+        plan = await orchestrator._decompose("anything", provider)
     assert len(plan.assignments) == 1
     assert plan.assignments[0].assigned_agent == "sample_agent"
     assert plan.can_run_parallel is True
@@ -191,12 +193,16 @@ async def test_decompose_drops_unknown_specialists():
 
 @pytest.mark.asyncio
 async def test_decompose_handles_invalid_json():
-    client = _mock_client(_fake_completion("not json at all"))
+    provider = _mock_provider(_fake_response("not json at all"))
     with patch.object(
         orchestrator, "get_settings",
-        return_value=SimpleNamespace(openai_api_key="x", llm_model="gpt-4o"),
+        return_value=SimpleNamespace(
+            openai_api_key="x", anthropic_api_key="x",
+            default_provider="anthropic",
+            planner_model="test-model",
+        ),
     ):
-        plan = await orchestrator._decompose("hi", client)
+        plan = await orchestrator._decompose("hi", provider)
     assert plan.assignments == []
     assert "invalid_decomposition" in plan.rationale
 
@@ -204,12 +210,16 @@ async def test_decompose_handles_invalid_json():
 @pytest.mark.asyncio
 async def test_decompose_empty_assignments_means_direct_reply():
     raw = json.dumps({"rationale": "small talk", "assignments": []})
-    client = _mock_client(_fake_completion(raw))
+    provider = _mock_provider(_fake_response(raw))
     with patch.object(
         orchestrator, "get_settings",
-        return_value=SimpleNamespace(openai_api_key="x", llm_model="gpt-4o"),
+        return_value=SimpleNamespace(
+            openai_api_key="x", anthropic_api_key="x",
+            default_provider="anthropic",
+            planner_model="test-model",
+        ),
     ):
-        plan = await orchestrator._decompose("hello", client)
+        plan = await orchestrator._decompose("hello", provider)
     assert plan.assignments == []
 
 
@@ -223,14 +233,18 @@ async def test_critic_passes_when_llm_returns_pass():
         task_id="t1", assigned_agent="data_analyst",
         status="completed", output="IC50 = 12 nM, Z' = 0.78",
     )
-    client = _mock_client(
-        _fake_completion(json.dumps({"decision": "pass", "reason": "QC reported"}))
+    provider = _mock_provider(
+        _fake_response(json.dumps({"decision": "pass", "reason": "QC reported"}))
     )
     with patch.object(
         critic_module, "get_settings",
-        return_value=SimpleNamespace(openai_api_key="x", llm_model="gpt-4o"),
+        return_value=SimpleNamespace(
+            openai_api_key="x", anthropic_api_key="x",
+            default_provider="anthropic",
+            critic_model="test-model",
+        ),
     ):
-        verdict = await critic_module.review("fit the curve", result, client=client)
+        verdict = await critic_module.review("fit the curve", result, provider=provider)
     assert verdict.decision == "pass"
     assert verdict.task_id == "t1"
 
@@ -239,14 +253,18 @@ async def test_critic_passes_when_llm_returns_pass():
 async def test_critic_degrades_to_soft_warn_on_unparseable_output():
     result = TaskResult(
         task_id="t1", assigned_agent="data_analyst",
-        status="completed", output="…",
+        status="completed", output="...",
     )
-    client = _mock_client(_fake_completion("not json"))
+    provider = _mock_provider(_fake_response("not json"))
     with patch.object(
         critic_module, "get_settings",
-        return_value=SimpleNamespace(openai_api_key="x", llm_model="gpt-4o"),
+        return_value=SimpleNamespace(
+            openai_api_key="x", anthropic_api_key="x",
+            default_provider="anthropic",
+            critic_model="test-model",
+        ),
     ):
-        verdict = await critic_module.review("anything", result, client=client)
+        verdict = await critic_module.review("anything", result, provider=provider)
     assert verdict.decision == "soft_warn"
 
 
@@ -254,11 +272,15 @@ async def test_critic_degrades_to_soft_warn_on_unparseable_output():
 async def test_critic_degrades_when_no_api_key():
     result = TaskResult(
         task_id="t1", assigned_agent="data_analyst",
-        status="completed", output="…",
+        status="completed", output="...",
     )
     with patch.object(
         critic_module, "get_settings",
-        return_value=SimpleNamespace(openai_api_key="", llm_model="gpt-4o"),
+        return_value=SimpleNamespace(
+            openai_api_key="", anthropic_api_key="",
+            default_provider="anthropic",
+            critic_model="test-model",
+        ),
     ):
         verdict = await critic_module.review("anything", result)
     assert verdict.decision == "soft_warn"
@@ -278,7 +300,11 @@ async def test_critic_fails_closed_for_high_stakes_tool():
     )
     with patch.object(
         critic_module, "get_settings",
-        return_value=SimpleNamespace(openai_api_key="", llm_model="gpt-4o"),
+        return_value=SimpleNamespace(
+            openai_api_key="", anthropic_api_key="",
+            default_provider="anthropic",
+            critic_model="test-model",
+        ),
     ):
         verdict = await critic_module.review("fit", result)
     assert verdict.decision == "reject"
@@ -297,7 +323,11 @@ async def test_critic_soft_warns_for_low_stakes_tool():
     )
     with patch.object(
         critic_module, "get_settings",
-        return_value=SimpleNamespace(openai_api_key="", llm_model="gpt-4o"),
+        return_value=SimpleNamespace(
+            openai_api_key="", anthropic_api_key="",
+            default_provider="anthropic",
+            critic_model="test-model",
+        ),
     ):
         verdict = await critic_module.review("look up", result)
     assert verdict.decision == "soft_warn"
@@ -311,7 +341,7 @@ async def test_critic_soft_warns_for_low_stakes_tool():
 async def test_synthesize_returns_specialist_output_only_with_explicit_pass():
     """One specialist + explicit critic pass = verbatim output. An
     empty verdict list does NOT take the short-circuit, even with one
-    specialist — the critic was skipped, not satisfied."""
+    specialist -- the critic was skipped, not satisfied."""
     results = [
         TaskResult(task_id="t1", assigned_agent="sample_agent",
                    status="completed", output="Lot AB123")
@@ -319,9 +349,9 @@ async def test_synthesize_returns_specialist_output_only_with_explicit_pass():
     pass_verdict = critic_module.CriticVerdict(
         task_id="t1", decision="pass", reason=""
     )
-    client = _mock_client()
+    provider = _mock_provider()
     out = await orchestrator._synthesize_answer(
-        "look up", results, [pass_verdict], client
+        "look up", results, [pass_verdict], provider
     )
     assert out == "Lot AB123"
 
@@ -333,8 +363,8 @@ async def test_synthesize_does_not_short_circuit_without_verdict():
         TaskResult(task_id="t1", assigned_agent="sample_agent",
                    status="completed", output="Lot AB123")
     ]
-    client = _mock_client()
-    out = await orchestrator._synthesize_answer("look up", results, [], client)
+    provider = _mock_provider()
+    out = await orchestrator._synthesize_answer("look up", results, [], provider)
     # falls into the per-section render; no short-circuit
     assert "sample_agent" in out
 
@@ -352,9 +382,9 @@ async def test_synthesize_combines_multiple_specialists_with_warnings():
                                     reason="Z' missing"),
         critic_module.CriticVerdict(task_id="t2", decision="pass", reason=""),
     ]
-    client = _mock_client()
+    provider = _mock_provider()
     out = await orchestrator._synthesize_answer(
-        "analyse and write up", results, verdicts, client
+        "analyse and write up", results, verdicts, provider
     )
     assert "data_analyst" in out
     assert "eln_scribe" in out
@@ -387,7 +417,7 @@ async def test_execute_assignments_threads_upstream_into_sequential_inputs():
 
     captured: list[TaskAssignment] = []
 
-    async def fake_run(assignment, org_id, *, client=None):
+    async def fake_run(assignment, org_id, *, provider=None):
         captured.append(assignment)
         return TaskResult(
             task_id=assignment.task_id,
@@ -397,7 +427,7 @@ async def test_execute_assignments_threads_upstream_into_sequential_inputs():
         )
 
     with patch.object(orchestrator, "run_specialist", new=fake_run):
-        await orchestrator._execute_assignments(plan, "org_test", client=_mock_client())
+        await orchestrator._execute_assignments(plan, "org_test", provider=_mock_provider())
 
     assert len(captured) == 2
     # First assignment runs without upstream context.
@@ -422,7 +452,7 @@ async def test_execute_assignments_runs_in_parallel_when_safe():
 
     captured: list[TaskAssignment] = []
 
-    async def fake_run(assignment, org_id, *, client=None):
+    async def fake_run(assignment, org_id, *, provider=None):
         captured.append(assignment)
         return TaskResult(
             task_id=assignment.task_id,
@@ -432,7 +462,7 @@ async def test_execute_assignments_runs_in_parallel_when_safe():
         )
 
     with patch.object(orchestrator, "run_specialist", new=fake_run):
-        await orchestrator._execute_assignments(plan, "org_test", client=_mock_client())
+        await orchestrator._execute_assignments(plan, "org_test", provider=_mock_provider())
 
     # Neither assignment should have been mutated with upstream context.
     for a in captured:

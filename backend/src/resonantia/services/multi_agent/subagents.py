@@ -18,14 +18,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from openai import (
-    APIConnectionError,
-    AsyncOpenAI,
-    AuthenticationError,
-    RateLimitError,
-)
-
 from resonantia.config import get_settings
+from resonantia.services.llm import LLMProvider, get_provider
 from resonantia.services.multi_agent.messages import (
     AgentName,
     TaskAssignment,
@@ -77,36 +71,26 @@ SPECIALISTS: dict[AgentName, SpecialistConfig] = {
 
 
 async def _scoped_tools(categories: tuple[str, ...]) -> list[dict[str, Any]]:
-    """Return tools filtered by category, in OpenAI function format.
+    """Return tools filtered by category, in provider-agnostic format.
 
     An empty ``categories`` tuple returns all tools.
+    The provider adapter handles format conversion.
     """
     if not categories:
-        anthropic_tools = await get_tools_as_anthropic()
-    else:
-        all_tools: list[dict[str, Any]] = []
-        for cat in categories:
-            all_tools.extend(await get_tools_as_anthropic(category=cat))
-        # de-dupe by name in case of overlap
-        seen: set[str] = set()
-        anthropic_tools = []
-        for t in all_tools:
-            if t["name"] in seen:
-                continue
-            seen.add(t["name"])
-            anthropic_tools.append(t)
+        return await get_tools_as_anthropic()
 
-    return [
-        {
-            "type": "function",
-            "function": {
-                "name": t["name"],
-                "description": t["description"],
-                "parameters": t["input_schema"],
-            },
-        }
-        for t in anthropic_tools
-    ]
+    all_tools: list[dict[str, Any]] = []
+    for cat in categories:
+        all_tools.extend(await get_tools_as_anthropic(category=cat))
+    # de-dupe by name in case of overlap
+    seen: set[str] = set()
+    result: list[dict[str, Any]] = []
+    for t in all_tools:
+        if t["name"] in seen:
+            continue
+        seen.add(t["name"])
+        result.append(t)
+    return result
 
 
 def _format_assignment(task: TaskAssignment) -> str:
@@ -123,26 +107,17 @@ async def run_specialist(
     task: TaskAssignment,
     org_id: str,
     *,
-    client: AsyncOpenAI | None = None,
+    provider: LLMProvider | None = None,
 ) -> TaskResult:
     """Run a single specialist subagent against a TaskAssignment.
 
-    Returns a TaskResult — never raises for tool errors, those become
+    Returns a TaskResult -- never raises for tool errors, those become
     `status="failed"` with a rationale.
     """
     config = SPECIALISTS[task.assigned_agent]
 
     settings = get_settings()
-    if not settings.openai_api_key:
-        return TaskResult(
-            task_id=task.task_id,
-            assigned_agent=task.assigned_agent,
-            status="failed",
-            output="OpenAI API key is not configured.",
-            rationale="missing_api_key",
-        )
-
-    client = client or AsyncOpenAI(api_key=settings.openai_api_key)
+    provider = provider or get_provider()
     tools = await _scoped_tools(config.tool_categories)
     system_prompt = SPECIALIST_PROMPTS[task.assigned_agent]
 
@@ -153,44 +128,42 @@ async def run_specialist(
 
     for _ in range(MAX_TOOL_ROUNDS):
         messages = [{"role": "system", "content": system_prompt}, *history]
-        kwargs: dict[str, Any] = {
-            "model": settings.llm_model,
-            "max_tokens": 2048,
-            "messages": messages,
-        }
-        if tools:
-            kwargs["tools"] = tools
 
         try:
-            response = await client.chat.completions.create(**kwargs)
-        except AuthenticationError:
-            return TaskResult(
-                task_id=task.task_id,
-                assigned_agent=task.assigned_agent,
-                status="failed",
-                output="Invalid OpenAI API key.",
-                rationale="auth_error",
+            llm_response = await provider.completion(
+                messages,
+                tools=tools if tools else None,
+                model=settings.specialist_model,
+                max_tokens=2048,
             )
-        except APIConnectionError:
+        except Exception as exc:
+            exc_name = exc.__class__.__name__
+            if "auth" in exc_name.lower():
+                return TaskResult(
+                    task_id=task.task_id,
+                    assigned_agent=task.assigned_agent,
+                    status="failed",
+                    output="Invalid API key.",
+                    rationale="auth_error",
+                )
+            if "rate" in exc_name.lower():
+                return TaskResult(
+                    task_id=task.task_id,
+                    assigned_agent=task.assigned_agent,
+                    status="failed",
+                    output="LLM provider rate limit exceeded -- try again shortly.",
+                    rationale="rate_limited",
+                )
             return TaskResult(
                 task_id=task.task_id,
                 assigned_agent=task.assigned_agent,
                 status="failed",
-                output="Could not reach the LLM provider.",
+                output=f"Could not reach the LLM provider ({exc_name}).",
                 rationale="api_connection_error",
             )
-        except RateLimitError:
-            return TaskResult(
-                task_id=task.task_id,
-                assigned_agent=task.assigned_agent,
-                status="failed",
-                output="LLM provider rate limit exceeded — try again shortly.",
-                rationale="rate_limited",
-            )
 
-        choice = response.choices[0]
-        if choice.finish_reason != "tool_calls" or not choice.message.tool_calls:
-            text = choice.message.content or ""
+        if not llm_response.tool_calls:
+            text = llm_response.content or ""
             return TaskResult(
                 task_id=task.task_id,
                 assigned_agent=task.assigned_agent,
@@ -202,36 +175,32 @@ async def run_specialist(
             )
 
         # tool_calls round
-        tool_calls_for_history = []
-        for tc in choice.message.tool_calls:
-            tool_calls_for_history.append(
-                {
-                    "id": tc.id,
-                    "type": "function",
-                    "function": {
-                        "name": tc.function.name,
-                        "arguments": tc.function.arguments,
-                    },
-                }
-            )
+        tool_calls_for_history = [
+            {
+                "id": tc.id,
+                "type": "function",
+                "function": {
+                    "name": tc.name,
+                    "arguments": json.dumps(tc.arguments),
+                },
+            }
+            for tc in llm_response.tool_calls
+        ]
         history.append(
             {
                 "role": "assistant",
-                "content": choice.message.content,
+                "content": llm_response.content,
                 "tool_calls": tool_calls_for_history,
             }
         )
 
-        for tc in choice.message.tool_calls:
-            try:
-                tool_input = json.loads(tc.function.arguments)
-            except json.JSONDecodeError:
-                tool_input = {}
+        for tc in llm_response.tool_calls:
+            tool_input = tc.arguments
             tool_calls_seen.append(
-                {"id": tc.id, "name": tc.function.name, "input": tool_input}
+                {"id": tc.id, "name": tc.name, "input": tool_input}
             )
             tool_result = await execute_tool(
-                tc.function.name, tool_input, org_id=org_id
+                tc.name, tool_input, org_id=org_id
             )
             history.append(
                 {
