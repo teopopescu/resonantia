@@ -980,19 +980,68 @@ async def _calculate_dilution(params: dict, org_id: str = "org_default") -> dict
 # ---------------------------------------------------------------------------
 
 async def _fit_dose_response_tool(params: dict, org_id: str = "org_default") -> dict:
-    """Fit a 4PL dose-response curve and compute IC50."""
-    from resonantia.services.data_processor import fit_dose_response
+    """Fit a 4PL dose-response curve, generate plot, and persist to Experiment."""
+    from resonantia.services.data_processor import fit_dose_response_full
+
     concentrations = params.get("concentrations", [])
     responses = params.get("responses", [])
+    compound_name = params.get("compound_name", "Compound")
+    positive_controls = params.get("positive_controls")
+    negative_controls = params.get("negative_controls")
+
     if not concentrations or not responses:
         return {"error": "Both 'concentrations' and 'responses' arrays are required."}
     if len(concentrations) != len(responses):
         return {"error": f"Array length mismatch: {len(concentrations)} concentrations vs {len(responses)} responses."}
+
     try:
-        result = fit_dose_response(concentrations, responses)
-        return result
+        result = await fit_dose_response_full(
+            concentrations,
+            responses,
+            positive_controls=positive_controls,
+            negative_controls=negative_controls,
+            compound_name=compound_name,
+        )
     except Exception as e:
         return {"error": f"Curve fitting failed: {str(e)}"}
+
+    if not result.get("success"):
+        return result
+
+    # Persist results to Experiment model (best-effort)
+    experiment_id = None
+    try:
+        async with async_session_factory() as session:
+            experiment = Experiment(
+                org_id=org_id,
+                name=f"Dose-Response: {compound_name}",
+                description=f"4PL curve fit for {compound_name}",
+                protocol="dose-response-4pl",
+                status="completed",
+                results={
+                    "ec50": result["ic50"],
+                    "ic50_ci_lower": result["ic50_ci_lower"],
+                    "ic50_ci_upper": result["ic50_ci_upper"],
+                    "hill_slope": result["hill_slope"],
+                    "r_squared": result["r_squared"],
+                    "z_prime": result.get("z_prime"),
+                    "top": result["top"],
+                    "bottom": result["bottom"],
+                    "n_points": result["n_points"],
+                    "n_replicates": result["n_replicates"],
+                    "outliers": result["outliers"],
+                    "plot_url": result["plot_url"],
+                },
+            )
+            session.add(experiment)
+            await session.commit()
+            await session.refresh(experiment)
+            experiment_id = str(experiment.id)
+    except Exception:
+        logger.warning("Could not persist dose-response experiment to DB")
+
+    result["experiment_id"] = experiment_id
+    return result
 
 
 async def _normalize_plate_tool(params: dict, org_id: str = "org_default") -> dict:
