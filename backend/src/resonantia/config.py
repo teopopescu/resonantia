@@ -26,7 +26,14 @@ class Settings(BaseSettings):
 
     # --- LLM ---
     openai_api_key: str = ""
+    anthropic_api_key: str = ""
     llm_model: str = "gpt-4o"
+    default_provider: str = "anthropic"
+
+    # Per-role model assignment (multi-agent topology)
+    planner_model: str = "claude-sonnet-4-20250514"
+    specialist_model: str = "claude-sonnet-4-20250514"
+    critic_model: str = "claude-haiku-4-5-20251001"
 
     # --- Multi-agent topology ---
     # When true, chat goes through the orchestrator + specialists + critic

@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { DEMO_SAMPLES, type Sample, type SampleStatus, type SampleType } from "@/lib/demo-data";
 import { api } from "@/lib/api";
+import { isDemoMode, showErrorToast } from "@/lib/demo-mode";
 
 export interface SampleFilters {
   type: SampleType | "all";
@@ -54,17 +55,25 @@ export const useSampleStore = create<SampleState>()(
 
       fetchSamples: async () => {
         set({ loading: true });
+        if (isDemoMode()) {
+          set({ samples: DEMO_SAMPLES, synced: false, loading: false });
+          return;
+        }
         try {
           const data = await api<Sample[]>("/api/v1/samples");
-          set({ samples: data.length > 0 ? data : DEMO_SAMPLES, synced: data.length > 0, loading: false });
+          set({ samples: data.length > 0 ? data : [], synced: true, loading: false });
         } catch {
-          // Backend unavailable — keep demo data
+          showErrorToast("load samples");
           set({ synced: false, loading: false });
         }
       },
 
       createSample: async (sample) => {
         set({ loading: true });
+        if (isDemoMode()) {
+          set((state) => ({ samples: [sample, ...state.samples], synced: false, loading: false }));
+          return;
+        }
         try {
           const created = await api<Sample>("/api/v1/samples", {
             method: "POST",
@@ -72,13 +81,21 @@ export const useSampleStore = create<SampleState>()(
           });
           set((state) => ({ samples: [created, ...state.samples], synced: true, loading: false }));
         } catch {
-          // Fallback: add locally
-          set((state) => ({ samples: [sample, ...state.samples], synced: false, loading: false }));
+          showErrorToast("create sample");
+          set({ loading: false });
         }
       },
 
       removeSample: async (id) => {
         set({ loading: true });
+        if (isDemoMode()) {
+          set((state) => ({
+            samples: state.samples.filter((s) => s.id !== id),
+            selectedSamples: state.selectedSamples.filter((sid) => sid !== id),
+            synced: false, loading: false,
+          }));
+          return;
+        }
         try {
           await api<void>(`/api/v1/samples/${id}`, { method: "DELETE" });
           set((state) => ({
@@ -88,7 +105,7 @@ export const useSampleStore = create<SampleState>()(
             loading: false,
           }));
         } catch {
-          // Fallback: remove locally
+          showErrorToast("delete sample");
           set((state) => ({
             samples: state.samples.filter((s) => s.id !== id),
             selectedSamples: state.selectedSamples.filter((sid) => sid !== id),

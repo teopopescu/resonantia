@@ -38,10 +38,10 @@ export function CtaSection() {
             />
           </a>
           <Link
-            href="/about"
+            href="/use-cases"
             className="inline-flex items-center gap-2 px-6 py-3 text-sm font-medium text-ink border border-line-strong rounded-[3px] hover:border-ink hover:bg-surface transition-colors duration-200"
           >
-            Read about
+            See use cases
           </Link>
         </div>
       </motion.div>

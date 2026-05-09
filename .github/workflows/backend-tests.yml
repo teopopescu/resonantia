@@ -57,4 +57,4 @@ jobs:
         env:
           DATABASE_URL: postgresql+asyncpg://resonantia:test@localhost:5432/resonantia_test
           REDIS_URL: redis://localhost:6379/0
-        run: uv run pytest tests/ -v --tb=short
+        run: uv run pytest tests/ -v --tb=short --strict-markers

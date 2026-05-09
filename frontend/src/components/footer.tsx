@@ -6,13 +6,13 @@ import { useRef } from "react";
 
 const footerLinks = {
   Product: [
-    { label: "About", href: "/about" },
     { label: "Features", href: "#features" },
+    { label: "Use cases", href: "/use-cases" },
     { label: "Pricing", href: "/pricing" },
-    { label: "Request a Feature", href: "/feature-request" },
   ],
-  Research: [
-    { label: "Blog", href: "/blog" },
+  Connect: [
+    { label: "Contact us", href: "mailto:hello@resonantia.io?subject=Resonantia · contact" },
+    { label: "Feedback", href: "https://forms.gle/resonantia-feedback" },
   ],
 };
 
