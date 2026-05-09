@@ -9,7 +9,6 @@ import { cn } from "@/lib/utils";
 import {
   MessageSquare,
   LayoutGrid,
-  Eye,
   FlaskConical,
   BarChart3,
   BookOpen,
@@ -21,7 +20,6 @@ import {
 const navItems = [
   { icon: MessageSquare, label: "Console",    href: "/lab",            tool: "chat" },
   { icon: LayoutGrid,    label: "Plates",     href: "/lab/plates",     tool: "plates" },
-  { icon: Eye,           label: "Microscopy", href: "/lab/microscopy", tool: "microscopy" },
   { icon: FlaskConical,  label: "Inventory",  href: "/lab/samples",    tool: "samples" },
   { icon: BookOpen,      label: "Notebook",   href: "/lab/eln",        tool: "eln" },
   { icon: ClipboardList, label: "Protocols",  href: "/lab/protocols",  tool: "protocols" },
