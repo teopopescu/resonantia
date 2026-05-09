@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { useUser, useOrganization } from "@clerk/nextjs";
 import Sidebar from "@/components/lab/sidebar";
@@ -8,6 +8,7 @@ import TaskPanel from "@/components/lab/task-panel";
 import { useLabStore } from "@/stores/lab-store";
 import { useOnboardingStore } from "@/stores/onboarding-store";
 import { api, setActiveOrgId } from "@/lib/api";
+import { isDemoMode, initDemoMode } from "@/lib/demo-mode";
 import { ChevronRight } from "lucide-react";
 
 export default function LabLayout({ children }: { children: React.ReactNode }) {
@@ -22,8 +23,26 @@ export default function LabLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const [checking, setChecking] = useState(true);
+  const [demoActive, setDemoActive] = useState(false);
+  const [toasts, setToasts] = useState<string[]>([]);
 
   const isOnboardingRoute = pathname.startsWith("/lab/onboarding");
+
+  useEffect(() => {
+    initDemoMode().then(() => setDemoActive(isDemoMode()));
+  }, []);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.message) {
+        setToasts((prev) => [...prev.slice(-4), detail.message]);
+        setTimeout(() => setToasts((prev) => prev.slice(1)), 5000);
+      }
+    };
+    window.addEventListener("resonantia:toast", handler);
+    return () => window.removeEventListener("resonantia:toast", handler);
+  }, []);
 
   // Set active org from Clerk
   useEffect(() => {
@@ -168,7 +187,28 @@ export default function LabLayout({ children }: { children: React.ReactNode }) {
       )}
 
       {/* Main content area */}
-      <main className="flex-1 flex flex-col min-w-0 bg-surface">{children}</main>
+      <main className="flex-1 flex flex-col min-w-0 bg-surface">
+        {demoActive && (
+          <div className="shrink-0 bg-amber-100 border-b border-amber-300 px-4 py-2 text-sm text-amber-800">
+            Demo mode — changes are not persisted to the server
+          </div>
+        )}
+        {children}
+      </main>
+
+      {/* Error toasts */}
+      {toasts.length > 0 && (
+        <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
+          {toasts.map((msg, i) => (
+            <div
+              key={i}
+              className="bg-red-50 border border-red-200 text-red-800 text-sm px-4 py-3 rounded-md shadow-md max-w-sm animate-in fade-in slide-in-from-bottom-2"
+            >
+              {msg}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

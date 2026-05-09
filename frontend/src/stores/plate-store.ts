@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { WellData, WellType } from "@/lib/plate-utils";
 import { api, apiRaw } from "@/lib/api";
+import { showErrorToast } from "@/lib/demo-mode";
 
 export type MappingMode =
   | "cherry-pick"
@@ -245,6 +246,7 @@ export const usePlateStore = create<PlateState>()(
             set({ synced: false, loading: false });
           }
         } catch {
+          showErrorToast("backend unavailable — keep demo data");
           // Backend unavailable — keep demo data
           set({ synced: false, loading: false });
         }
@@ -259,6 +261,7 @@ export const usePlateStore = create<PlateState>()(
           });
           set((s) => ({ plateMaps: [...s.plateMaps, created], synced: true, loading: false }));
         } catch {
+          showErrorToast("save changes");
           // Fallback: add locally with generated id
           const local: PlateMap = {
             id: `pm-local-${Date.now()}`,
@@ -283,6 +286,7 @@ export const usePlateStore = create<PlateState>()(
           const content = await res.text();
           return content;
         } catch {
+          showErrorToast("return null so caller can fall back to client-side generation");
           // Return null so caller can fall back to client-side generation
           return null;
         }

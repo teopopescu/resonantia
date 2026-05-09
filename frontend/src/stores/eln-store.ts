@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { api, apiRaw } from "@/lib/api";
+import { showErrorToast } from "@/lib/demo-mode";
 
 export type ELNEntryStatus = "draft" | "submitted" | "archived";
 
@@ -100,6 +101,7 @@ export const useELNStore = create<ELNState>()(
           const data = await api<ELNEntry[]>("/api/v1/eln");
           set({ entries: data.length > 0 ? data : DEMO_ENTRIES, synced: data.length > 0, loading: false });
         } catch {
+          showErrorToast("save changes");
           set({ synced: false, loading: false });
         }
       },
@@ -127,6 +129,7 @@ export const useELNStore = create<ELNState>()(
           });
           set((s) => ({ entries: [created, ...s.entries], synced: true, loading: false }));
         } catch {
+          showErrorToast("save changes");
           set((s) => ({ entries: [entry, ...s.entries], synced: false, loading: false }));
         }
       },
@@ -140,6 +143,7 @@ export const useELNStore = create<ELNState>()(
           });
           set((s) => ({ entries: [generated, ...s.entries], synced: true, loading: false }));
         } catch {
+          showErrorToast("save changes");
           set({ loading: false });
         }
       },
@@ -165,6 +169,7 @@ export const useELNStore = create<ELNState>()(
             loading: false,
           }));
         } catch {
+          showErrorToast("save changes");
           set((s) => ({
             entries: s.entries.map((e) =>
               e.id === id ? { ...e, status: "submitted", submitted_at: new Date().toISOString() } : e
@@ -193,6 +198,7 @@ export const useELNStore = create<ELNState>()(
           a.click();
           URL.revokeObjectURL(url);
         } catch {
+          showErrorToast("save changes");
           // Fallback: download as text
           const entry = get().entries.find((e) => e.id === id);
           if (entry) {
