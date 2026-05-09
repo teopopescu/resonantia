@@ -34,9 +34,9 @@ const modules: Array<{
     code: "MIC/02",
     title: "Microscopy Browser",
     desc:
-      "Browse FOVs by plate, well, and channel. Smart overlays, side-by-side compare, terabyte-scale lazy loading.",
-    status: "GA",
-    ver: "v1.0",
+      "Browse FOVs by plate, well, and channel. Smart overlays, side-by-side compare, terabyte-scale lazy loading. Available for imaging labs on request.",
+    status: "PREVIEW",
+    ver: "v0.9",
     specs: ["DAPI · GFP · mCh · BF", "TIFF · OME-Zarr", "6 fovs/well"],
     telemetry: "Plate A · row B · 576 images · 1.4 GB",
   },
