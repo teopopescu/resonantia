@@ -16,7 +16,7 @@ AI-powered plate mapping, dose-response analysis, and sample tracking for lab sc
 
 | Feature | Description |
 |---|---|
-| **Agentic Chat** | 32 tools querying real PostgreSQL — ask "What plates do we have?" and get answers from your data |
+| **Agentic Chat** | 33 tools querying real PostgreSQL — ask "What plates do we have?" and get answers from your data |
 | **Plate Map Designer** | Source-destination mapping with cherry-pick, serial dilution, replicate modes. Worklist export for Echo, Hamilton, Opentrons |
 | **Microscopy Browser** | FOV image viewer with DAPI/GFP/mCherry channel overlay, plate-well-FOV navigation |
 | **Sample Tracker** | Reagent inventory with barcode lookup, expiry alerts, storage location tracking |
@@ -139,7 +139,7 @@ cd frontend && npx vitest run
 
 ## Agentic Tools (32)
 
-The chat agent has access to 32 tools across 7 categories, all querying the real database:
+The chat agent has access to 33 tools across 7 categories, all querying the real database:
 
 | Category | Tools |
 |---|---|
