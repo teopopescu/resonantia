@@ -1,114 +1,85 @@
 # Resonantia Architecture
 
-## System Overview
+## System Overview (post-Phase 0 stabilization)
 
 ```
-                        ┌─────────────────────────────────────────────────────────┐
-                        │                   Docker Compose                        │
-                        │                                                         │
-  ┌──────────┐          │  ┌──────────────┐       ┌──────────────────────────┐    │
-  │  Browser  │◄────────┼──┤   Frontend   │       │       Backend            │    │
-  │           │─────────┼──►  (Next.js)   │──────►│     (FastAPI)            │    │
-  └──────────┘  :3000   │  │  Port 3000   │ :8000 │     Port 8000           │    │
-                        │  │              │       │                          │    │
-                        │  │  - Zustand   │       │  ┌────────────────────┐  │    │
-                        │  │  - React     │       │  │  Service Modules   │  │    │
-                        │  │    Query     │       │  │                    │  │    │
-                        │  │  - Clerk     │       │  │  ┌──────────────┐  │  │    │
-                        │  │    Auth      │       │  │  │ Microscopy   │  │  │    │
-                        │  └──────────────┘       │  │  │ Image Viewer │  │  │    │
-                        │                         │  │  ├──────────────┤  │  │    │
-                        │                         │  │  │ Plate        │  │  │    │
-                        │                         │  │  │ Mapping      │  │  │    │
-                        │                         │  │  ├──────────────┤  │  │    │
-                        │                         │  │  │ Experiment   │  │  │    │
-                        │                         │  │  │ Tracker      │  │  │    │
-                        │                         │  │  ├──────────────┤  │  │    │
-                        │                         │  │  │ AI Lab       │  │  │    │
-                        │                         │  │  │ Assistant    │  │  │    │
-                        │                         │  │  ├──────────────┤  │  │    │
-                        │                         │  │  │ Protocol     │  │  │    │
-                        │                         │  │  │ Builder      │  │  │    │
-                        │                         │  │  └──────────────┘  │  │    │
-                        │                         │  └────────────────────┘  │    │
-                        │                         │            │             │    │
-                        │                         └────────────┼─────────────┘    │
-                        │                                      │                  │
-                        │                    ┌─────────────────┼────────────┐     │
-                        │                    │                 │            │     │
-                        │               ┌────▼─────┐    ┌─────▼────┐  ┌───▼───┐ │
-                        │               │PostgreSQL │    │  Redis   │  │Anthro-│ │
-                        │               │   16      │    │    7     │  │pic API│ │
-                        │               │ Port 5432 │    │Port 6379 │  │       │ │
-                        │               └──────────┘    └──────────┘  └───────┘ │
-                        │                                                         │
-                        │           ┌─────────────────────────────┐               │
-                        │           │   Temporal (Future)          │               │
-                        │           │   Workflow Orchestration     │               │
-                        │           │   - Long-running experiments │               │
-                        │           │   - Pipeline execution       │               │
-                        │           │   - Scheduled tasks          │               │
-                        │           └─────────────────────────────┘               │
-                        └─────────────────────────────────────────────────────────┘
+  Browser ──► Next.js 16 (Clerk Auth) ──► FastAPI (Python 3.12)
+                :3000                        :8000
+                                               │
+              ┌────────────────────────────────┼──────────────────────┐
+              │                                │                      │
+         ┌────▼─────┐    ┌────────────┐  ┌────▼──────┐   ┌─────────┐
+         │PostgreSQL │    │   Redis    │  │  LLM      │   │Temporal │
+         │   16      │    │    7       │  │ Provider  │   │         │
+         │           │    │            │  │           │   │ Durable │
+         │- Convos   │    │- Tool      │  │ OpenAI    │   │ tool    │
+         │- Samples  │    │  schemas   │  │ Anthropic │   │ calls   │
+         │- Plates   │    │- Cache     │  │           │   │         │
+         │- ELN      │    │            │  │ Langfuse  │   │ 30s     │
+         │- Protocols│    │            │  │ traced    │   │ timeout │
+         │- Expts    │    │            │  │           │   │         │
+         └──────────┘    └────────────┘  └───────────┘   └─────────┘
 ```
+
+## Key Architectural Decisions (Phase 0)
+
+### LLM Provider Abstraction (`services/llm/`)
+All LLM calls route through a thin provider interface. OpenAI and Anthropic adapters normalize tool schemas, message formats, and responses. Per-agent model assignment via config. Direct SDK usage only in `api/voice.py` for STT/TTS.
+
+### Safe Temporal Execution (`workflows/`)
+The Temporal workflow is a durable version of the same tool-calling loop as direct mode. No generated code, no subprocess execution. Each tool call is an individually retriable activity with 30s timeout. Temporal unavailability falls back to direct mode.
+
+### Tenant Isolation
+- `org_id` derived from `X-Org-Id` header (Clerk session), never from request body
+- Every DB query filters by `org_id`
+- Conversation loading checks `conv.org_id == caller's org_id`
+- File registry scoped by `org_id`
+- Cross-org access returns 403
+
+### Output Guardrails (`services/output_validator.py`)
+3-step validation before tool execution: (1) schema validation against registered JSON schema, (2) cross-tenant entity reference check, (3) execute with system-error masking. Typed `ToolResult`/`ToolError` envelopes replace raw JSON strings.
+
+### Demo Mode (`lib/demo-mode.ts`)
+Explicit flag (`NEXT_PUBLIC_DEMO_MODE`) or backend health probe. Amber banner when active. Failed writes show error toasts instead of silently persisting locally.
 
 ## Data Flow
 
 ```
-  User Request
+  User message (text/voice/image)
        │
        ▼
-  ┌─────────┐    REST/WS     ┌─────────┐
-  │ Next.js │ ──────────────► │ FastAPI │
-  │ + Clerk │ ◄────────────── │  + Auth │
-  └─────────┘                 └────┬────┘
-                                   │
-                    ┌──────────────┼──────────────┐
-                    │              │              │
-               ┌────▼────┐  ┌────▼────┐  ┌─────▼──────┐
-               │Postgres │  │  Redis  │  │ Anthropic  │
-               │         │  │         │  │ Claude API │
-               │- Users  │  │- Cache  │  │            │
-               │- Plates │  │- Session│  │- Chat      │
-               │- Images │  │- Queues │  │- Analysis  │
-               │- Expts  │  │         │  │- Protocols │
-               └─────────┘  └─────────┘  └────────────┘
+  Frontend (Zustand stores + React Query)
+       │ POST /api/v1/chat/message
+       ▼
+  Chat endpoint (org_id from Depends)
+       │
+       ├── Try Temporal (AgentToolCallWorkflow)
+       │     └── Activity: call_llm → tool_calls? → execute_tool → loop
+       │
+       └── Fallback: direct mode (agent_router.chat)
+             └── LLM provider → tool calls → tool_executor → loop
+       │
+       ▼
+  Tool executor (validate → check tenant → execute → audit)
+       │
+       ▼
+  PostgreSQL (persist) + Langfuse (trace) + Redis (cache)
 ```
 
-## Feature Modules (Initial 5)
+## Feature Modules
 
-| Module | Description |
-|--------|-------------|
-| **Microscopy Image Viewer** | Upload, view, annotate, and AI-analyze microscopy images |
-| **Plate Mapping** | Source-destination plate mapping with drag-and-drop well selection |
-| **Experiment Tracker** | Create, manage, and track lab experiments with metadata |
-| **AI Lab Assistant** | Claude-powered conversational assistant for lab workflows |
-| **Protocol Builder** | Step-by-step protocol creation with version control |
+| Module | Status | Tools |
+|--------|--------|-------|
+| Plate Mapping | GA | create_plate_map, cherry_pick, serial_dilution, generate_worklist, get_plate_map_details |
+| Data Processing | GA | fit_dose_response, normalize_plate, calculate_z_prime, qpcr_analysis |
+| Sample Tracker | GA | lookup_sample, check_inventory, get_expiring_samples, get_ic50_values |
+| ELN | GA | create_eln_entry, query_eln_entries, submit_eln_entry |
+| Protocol Builder | GA | create_protocol, query_protocols, check_protocol_inventory, calculate_dilution |
+| Agent Console | BETA | 33 tools across 7 categories, voice mode, multi-agent topology |
+| Microscopy | PREVIEW | browse_microscopy, generate_montage (partner-triggered only) |
 
-## Production Deployment (Future)
+## Test Coverage
 
-```
-  ┌────────────┐     ┌──────────────────────────────────────┐
-  │   Vercel   │     │              AWS                      │
-  │  (Next.js) │────►│                                      │
-  └────────────┘     │  ┌───────────┐    ┌──────────────┐   │
-                     │  │ ECS / EKS │    │     RDS      │   │
-                     │  │ (FastAPI) │───►│ (PostgreSQL) │   │
-                     │  └─────┬─────┘    └──────────────┘   │
-                     │        │                              │
-                     │        │          ┌──────────────┐   │
-                     │        └─────────►│ ElastiCache  │   │
-                     │                   │   (Redis)    │   │
-                     │                   └──────────────┘   │
-                     │                                      │
-                     │  ┌──────────────────────────────┐    │
-                     │  │  Temporal Cloud / EKS         │    │
-                     │  │  (Workflow Orchestration)     │    │
-                     │  └──────────────────────────────┘    │
-                     │                                      │
-                     │  ┌──────────────┐                    │
-                     │  │     S3       │                    │
-                     │  │ (Image Store)│                    │
-                     │  └──────────────┘                    │
-                     └──────────────────────────────────────┘
-```
+- Backend: 140+ tests (pytest)
+- Frontend: 53 tests (vitest)
+- CI: GitHub Actions, strict markers, merge-blocking
