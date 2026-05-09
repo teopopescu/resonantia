@@ -23,6 +23,12 @@ from resonantia.models.experiment import Experiment
 from resonantia.models.microscopy import MicroscopyImage
 from resonantia.models.eln_entry import ELNEntry
 from resonantia.models.protocol import Protocol, ProtocolStep
+from resonantia.services.output_validator import (
+    ToolError,
+    ToolResult,
+    check_tenant_refs,
+    validate_tool_args,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,18 +46,108 @@ def _serialize(obj: Any) -> Any:
     return obj
 
 
-async def execute_tool(tool_name: str, tool_input: dict[str, Any], org_id: str = "org_default") -> str:
-    """Execute a tool by name and return a JSON string result."""
+def _extract_source_refs(args: dict[str, Any]) -> list[str]:
+    """Pull entity IDs from tool arguments for ToolResult.source_refs."""
+    refs: list[str] = []
+    for key, value in args.items():
+        if key.endswith("_id") and isinstance(value, str) and value:
+            refs.append(value)
+    return refs
+
+
+async def _get_tool_schema(tool_name: str) -> dict[str, Any] | None:
+    """Load a tool's input_schema from the Redis registry."""
+    try:
+        from resonantia.services.tool_registry import get_tool, tool_schema_to_anthropic
+        tool = await get_tool(tool_name)
+        if tool is not None:
+            anthropic = tool_schema_to_anthropic(tool)
+            return anthropic.get("input_schema")
+    except Exception:
+        # Redis unavailable; skip schema validation
+        logger.debug("Could not load schema for %s from registry", tool_name)
+    return None
+
+
+async def execute_tool_typed(
+    tool_name: str,
+    tool_input: dict[str, Any],
+    org_id: str = "org_default",
+) -> ToolResult | ToolError:
+    """Execute a tool and return a typed ``ToolResult`` or ``ToolError``.
+
+    Validation pipeline (runs before execution):
+    1. Schema validation against the tool's registered JSON schema
+    2. Cross-tenant entity reference check
+    3. Tool execution with system-error masking
+    """
     handler = TOOL_HANDLERS.get(tool_name)
     if not handler:
-        return json.dumps({"error": f"Unknown tool: {tool_name}"})
+        return ToolError(
+            tool_name=tool_name,
+            error_type="validation",
+            message=f"Unknown tool: {tool_name}",
+            retry_allowed=False,
+        )
 
+    # --- Step 1: Schema validation ---
+    schema = await _get_tool_schema(tool_name)
+    if schema is not None:
+        validated = validate_tool_args(tool_name, tool_input, schema)
+        if isinstance(validated, ToolError):
+            return validated
+
+    # --- Step 2: Cross-tenant entity reference check ---
+    # Only check if there are any *_id fields with UUID-looking values
+    id_fields = {k: v for k, v in tool_input.items() if k.endswith("_id") and isinstance(v, str)}
+    if id_fields:
+        try:
+            async with async_session_factory() as session:
+                tenant_err = await check_tenant_refs(tool_input, org_id, session)
+                if tenant_err is not None:
+                    tenant_err.tool_name = tool_name
+                    return tenant_err
+        except Exception:
+            logger.exception("Tenant ref check failed for %s", tool_name)
+            # Don't block execution if DB check itself fails
+            pass
+
+    # --- Step 3: Execute ---
     try:
         result = await handler(tool_input, org_id)
-        return json.dumps(_serialize(result), default=str)
-    except Exception as e:
+        serialized = _serialize(result)
+        return ToolResult(
+            tool_name=tool_name,
+            data=serialized if isinstance(serialized, dict) else {"result": serialized},
+            source_refs=_extract_source_refs(tool_input),
+        )
+    except Exception:
         logger.exception("Tool execution failed: %s", tool_name)
-        return json.dumps({"error": str(e)})
+        return ToolError(
+            tool_name=tool_name,
+            error_type="system",
+            message="Internal error",
+            retry_allowed=False,
+        )
+
+
+async def execute_tool(tool_name: str, tool_input: dict[str, Any], org_id: str = "org_default") -> str:
+    """Execute a tool by name and return a JSON string result.
+
+    This is the backward-compatible entry point for ``agent.py``.
+    Internally delegates to :func:`execute_tool_typed` and serializes the
+    typed envelope back to a JSON string.
+    """
+    typed = await execute_tool_typed(tool_name, tool_input, org_id)
+
+    if isinstance(typed, ToolResult):
+        return json.dumps(typed.data, default=str)
+    else:
+        # ToolError -- return as a JSON object the agent loop can read
+        return json.dumps(
+            {"error": typed.message, "error_type": typed.error_type, "retry_allowed": typed.retry_allowed},
+            default=str,
+        )
 
 
 # ---------------------------------------------------------------------------
