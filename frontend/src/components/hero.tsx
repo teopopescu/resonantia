@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { Mic, MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -91,7 +90,7 @@ const examples: Example[] = [
         time: "14:34:02",
         text: (
           <>
-            Scheduled. I'll fit IC₅₀ and draft an ELN entry by Thursday morning.
+            Scheduled. I&apos;ll fit IC₅₀ and draft an ELN entry by Thursday morning.
           </>
         ),
         chips: ["WL/01 · scheduled WED", "MIC/02 · 06:00"],
@@ -116,70 +115,74 @@ const examples: Example[] = [
     ],
   },
   {
-    id: "inventory",
-    label: "Inventory · quarter close",
+    id: "voice-capture",
+    label: "Voice capture · ELN/LIMS",
     meta: (
       <>
-        Agent · <b className="text-ink font-semibold">Q1 audit · inventory</b>
+        Agent · <b className="text-ink font-semibold">hands-free experiment capture</b>
       </>
     ),
     stages: [
-      { label: "lookup", done: true },
+      { label: "listen", done: true },
+      { label: "structure", done: true },
       { label: "review", done: true },
-      { label: "reorder", done: true },
-      { label: "log", done: false },
+      { label: "sync", done: true },
+      { label: "audit", done: false },
     ],
     turns: [
       {
         role: "user",
-        mode: "chat",
-        time: "fri · 16:42",
-        text: "What's expiring in the next 30 days?",
+        mode: "voice",
+        time: "wed · 10:18",
+        text:
+          "Record this experiment: HEK293T viability assay, staurosporine ten-point dilution, three replicates, CellTiter-Glo readout.",
       },
       {
         role: "agent",
-        time: "16:42:03",
+        time: "10:18:06",
         text: (
           <>
-            Three lots: <em className="not-italic text-brand">DMEM + 10% FBS</em> (May 6 ·
-            90%), RPMI 1640 (Jun 10 · 35%), Puromycin (Dec · 1 mL aliquot left).
+            Captured <em className="not-italic text-brand">7 structured fields</em>:
+            model, assay, compound, dilution, replicates, readout, and objective.
+            Which vehicle control should I use?
           </>
         ),
-        chips: ["INV/04 · 3 lots", "low stock · 1"],
-      },
-      {
-        role: "user",
-        mode: "chat",
-        time: "16:43",
-        text: "Reorder DMEM and Puromycin — same suppliers as last time.",
-      },
-      {
-        role: "agent",
-        time: "16:43:05",
-        text: (
-          <>
-            Drafted: DMEM 2× 500 mL (Gibco · same catalog), Puromycin 5 mL
-            (InvivoGen). Total <em className="not-italic text-brand">$382</em>. Confirm to
-            send?
-          </>
-        ),
-        chips: ["INV/04 · 2 reorders · pending"],
+        chips: ["VOICE/01 · transcribed", "EXP/02 · parsed"],
       },
       {
         role: "user",
         mode: "voice",
-        time: "16:44",
-        text: "Send them.",
+        time: "10:19",
+        text: "Use 0.1 percent DMSO vehicle and add staurosporine as the positive control.",
       },
       {
         role: "agent",
-        time: "16:44:01",
+        time: "10:19:04",
         text: (
           <>
-            Sent. ELN entry logged for the audit trail; expiry alerts updated.
+            Draft is ready. I mapped controls, linked the compound lot, and
+            validated the ELN/LIMS payload. Review before I sync?
           </>
         ),
-        chips: ["INV/04 · sent", "AUD/06 · ELN-2026-0429"],
+        chips: ["ELN/03 · draft", "LIMS/04 · payload valid"],
+      },
+      {
+        role: "user",
+        mode: "chat",
+        time: "10:20",
+        text: "Looks right. Sync it to eLabFTW and keep the LIMS payload queued.",
+      },
+      {
+        role: "agent",
+        time: "10:20:03",
+        text: (
+          <>
+            Synced to <em className="not-italic text-brand">eLabFTW</em>. LIMS
+            payload is queued for approval, and the transcript is attached to
+            the audit trail.
+          </>
+        ),
+        chips: ["ELN-2026-0430", "AUD/06 · transcript saved"],
       },
     ],
   },
@@ -191,31 +194,44 @@ const PAUSE_BEFORE_NEXT = 2800;
 
 function useReveal(example: Example, onComplete: () => void) {
   const onCompleteRef = useRef(onComplete);
-  onCompleteRef.current = onComplete;
-
-  const [step, setStep] = useState(0);
-  const [thinking, setThinking] = useState(false);
+  const [reveal, setReveal] = useState({
+    exampleId: example.id,
+    step: 0,
+    thinking: false,
+  });
 
   useEffect(() => {
-    setStep(0);
-    setThinking(false);
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
 
+  useEffect(() => {
     const timers: ReturnType<typeof setTimeout>[] = [];
     let t = 500;
 
     example.turns.forEach((turn, i) => {
       if (turn.role === "agent") {
-        timers.push(setTimeout(() => setThinking(true), t));
+        timers.push(
+          setTimeout(() => {
+            setReveal((current) => ({
+              exampleId: example.id,
+              step: current.exampleId === example.id ? current.step : 0,
+              thinking: true,
+            }));
+          }, t)
+        );
         t += 750;
         timers.push(
           setTimeout(() => {
-            setThinking(false);
-            setStep(i + 1);
+            setReveal({ exampleId: example.id, step: i + 1, thinking: false });
           }, t)
         );
         t += 1900;
       } else {
-        timers.push(setTimeout(() => setStep(i + 1), t));
+        timers.push(
+          setTimeout(() => {
+            setReveal({ exampleId: example.id, step: i + 1, thinking: false });
+          }, t)
+        );
         t += 1450;
       }
     });
@@ -227,6 +243,11 @@ function useReveal(example: Example, onComplete: () => void) {
     return () => timers.forEach(clearTimeout);
   }, [example]);
 
+  if (reveal.exampleId !== example.id) {
+    return { step: 0, thinking: false };
+  }
+
+  const { step, thinking } = reveal;
   return { step, thinking };
 }
 
