@@ -285,6 +285,42 @@ async def delete_conversation(
 
 
 # ---------------------------------------------------------------------------
+# Approval gates
+# ---------------------------------------------------------------------------
+
+@router.post("/approve/{token}")
+async def approve_tool_call(
+    token: str,
+    org_id: str = Depends(get_org_context),
+) -> dict[str, Any]:
+    """Approve a pending tool call and execute it."""
+    from resonantia.services.approval import approve
+    from resonantia.services.tool_executor import execute_tool
+
+    pending = approve(token)
+    if pending is None:
+        raise HTTPException(status_code=410, detail="Approval expired or not found")
+    if pending.org_id != org_id:
+        raise HTTPException(status_code=403, detail="Not authorized to approve this action")
+
+    result = await execute_tool(pending.tool_name, pending.tool_args, pending.org_id)
+    return {"status": "approved", "tool_name": pending.tool_name, "result": result}
+
+
+@router.post("/reject/{token}")
+async def reject_tool_call(
+    token: str,
+    org_id: str = Depends(get_org_context),
+) -> dict[str, str]:
+    """Reject a pending tool call."""
+    from resonantia.services.approval import reject
+
+    if not reject(token):
+        raise HTTPException(status_code=410, detail="Approval expired or not found")
+    return {"status": "rejected"}
+
+
+# ---------------------------------------------------------------------------
 # Temporal error imports (deferred to avoid import errors when Temporal
 # SDK is not installed in lightweight test environments)
 # ---------------------------------------------------------------------------

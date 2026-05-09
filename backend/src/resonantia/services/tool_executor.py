@@ -623,8 +623,173 @@ async def _get_processing_results(params: dict, org_id: str = "org_default") -> 
 # ELN tools
 # ---------------------------------------------------------------------------
 
+def _generate_eln_content(exp: Experiment) -> str:
+    """Build structured markdown ELN content from an experiment's data.
+
+    Sections: Objective, Methods, Results, Conclusions, References.
+    Handles missing fields gracefully -- sections are omitted or marked
+    ``N/A`` when the underlying data is absent.
+    """
+    sections: list[str] = []
+    results: dict = exp.results if isinstance(exp.results, dict) else {}
+
+    # --- Title ---
+    sections.append(f"# {exp.name}\n")
+
+    # --- Objective ---
+    objective = exp.description or "Characterise compound activity."
+    sections.append(f"## Objective\n{objective}\n")
+
+    # --- Methods ---
+    method_lines: list[str] = []
+    plate_type = results.get("plate_type") or results.get("plate_format")
+    if plate_type:
+        method_lines.append(f"- **Plate format:** {plate_type}-well")
+
+    compound = results.get("compound") or results.get("compound_name")
+    if compound:
+        n_points = results.get("n_points", results.get("num_points", ""))
+        dilution_factor = results.get("dilution_factor", "")
+        conc_range = results.get("concentration_range", "")
+        detail = compound
+        if n_points:
+            detail += f", {n_points}-point"
+        if dilution_factor:
+            detail += f" {dilution_factor}-fold dilution"
+        if conc_range:
+            detail += f" ({conc_range})"
+        method_lines.append(f"- **Compound:** {detail}")
+
+    replicates = results.get("n_replicates") or results.get("replicates")
+    if replicates:
+        method_lines.append(f"- **Replicates:** {replicates}")
+
+    readout = results.get("readout_method") or results.get("readout")
+    if readout:
+        method_lines.append(f"- **Readout:** {readout}")
+
+    controls: list[str] = []
+    pos = results.get("pos_control") or results.get("positive_control")
+    vehicle = results.get("vehicle_control") or results.get("negative_control")
+    if pos:
+        controls.append(f"Positive ({pos})")
+    if vehicle:
+        controls.append(f"Vehicle ({vehicle})")
+    if controls:
+        method_lines.append(f"- **Controls:** {', '.join(controls)}")
+
+    # Fall back to the experiment's protocol text if we built nothing
+    if not method_lines and exp.protocol:
+        method_lines.append(exp.protocol)
+
+    if method_lines:
+        sections.append("## Methods\n" + "\n".join(method_lines) + "\n")
+
+    # --- Results ---
+    result_lines: list[str] = []
+    ic50 = results.get("ec50") or results.get("ic50")
+    if ic50 is not None:
+        ci_lower = results.get("ci_lower")
+        ci_upper = results.get("ci_upper")
+        unit = results.get("concentration_unit", "nM")
+        line = f"- **IC50:** {ic50} {unit}"
+        if ci_lower is not None and ci_upper is not None:
+            line += f" (95% CI: {ci_lower}--{ci_upper} {unit})"
+        result_lines.append(line)
+
+    hill = results.get("hill_slope")
+    if hill is not None:
+        result_lines.append(f"- **Hill slope:** {hill}")
+
+    r2 = results.get("r_squared")
+    if r2 is not None:
+        result_lines.append(f"- **R-squared:** {r2}")
+
+    z_prime = results.get("z_prime")
+    if z_prime is not None:
+        result_lines.append(f"- **Z-prime:** {z_prime}")
+
+    outlier_count = results.get("outlier_count")
+    if outlier_count is not None:
+        wells = results.get("outlier_wells", "")
+        result_lines.append(f"- **Outliers:** {outlier_count} points flagged"
+                            + (f" at {wells}" if wells else ""))
+
+    plot_url = results.get("plot_url") or results.get("plot_path")
+    if plot_url:
+        result_lines.append(f"\n![Dose-Response Curve]({plot_url})")
+
+    # Include any other result keys that we have not already rendered
+    _rendered = {
+        "ec50", "ic50", "ci_lower", "ci_upper", "concentration_unit",
+        "hill_slope", "r_squared", "z_prime", "outlier_count",
+        "outlier_wells", "plot_url", "plot_path",
+        "compound", "compound_name", "plate_type", "plate_format",
+        "n_points", "num_points", "dilution_factor", "concentration_range",
+        "n_replicates", "replicates", "readout_method", "readout",
+        "pos_control", "positive_control", "vehicle_control",
+        "negative_control",
+    }
+    for k, v in results.items():
+        if k not in _rendered:
+            result_lines.append(f"- **{k}:** {v}")
+
+    if result_lines:
+        sections.append("## Results\n" + "\n".join(result_lines) + "\n")
+
+    # --- Conclusions ---
+    conclusions: list[str] = []
+    if ic50 is not None:
+        conclusions.append(f"The compound shows an IC50 of {ic50}.")
+    if r2 is not None:
+        try:
+            r2_val = float(r2)
+            if r2_val >= 0.95:
+                conclusions.append("Curve fit quality is excellent (R-squared >= 0.95).")
+            elif r2_val >= 0.9:
+                conclusions.append("Curve fit quality is good (R-squared >= 0.90).")
+            else:
+                conclusions.append(f"Curve fit quality is moderate (R-squared = {r2_val:.3f}); consider additional data points.")
+        except (ValueError, TypeError):
+            pass
+    if z_prime is not None:
+        try:
+            zp_val = float(z_prime)
+            if zp_val >= 0.5:
+                conclusions.append(f"Assay quality is excellent (Z-prime = {zp_val:.3f}).")
+            elif zp_val >= 0.0:
+                conclusions.append(f"Assay quality is marginal (Z-prime = {zp_val:.3f}).")
+            else:
+                conclusions.append(f"Assay quality is poor (Z-prime = {zp_val:.3f}); troubleshoot before repeating.")
+        except (ValueError, TypeError):
+            pass
+    if not conclusions:
+        conclusions.append("Review results and determine next steps.")
+    sections.append("## Conclusions\n" + " ".join(conclusions) + "\n")
+
+    # --- References ---
+    ref_lines: list[str] = []
+    ref_lines.append(f"- Experiment: `{exp.name}`")
+    file_id = results.get("file_upload_id") or results.get("file_id")
+    if file_id:
+        ref_lines.append(f"- Source data: `{file_id}`")
+    plate_map_id = results.get("plate_map_id")
+    if plate_map_id:
+        ref_lines.append(f"- Plate map: `{plate_map_id}`")
+    ref_lines.append(f"- Analysis date: {date.today().isoformat()}")
+    sections.append("## References\n" + "\n".join(ref_lines) + "\n")
+
+    return "\n".join(sections)
+
+
 async def _create_eln_entry(params: dict, org_id: str = "org_default") -> dict:
-    """Create an ELN entry, optionally auto-generating from an experiment."""
+    """Create an ELN entry, optionally auto-generating from an experiment.
+
+    When ``experiment_id`` is provided the handler generates a structured
+    ELN draft via :func:`_generate_eln_content` and returns a preview
+    payload suitable for the approval-gate card (``content_markdown``
+    is included so the frontend can render a rich preview).
+    """
     title = params.get("title", "Untitled Entry")
     experiment_id = params.get("experiment_id")
     content = params.get("content_markdown", "")
@@ -642,20 +807,24 @@ async def _create_eln_entry(params: dict, org_id: str = "org_default") -> dict:
         entry_number = f"{prefix}{count + 1:04d}"
 
         # Auto-generate from experiment if provided
+        linked_refs: dict[str, Any] = {}
         if experiment_id:
             import uuid as _uuid
             exp = await session.get(Experiment, _uuid.UUID(experiment_id))
             if exp and exp.org_id != org_id:
                 return {"error": "Experiment not found or not accessible"}
             if exp:
-                sections = [f"# {exp.name}\n", f"## Objective\n{exp.description or ''}\n", f"## Protocol\n{exp.protocol or ''}\n"]
-                if exp.results:
-                    sections.append("## Results\n")
-                    for k, v in exp.results.items():
-                        sections.append(f"- **{k}**: {v}")
-                content = "\n".join(sections)
+                content = _generate_eln_content(exp)
                 title = f"ELN — {exp.name}"
                 tags = tags or ["auto-generated"]
+                linked_refs["experiment_id"] = experiment_id
+                if exp.results and isinstance(exp.results, dict):
+                    fid = exp.results.get("file_upload_id") or exp.results.get("file_id")
+                    if fid:
+                        linked_refs["file_upload_id"] = fid
+                    pmid = exp.results.get("plate_map_id")
+                    if pmid:
+                        linked_refs["plate_map_id"] = pmid
 
         entry = ELNEntry(
             title=title,
@@ -663,6 +832,7 @@ async def _create_eln_entry(params: dict, org_id: str = "org_default") -> dict:
             content_markdown=content,
             status="draft",
             tags=tags,
+            linked_references=linked_refs or None,
             org_id=org_id,
         )
         if experiment_id:
@@ -679,6 +849,8 @@ async def _create_eln_entry(params: dict, org_id: str = "org_default") -> dict:
             "entry_number": entry.entry_number,
             "title": entry.title,
             "status": entry.status,
+            "content_markdown": content,
+            "linked_references": linked_refs or None,
         }
 
 
@@ -980,19 +1152,68 @@ async def _calculate_dilution(params: dict, org_id: str = "org_default") -> dict
 # ---------------------------------------------------------------------------
 
 async def _fit_dose_response_tool(params: dict, org_id: str = "org_default") -> dict:
-    """Fit a 4PL dose-response curve and compute IC50."""
-    from resonantia.services.data_processor import fit_dose_response
+    """Fit a 4PL dose-response curve, generate plot, and persist to Experiment."""
+    from resonantia.services.data_processor import fit_dose_response_full
+
     concentrations = params.get("concentrations", [])
     responses = params.get("responses", [])
+    compound_name = params.get("compound_name", "Compound")
+    positive_controls = params.get("positive_controls")
+    negative_controls = params.get("negative_controls")
+
     if not concentrations or not responses:
         return {"error": "Both 'concentrations' and 'responses' arrays are required."}
     if len(concentrations) != len(responses):
         return {"error": f"Array length mismatch: {len(concentrations)} concentrations vs {len(responses)} responses."}
+
     try:
-        result = fit_dose_response(concentrations, responses)
-        return result
+        result = await fit_dose_response_full(
+            concentrations,
+            responses,
+            positive_controls=positive_controls,
+            negative_controls=negative_controls,
+            compound_name=compound_name,
+        )
     except Exception as e:
         return {"error": f"Curve fitting failed: {str(e)}"}
+
+    if not result.get("success"):
+        return result
+
+    # Persist results to Experiment model (best-effort)
+    experiment_id = None
+    try:
+        async with async_session_factory() as session:
+            experiment = Experiment(
+                org_id=org_id,
+                name=f"Dose-Response: {compound_name}",
+                description=f"4PL curve fit for {compound_name}",
+                protocol="dose-response-4pl",
+                status="completed",
+                results={
+                    "ec50": result["ic50"],
+                    "ic50_ci_lower": result["ic50_ci_lower"],
+                    "ic50_ci_upper": result["ic50_ci_upper"],
+                    "hill_slope": result["hill_slope"],
+                    "r_squared": result["r_squared"],
+                    "z_prime": result.get("z_prime"),
+                    "top": result["top"],
+                    "bottom": result["bottom"],
+                    "n_points": result["n_points"],
+                    "n_replicates": result["n_replicates"],
+                    "outliers": result["outliers"],
+                    "plot_url": result["plot_url"],
+                },
+            )
+            session.add(experiment)
+            await session.commit()
+            await session.refresh(experiment)
+            experiment_id = str(experiment.id)
+    except Exception:
+        logger.warning("Could not persist dose-response experiment to DB")
+
+    result["experiment_id"] = experiment_id
+    return result
 
 
 async def _normalize_plate_tool(params: dict, org_id: str = "org_default") -> dict:
@@ -1051,6 +1272,281 @@ async def _qpcr_analysis_tool(params: dict, org_id: str = "org_default") -> dict
 
 
 # ---------------------------------------------------------------------------
+# Plate layout proposal tools (P1.4a)
+# ---------------------------------------------------------------------------
+
+# Color palette for well types in plate preview
+_WELL_COLORS = {
+    "control_positive": "#22c55e",
+    "control_negative": "#ef4444",
+    "sample": "#3b82f6",
+    "empty": "#d1d5db",
+}
+
+
+def _plate_dimensions(plate_type: str) -> tuple[int, int]:
+    """Return (rows, cols) for a plate type string."""
+    if str(plate_type) == "384":
+        return 16, 24
+    return 8, 12
+
+
+def _build_plate_preview(
+    plate_type: str,
+    well_assignments: list[dict[str, Any]],
+    *,
+    compounds: list[str] | None = None,
+    replicates: int = 1,
+    include_controls: bool = True,
+) -> dict[str, Any]:
+    """Build a structured plate preview suitable for an approval card.
+
+    Returns a dict with ``plate_type``, ``rows``, ``cols``, ``wells``
+    (list of per-well dicts with position/type/compound/color) and a
+    ``summary`` sub-dict.
+    """
+    rows, cols = _plate_dimensions(plate_type)
+    total_wells = rows * cols
+
+    # Build occupied-well lookup
+    occupied: dict[str, dict[str, Any]] = {}
+    for w in well_assignments:
+        pos = w.get("well") or w.get("destination_well", "")
+        if pos:
+            occupied[pos] = w
+
+    # Standard control columns (first and last)
+    ctrl_col_pos = 1
+    ctrl_col_neg = cols
+    row_labels = [chr(ord("A") + r) for r in range(rows)]
+
+    wells: list[dict[str, Any]] = []
+    used_wells = 0
+    control_pos_count = 0
+    control_neg_count = 0
+
+    for r_label in row_labels:
+        for c in range(1, cols + 1):
+            pos = f"{r_label}{c}"
+            if pos in occupied:
+                entry = occupied[pos]
+                well_dict: dict[str, Any] = {
+                    "position": pos,
+                    "type": "sample",
+                    "compound": entry.get("compound", ""),
+                    "color": _WELL_COLORS["sample"],
+                }
+                conc = entry.get("concentration") or entry.get("concentration_nM")
+                if conc is not None:
+                    well_dict["concentration_nM"] = conc
+                rep = entry.get("replicate_row")
+                if rep is not None:
+                    well_dict["replicate"] = rep
+                wells.append(well_dict)
+                used_wells += 1
+            elif include_controls and c == ctrl_col_pos:
+                wells.append({
+                    "position": pos,
+                    "type": "control_positive",
+                    "compound": "Positive Control",
+                    "color": _WELL_COLORS["control_positive"],
+                })
+                control_pos_count += 1
+                used_wells += 1
+            elif include_controls and c == ctrl_col_neg:
+                wells.append({
+                    "position": pos,
+                    "type": "control_negative",
+                    "compound": "Vehicle Control",
+                    "color": _WELL_COLORS["control_negative"],
+                })
+                control_neg_count += 1
+                used_wells += 1
+            else:
+                wells.append({
+                    "position": pos,
+                    "type": "empty",
+                    "compound": "",
+                    "color": _WELL_COLORS["empty"],
+                })
+
+    unique_compounds = set()
+    for w in well_assignments:
+        cpd = w.get("compound", "")
+        if cpd:
+            unique_compounds.add(cpd)
+
+    return {
+        "plate_type": int(plate_type) if str(plate_type).isdigit() else plate_type,
+        "rows": rows,
+        "cols": cols,
+        "wells": wells,
+        "summary": {
+            "total_wells": total_wells,
+            "used_wells": used_wells,
+            "compounds": len(unique_compounds) if unique_compounds else (len(compounds) if compounds else 0),
+            "replicates": replicates,
+            "controls": {
+                "positive": control_pos_count,
+                "negative": control_neg_count,
+            },
+        },
+    }
+
+
+async def _create_plate_map(params: dict, org_id: str = "org_default") -> dict:
+    """Create a plate map from source-destination mapping and return preview.
+
+    Delegates to :mod:`plate_mapper` for the actual layout computation,
+    then wraps the result in a preview-friendly structure for the
+    approval card.
+    """
+    from resonantia.services.plate_mapper import generate_plate_map
+
+    name = params.get("name", "New Plate Map")
+    description = params.get("description", "")
+    plate_type = str(params.get("plate_type", "96"))
+    sources = params.get("sources", [])
+
+    layout = generate_plate_map(sources, destination_type=plate_type)
+    well_assignments = layout.get("well_mappings", [])
+
+    # Convert source->dest mappings to preview-compatible well dicts
+    well_dicts: list[dict[str, Any]] = []
+    for m in well_assignments:
+        content = m.get("content", {})
+        well_dicts.append({
+            "well": m["destination_well"],
+            "compound": content.get("compound", "") if isinstance(content, dict) else "",
+        })
+
+    preview = _build_plate_preview(plate_type, well_dicts, include_controls=True)
+
+    async with async_session_factory() as session:
+        plate = PlateMap(
+            name=name,
+            plate_type=plate_type,
+            description=description,
+            source_plates=sources,
+            destination_plate=layout.get("destination_plate"),
+            well_mappings=well_assignments,
+            org_id=org_id,
+        )
+        session.add(plate)
+        await session.commit()
+        await session.refresh(plate)
+
+        return {
+            "created": True,
+            "plate_map_id": str(plate.id),
+            "name": plate.name,
+            "plate_type": plate_type,
+            "preview": preview,
+        }
+
+
+async def _cherry_pick_tool(params: dict, org_id: str = "org_default") -> dict:
+    """Cherry-pick compounds into a destination plate with visual preview."""
+    from resonantia.services.plate_mapper import cherry_pick
+
+    source_plates = params.get("source_plates", [])
+    hit_list = params.get("hit_list", [])
+    plate_type = str(params.get("plate_type", "96"))
+    name = params.get("name", "Cherry-Pick Plate")
+
+    layout = cherry_pick(source_plates, hit_list, destination_type=plate_type)
+    well_assignments = layout.get("well_mappings", [])
+
+    # Build preview-compatible dicts
+    compounds: list[str] = []
+    well_dicts: list[dict[str, Any]] = []
+    for m in well_assignments:
+        content = m.get("content", {})
+        cpd = content.get("compound", "") if isinstance(content, dict) else ""
+        well_dicts.append({"well": m["destination_well"], "compound": cpd})
+        if cpd:
+            compounds.append(cpd)
+
+    preview = _build_plate_preview(plate_type, well_dicts, compounds=compounds)
+
+    async with async_session_factory() as session:
+        plate = PlateMap(
+            name=name,
+            plate_type=plate_type,
+            description=f"Cherry-pick of {len(hit_list)} wells",
+            source_plates=source_plates,
+            destination_plate=layout.get("destination_plate"),
+            well_mappings=well_assignments,
+            org_id=org_id,
+        )
+        session.add(plate)
+        await session.commit()
+        await session.refresh(plate)
+
+        return {
+            "created": True,
+            "plate_map_id": str(plate.id),
+            "name": plate.name,
+            "plate_type": plate_type,
+            "preview": preview,
+        }
+
+
+async def _serial_dilution_tool(params: dict, org_id: str = "org_default") -> dict:
+    """Generate a serial dilution layout with visual preview."""
+    from resonantia.services.plate_mapper import serial_dilution
+
+    compound = params.get("compound", "Compound")
+    start_concentration = params.get("start_concentration", 10000.0)
+    dilution_factor = params.get("dilution_factor", 3.0)
+    num_points = params.get("num_points", 8)
+    replicates = params.get("replicates", 1)
+    plate_type = str(params.get("plate_type", "96"))
+    name = params.get("name", f"Serial Dilution — {compound}")
+
+    layout = serial_dilution(
+        compound=compound,
+        start_concentration=start_concentration,
+        dilution_factor=dilution_factor,
+        num_points=num_points,
+        replicates=replicates,
+        plate_type=plate_type,
+    )
+
+    well_dicts = layout.get("layout", [])
+    preview = _build_plate_preview(
+        plate_type,
+        well_dicts,
+        compounds=[compound],
+        replicates=replicates,
+    )
+
+    async with async_session_factory() as session:
+        plate = PlateMap(
+            name=name,
+            plate_type=plate_type,
+            description=(
+                f"{num_points}-point {dilution_factor}-fold serial dilution of {compound}, "
+                f"starting at {start_concentration} nM, {replicates} replicate(s)"
+            ),
+            well_mappings=well_dicts,
+            org_id=org_id,
+        )
+        session.add(plate)
+        await session.commit()
+        await session.refresh(plate)
+
+        return {
+            "created": True,
+            "plate_map_id": str(plate.id),
+            "name": plate.name,
+            "plate_type": plate_type,
+            "concentrations": layout.get("concentrations", []),
+            "preview": preview,
+        }
+
+
+# ---------------------------------------------------------------------------
 # Handler registry
 # ---------------------------------------------------------------------------
 
@@ -1068,6 +1564,9 @@ TOOL_HANDLERS: dict[str, Any] = {
     # Plate map tools
     "query_plate_maps": _query_plate_maps,
     "get_plate_map_details": _get_plate_map_details,
+    "create_plate_map": _create_plate_map,
+    "cherry_pick": _cherry_pick_tool,
+    "serial_dilution": _serial_dilution_tool,
     # Microscopy tools
     "browse_microscopy": _list_microscopy_images,
     "generate_montage": _list_microscopy_images,

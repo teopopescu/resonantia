@@ -4,6 +4,7 @@ from resonantia.models.base import Base
 from resonantia.models.conversation import Conversation, ConversationMessage
 from resonantia.models.eln_entry import ELNAppendix, ELNEntry
 from resonantia.models.experiment import Experiment
+from resonantia.models.file_upload import FileUpload
 from resonantia.models.microscopy import MicroscopyImage
 from resonantia.models.plate import PlateMap
 from resonantia.models.protocol import Protocol, ProtocolStep
@@ -17,6 +18,7 @@ __all__ = [
     "ELNAppendix",
     "ELNEntry",
     "Experiment",
+    "FileUpload",
     "MicroscopyImage",
     "PlateMap",
     "Protocol",
