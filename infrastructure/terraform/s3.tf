@@ -22,7 +22,11 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "uploads" {
 
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
+      # SSE-KMS with the customer-managed key (B4 in audit). The
+      # bucket key on the next line keeps per-request KMS calls down
+      # so the cost stays nominal at scale.
+      sse_algorithm     = "aws:kms"
+      kms_master_key_id = aws_kms_key.main.arn
     }
     bucket_key_enabled = true
   }

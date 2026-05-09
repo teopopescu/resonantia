@@ -1,5 +1,26 @@
+# --- Bootstrap-only secrets ---------------------------------------------
+# These values seed AWS Secrets Manager on first apply only. After that,
+# rotate via the Secrets Manager console or `aws secretsmanager rotate-secret`.
+# The Terraform secret resources have lifecycle { ignore_changes = [secret_string] }
+# so they will not fight rotation.
+#
+# Do not commit this file. .gitignore already excludes it.
 db_password         = "CHANGE_ME"
 openai_api_key      = ""
 clerk_secret_key    = ""
 langfuse_public_key = ""
 langfuse_secret_key = ""
+
+# --- ALB / TLS ----------------------------------------------------------
+# Either set acm_certificate_arn (preferred for existing ACM certs) OR
+# leave it blank and the stack will provision an ACM cert for domain_name.
+domain_name         = "api.resonantia.io"
+acm_certificate_arn = ""
+
+# --- Sizing -------------------------------------------------------------
+# Defaults are fine for design-partner-stage; right-size after a month
+# of real traffic.
+# db_instance_class  = "db.t3.micro"
+# redis_node_type    = "cache.t3.micro"
+# container_cpu      = 512
+# container_memory   = 1024
