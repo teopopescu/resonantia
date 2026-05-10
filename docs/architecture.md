@@ -26,8 +26,12 @@
 ### LLM Provider Abstraction (`services/llm/`)
 All LLM calls route through a thin provider interface. OpenAI and Anthropic adapters normalize tool schemas, message formats, and responses. Per-agent model assignment via config. Direct SDK usage only in `api/voice.py` for STT/TTS.
 
-### Safe Temporal Execution (`workflows/`)
-The Temporal workflow is a durable version of the same tool-calling loop as direct mode. No generated code, no subprocess execution. Each tool call is an individually retriable activity with 30s timeout. Temporal unavailability falls back to direct mode.
+### Temporal Architecture
+Two components, often confused:
+- **Temporal Server** (managed): Stores workflow state, manages task queues, handles retries. Use Temporal Cloud in production — no self-hosting required. The docker-compose includes a self-hosted server for local dev only.
+- **Temporal Worker** (your code, ECS): Runs `AgentToolCallWorkflow` and activity implementations (`call_llm_activity`, `execute_tool_activity`, `persist_conversation_activity`). Always runs in your infrastructure because it needs access to your DB, LLM keys, and tool executor. Polls Temporal Cloud for tasks.
+
+The workflow is a durable version of the same tool-calling loop as direct mode. No generated code, no subprocess execution. Each tool call is an individually retriable activity with 30s timeout. Temporal unavailability falls back to direct mode.
 
 ### Tenant Isolation
 - `org_id` derived from `X-Org-Id` header (Clerk session), never from request body
