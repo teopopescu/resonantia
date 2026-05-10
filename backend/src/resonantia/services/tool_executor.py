@@ -1567,9 +1567,11 @@ TOOL_HANDLERS: dict[str, Any] = {
     "create_plate_map": _create_plate_map,
     "cherry_pick": _cherry_pick_tool,
     "serial_dilution": _serial_dilution_tool,
-    # Microscopy tools
-    "browse_microscopy": _list_microscopy_images,
-    "generate_montage": _list_microscopy_images,
+    # Microscopy tools — gated, not offered to agent by default.
+    # Page still accessible at /lab/microscopy for direct URL access.
+    # Re-enable when a design partner needs HCI workflows + image upload pipeline.
+    # "browse_microscopy": _list_microscopy_images,
+    # "generate_montage": _list_microscopy_images,
     # File tools
     "list_files": _list_files,
     "get_file_info": _get_file_info,
