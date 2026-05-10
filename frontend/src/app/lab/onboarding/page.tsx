@@ -475,7 +475,7 @@ export default function OnboardingPage() {
                     Agent Console
                   </p>
                   <p className="font-mono text-[11px] text-ink-muted mt-1 leading-relaxed">
-                    Natural-language access to all 32 tools. Cited traces for
+                    Natural-language access to all 30+ tools. Cited traces for
                     every action.
                   </p>
                 </div>

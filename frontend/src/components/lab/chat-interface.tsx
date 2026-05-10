@@ -684,7 +684,7 @@ export default function ChatInterface() {
               transition={{ delay: 0.1, duration: 0.4 }}
               className="font-mono text-[11px] uppercase tracking-[0.06em] text-ink-subtle mb-3"
             >
-              <span className="text-brand">›</span> agent · ready · 32 tools
+              <span className="text-brand">›</span> agent · ready · 30+ tools
               wired
             </motion.div>
 

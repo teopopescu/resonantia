@@ -27,7 +27,7 @@ const modules: Array<{
       "Source-destination layouts with cherry-pick, serial dilution, and replicate modes. Worklists exported in one click.",
     status: "GA",
     ver: "v1.2",
-    specs: ["96 / 384 / 1536", "Echo · STAR · OT-2", "5 tools"],
+    specs: ["96 / 384", "Echo · Hamilton · OT-2", "5 tools"],
     telemetry: "PM-2026-0428 · 63 transfers · 6.3 µL · 00:04:18",
   },
   {
@@ -64,10 +64,10 @@ const modules: Array<{
     code: "AGT/05",
     title: "Agent Console",
     desc:
-      "Natural-language instructions over 32 tools. Cites every call. Voice mode and a persistent right-rail across the lab.",
+      "Natural-language instructions over 30+ tools. Cites every call. Voice mode and a persistent right-rail across the lab.",
     status: "BETA",
-    ver: "v0.7",
-    specs: ["32 tools · 7 categories", "Voice · plan mode", "Cited traces"],
+    ver: "v0.9",
+    specs: ["30+ tools · 7 categories", "Voice · plan mode", "Cited traces"],
     telemetry: "fit_dose_response → IC₅₀ 42.3 nM · 14:32:11",
   },
   {

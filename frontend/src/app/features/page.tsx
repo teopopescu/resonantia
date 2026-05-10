@@ -131,7 +131,7 @@ const features: Feature[] = [
     ),
     body: (
       <>
-        32 tools across plate mapping, microscopy, processing, and inventory —
+        30+ tools across plate mapping, microscopy, processing, and inventory —
         all wired into a chat-and-voice console. Every reply{" "}
         <strong className="text-ink font-medium">
           cites the tool calls it made
@@ -139,7 +139,7 @@ const features: Feature[] = [
         so you can audit the agent like a colleague.
       </>
     ),
-    specs: ["32 tools · 7 categories", "Voice + chat + plan", "Cited traces"],
+    specs: ["30+ tools · 7 categories", "Voice + chat + plan", "Cited traces"],
     visual: <AgentMock />,
   },
   {

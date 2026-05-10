@@ -1068,7 +1068,7 @@ export function AgentMock() {
           <MessageSquare size={11} className="text-ink-muted ml-0.5" /> chat ·
           <span className="text-ink-muted">⌘ K</span>
         </span>
-        <span>32 tools · cited traces</span>
+        <span>30+ tools · cited traces</span>
       </div>
     </MockFrame>
   );
