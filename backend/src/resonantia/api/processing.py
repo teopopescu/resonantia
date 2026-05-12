@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
+from resonantia.dependencies import get_request_context
+from resonantia.models.request_context import RequestContext
 from resonantia.services.data_processor import (
     calculate_z_prime,
     fit_dose_response,
@@ -54,12 +56,20 @@ class QPCRRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 @router.post("/dose-response")
-async def dose_response(body: DoseResponseRequest) -> dict[str, Any]:
+async def dose_response(
+    body: DoseResponseRequest,
+    ctx: RequestContext = Depends(get_request_context),
+) -> dict[str, Any]:
+    _ = ctx
     return fit_dose_response(body.concentrations, body.responses)
 
 
 @router.post("/plate-normalization")
-async def plate_normalization(body: PlateNormalizationRequest) -> dict[str, Any]:
+async def plate_normalization(
+    body: PlateNormalizationRequest,
+    ctx: RequestContext = Depends(get_request_context),
+) -> dict[str, Any]:
+    _ = ctx
     return normalize_plate(
         raw_data=body.raw_data,
         method=body.method,
@@ -69,13 +79,21 @@ async def plate_normalization(body: PlateNormalizationRequest) -> dict[str, Any]
 
 
 @router.post("/z-prime")
-async def z_prime(body: ZPrimeRequest) -> dict[str, Any]:
+async def z_prime(
+    body: ZPrimeRequest,
+    ctx: RequestContext = Depends(get_request_context),
+) -> dict[str, Any]:
+    _ = ctx
     return calculate_z_prime(body.positive_controls, body.negative_controls)
 
 
 @router.post("/qpcr")
-async def qpcr_analysis(body: QPCRRequest) -> dict[str, Any]:
+async def qpcr_analysis(
+    body: QPCRRequest,
+    ctx: RequestContext = Depends(get_request_context),
+) -> dict[str, Any]:
     """Delta-delta Ct (Livak) method for relative gene expression."""
+    _ = ctx
     import numpy as np
 
     results: list[dict[str, Any]] = []

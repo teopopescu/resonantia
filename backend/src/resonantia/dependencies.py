@@ -48,7 +48,8 @@ async def get_request_context(request: Request) -> RequestContext:
         raise HTTPException(status_code=401, detail="Invalid authentication token") from exc
 
     if not state.is_signed_in:
-        raise HTTPException(status_code=401, detail=getattr(state, "reason", "Unauthenticated"))
+        reason = getattr(state, "reason", "Unauthenticated")
+        raise HTTPException(status_code=401, detail=str(reason))
 
     payload = dict(state.payload or {})
     user_id = str(payload.get("sub") or "")
