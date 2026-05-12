@@ -1748,8 +1748,13 @@ async def _generate_worklist_tool(params: dict, org_id: str = "org_default") -> 
         if not mappings:
             return {"error": "Plate map has no well mappings"}
 
+        # Inject volume into each mapping for the worklist generator
+        for m in mappings:
+            if "volume" not in m:
+                m["volume"] = volume_nl
+
         try:
-            worklist_content = generate_worklist(mappings, instrument, volume_nl)
+            worklist_content = generate_worklist(mappings, instrument)
         except Exception as e:
             return {"error": f"Worklist generation failed: {e}"}
 

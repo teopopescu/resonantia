@@ -126,7 +126,7 @@ def _detect_format(columns: list[str]) -> str:
 
     # dose-response: needs concentration-like + response-like columns
     conc_kw = {"concentration", "conc", "dose", "concentration_nm", "concentration_um"}
-    resp_kw = {"response", "response_%", "viability", "inhibition", "activity"}
+    resp_kw = {"response", "response_%", "response_pct", "viability", "inhibition", "activity"}
     if lower & conc_kw and lower & resp_kw:
         return "dose_response"
 
@@ -134,8 +134,9 @@ def _detect_format(columns: list[str]) -> str:
     if any("well" in c for c in lower) and any("value" in c or "reading" in c for c in lower):
         return "plate_reader"
 
-    # qPCR
-    if any("ct" in c or "cq" in c for c in lower):
+    # qPCR — match standalone "ct" or "cq" columns, not substrings like "response_pct"
+    qpcr_kw = {"ct", "cq", "ct_value", "cq_value", "ct_mean", "cq_mean"}
+    if lower & qpcr_kw or any(c.startswith("ct_") or c.startswith("cq_") for c in lower):
         return "qpcr"
 
     return "tabular"
