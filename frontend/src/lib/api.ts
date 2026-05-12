@@ -2,6 +2,7 @@ export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000
 
 /* ── Active org context (set from Clerk on app load) ── */
 let _activeOrgId = "org_default";
+let _authToken: string | null = null;
 
 export function setActiveOrgId(orgId: string) {
   _activeOrgId = orgId;
@@ -9,6 +10,14 @@ export function setActiveOrgId(orgId: string) {
 
 export function getActiveOrgId(): string {
   return _activeOrgId;
+}
+
+export function setAuthToken(token: string | null) {
+  _authToken = token;
+}
+
+function authHeaders(): Record<string, string> {
+  return _authToken ? { Authorization: `Bearer ${_authToken}` } : {};
 }
 
 /* ── Case conversion helpers ── */
@@ -57,6 +66,7 @@ export async function api<T>(path: string, options?: RequestInit): Promise<T> {
     headers: {
       "Content-Type": "application/json",
       "X-Org-Id": _activeOrgId,
+      ...authHeaders(),
       ...options?.headers,
     },
   });
@@ -77,6 +87,7 @@ export async function apiRaw(path: string, options?: RequestInit): Promise<Respo
     headers: {
       "Content-Type": "application/json",
       "X-Org-Id": _activeOrgId,
+      ...authHeaders(),
       ...options?.headers,
     },
   });
@@ -104,6 +115,7 @@ export async function apiUpload<T>(path: string, file: File, extraFields?: Recor
     body: formData,
     headers: {
       "X-Org-Id": _activeOrgId,
+      ...authHeaders(),
     },
   });
   if (!res.ok) {

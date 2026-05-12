@@ -23,6 +23,7 @@ from resonantia.models.experiment import Experiment
 from resonantia.models.microscopy import MicroscopyImage
 from resonantia.models.eln_entry import ELNEntry
 from resonantia.models.protocol import Protocol, ProtocolStep
+from resonantia.models.request_context import RequestContext
 from resonantia.services.output_validator import (
     ToolError,
     ToolResult,
@@ -31,6 +32,41 @@ from resonantia.services.output_validator import (
 )
 
 logger = logging.getLogger(__name__)
+
+_WRITE_TOOLS = {
+    "create_eln_entry",
+    "create_plate_map",
+    "create_protocol",
+    "serial_dilution",
+    "cherry_pick",
+    "generate_worklist",
+    "submit_eln_entry",
+    "design_next_experiment",
+    "propose_follow_up_experiment",
+}
+
+_APPROVAL_TOOLS = {"approve_pending_action", "approve_tool_call"}
+
+
+def _check_rbac(tool_name: str, ctx: RequestContext | None) -> ToolError | None:
+    """Enforce RBAC when a verified request context is available."""
+    if ctx is None:
+        return None
+    if tool_name in _APPROVAL_TOOLS and not ctx.can_approve():
+        return ToolError(
+            tool_name=tool_name,
+            error_type="forbidden",
+            message="Approver or admin role required",
+            retry_allowed=False,
+        )
+    if tool_name in _WRITE_TOOLS and not ctx.can_write():
+        return ToolError(
+            tool_name=tool_name,
+            error_type="forbidden",
+            message="Member role required for write tools",
+            retry_allowed=False,
+        )
+    return None
 
 
 def _serialize(obj: Any) -> Any:
@@ -77,6 +113,7 @@ async def execute_tool_typed(
     user_id: str = "anonymous",
     source: str = "text",
     request_id: str | None = None,
+    request_context: RequestContext | None = None,
 ) -> ToolResult | ToolError:
     """Execute a tool and return a typed ``ToolResult`` or ``ToolError``.
 
@@ -85,6 +122,11 @@ async def execute_tool_typed(
     2. Cross-tenant entity reference check
     3. Tool execution with system-error masking
     """
+    if request_context is not None:
+        org_id = request_context.org_id
+        user_id = request_context.user_id
+        request_id = request_id or request_context.request_id
+
     handler = TOOL_HANDLERS.get(tool_name)
     if not handler:
         return ToolError(
@@ -100,6 +142,10 @@ async def execute_tool_typed(
         validated = validate_tool_args(tool_name, tool_input, schema)
         if isinstance(validated, ToolError):
             return validated
+
+    rbac_error = _check_rbac(tool_name, request_context)
+    if rbac_error is not None:
+        return rbac_error
 
     # --- Step 2: Cross-tenant entity reference check ---
     # Only check if there are any *_id fields with UUID-looking values
@@ -176,6 +222,7 @@ async def execute_tool(
     user_id: str = "anonymous",
     source: str = "text",
     request_id: str | None = None,
+    request_context: RequestContext | None = None,
 ) -> str:
     """Execute a tool by name and return a JSON string result.
 
@@ -190,6 +237,7 @@ async def execute_tool(
         user_id=user_id,
         source=source,
         request_id=request_id,
+        request_context=request_context,
     )
 
     if isinstance(typed, ToolResult):

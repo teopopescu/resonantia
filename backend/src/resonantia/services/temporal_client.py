@@ -44,6 +44,8 @@ async def start_agent_workflow(
     user_id: str,
     org_id: str = "org_default",
     context: dict[str, Any] | None = None,
+    roles: list[str] | None = None,
+    permissions: list[str] | None = None,
 ) -> WorkflowHandle:
     """Start an AgentToolCallWorkflow and return its handle."""
     client = await get_temporal_client()
@@ -67,6 +69,12 @@ async def start_agent_workflow(
             messages=messages,
             tools=tools,
             org_id=org_id,
+            request_context={
+                "user_id": user_id,
+                "org_id": org_id,
+                "roles": roles or ["org:viewer"],
+                "permissions": permissions or [],
+            },
             conversation_id=conversation_id,
         ),
         id=workflow_id,

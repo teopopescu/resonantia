@@ -14,15 +14,16 @@ import logging
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
 from resonantia.db.session import get_db
-from resonantia.dependencies import get_org_context
+from resonantia.dependencies import get_request_context
 from resonantia.models.conversation import Conversation, ConversationMessage
+from resonantia.models.request_context import RequestContext
 from resonantia.schemas.chat import (
     ChatRequest,
     ChatResponse,
@@ -65,7 +66,7 @@ class WorkflowStatusResponse(BaseModel):
 async def send_message(
     request: Request,
     body: ChatRequest,
-    org_id: str = Depends(get_org_context),
+    ctx: RequestContext = Depends(get_request_context),
 ) -> ChatResponse:
     """Send a user message.
 
@@ -74,7 +75,6 @@ async def send_message(
     LLM call so development and demos work without infrastructure.
     """
     conversation_id = body.conversation_id or uuid.uuid4().hex
-    clerk_user_id = body.clerk_user_id or "anonymous"
 
     # --- Try Temporal first ---
     try:
@@ -83,9 +83,11 @@ async def send_message(
         handle = await start_agent_workflow(
             message=body.message,
             conversation_id=conversation_id,
-            user_id=clerk_user_id,
-            org_id=org_id,
+            user_id=ctx.user_id,
+            org_id=ctx.org_id,
             context=body.context,
+            roles=ctx.roles,
+            permissions=ctx.permissions,
         )
 
         # Wait for the workflow to complete with a 30-second timeout
@@ -126,8 +128,7 @@ async def send_message(
             message=body.message,
             conversation_id=conversation_id,
             context=body.context,
-            clerk_user_id=clerk_user_id,
-            org_id=org_id,
+            request_context=ctx,
             attachments=body.attachments,
             request_id=getattr(request.state, "request_id", None),
         )
@@ -152,15 +153,14 @@ async def send_message(
 async def stream_message(
     request: Request,
     body: ChatRequest,
-    org_id: str = Depends(get_org_context),
+    ctx: RequestContext = Depends(get_request_context),
 ) -> EventSourceResponse:
     return EventSourceResponse(
         agent.chat_stream(
             message=body.message,
             conversation_id=body.conversation_id,
             context=body.context,
-            clerk_user_id=body.clerk_user_id or "anonymous",
-            org_id=org_id,
+            request_context=ctx,
             request_id=getattr(request.state, "request_id", None),
         )
     )
@@ -198,14 +198,13 @@ async def get_history(conversation_id: str) -> ChatHistoryResponse:
 
 @router.get("/conversations", response_model=list[ConversationListItem])
 async def list_conversations(
-    clerk_user_id: str = Query(...),
-    org_id: str = Depends(get_org_context),
+    ctx: RequestContext = Depends(get_request_context),
     db: AsyncSession = Depends(get_db),
 ) -> list[ConversationListItem]:
     """List all conversations for a user in an org."""
     stmt = (
         select(Conversation)
-        .where(Conversation.clerk_user_id == clerk_user_id, Conversation.org_id == org_id)
+        .where(Conversation.clerk_user_id == ctx.user_id, Conversation.org_id == ctx.org_id)
         .order_by(Conversation.updated_at.desc())
     )
     result = await db.execute(stmt)
@@ -224,12 +223,12 @@ async def list_conversations(
 @router.get("/conversations/{conversation_id}", response_model=ConversationResponse)
 async def get_conversation(
     conversation_id: uuid.UUID,
-    org_id: str = Depends(get_org_context),
+    ctx: RequestContext = Depends(get_request_context),
     db: AsyncSession = Depends(get_db),
 ) -> ConversationResponse:
     """Get a conversation with all its messages."""
     conv = await db.get(Conversation, conversation_id)
-    if not conv or conv.org_id != org_id:
+    if not conv or conv.org_id != ctx.org_id or conv.clerk_user_id != ctx.user_id:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return ConversationResponse(
         id=str(conv.id),
@@ -257,12 +256,12 @@ async def get_conversation(
 async def rename_conversation(
     conversation_id: uuid.UUID,
     body: ConversationRenameRequest,
-    org_id: str = Depends(get_org_context),
+    ctx: RequestContext = Depends(get_request_context),
     db: AsyncSession = Depends(get_db),
 ) -> ConversationListItem:
     """Rename a conversation."""
     conv = await db.get(Conversation, conversation_id)
-    if not conv or conv.org_id != org_id:
+    if not conv or conv.org_id != ctx.org_id or conv.clerk_user_id != ctx.user_id:
         raise HTTPException(status_code=404, detail="Conversation not found")
     conv.title = body.title
     await db.flush()
@@ -278,12 +277,12 @@ async def rename_conversation(
 @router.delete("/conversations/{conversation_id}", status_code=204)
 async def delete_conversation(
     conversation_id: uuid.UUID,
-    org_id: str = Depends(get_org_context),
+    ctx: RequestContext = Depends(get_request_context),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Delete a conversation and all its messages."""
     conv = await db.get(Conversation, conversation_id)
-    if not conv or conv.org_id != org_id:
+    if not conv or conv.org_id != ctx.org_id or conv.clerk_user_id != ctx.user_id:
         raise HTTPException(status_code=404, detail="Conversation not found")
     await db.delete(conv)
 
@@ -295,7 +294,7 @@ async def delete_conversation(
 @router.post("/approve/{token}")
 async def approve_tool_call(
     token: str,
-    org_id: str = Depends(get_org_context),
+    ctx: RequestContext = Depends(get_request_context),
 ) -> dict[str, Any]:
     """Approve a pending tool call and execute it."""
     from resonantia.services.approval import approve
@@ -304,17 +303,17 @@ async def approve_tool_call(
     pending = approve(token)
     if pending is None:
         raise HTTPException(status_code=410, detail="Approval expired or not found")
-    if pending.org_id != org_id:
+    if pending.org_id != ctx.org_id or not ctx.can_approve():
         raise HTTPException(status_code=403, detail="Not authorized to approve this action")
 
-    result = await execute_tool(pending.tool_name, pending.tool_args, pending.org_id)
+    result = await execute_tool(pending.tool_name, pending.tool_args, request_context=ctx)
     return {"status": "approved", "tool_name": pending.tool_name, "result": result}
 
 
 @router.post("/reject/{token}")
 async def reject_tool_call(
     token: str,
-    org_id: str = Depends(get_org_context),
+    ctx: RequestContext = Depends(get_request_context),
 ) -> dict[str, str]:
     """Reject a pending tool call."""
     from resonantia.services.approval import reject

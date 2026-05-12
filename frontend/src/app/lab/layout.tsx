@@ -1,14 +1,14 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { useUser, useOrganization } from "@clerk/nextjs";
+import { useAuth, useUser, useOrganization } from "@clerk/nextjs";
 import Sidebar from "@/components/lab/sidebar";
 import TaskPanel from "@/components/lab/task-panel";
 import DemoBanner from "@/components/lab/demo-banner";
 import { useLabStore } from "@/stores/lab-store";
 import { useOnboardingStore } from "@/stores/onboarding-store";
-import { api, setActiveOrgId } from "@/lib/api";
+import { api, setActiveOrgId, setAuthToken } from "@/lib/api";
 import { isDemoMode, initDemoMode } from "@/lib/demo-mode";
 import { ChevronRight } from "lucide-react";
 
@@ -20,6 +20,7 @@ export default function LabLayout({ children }: { children: React.ReactNode }) {
   const setOnboardingCompleted = useOnboardingStore((s) => s.setOnboardingCompleted);
 
   const { user, isLoaded } = useUser();
+  const { getToken } = useAuth();
   const { organization, isLoaded: orgLoaded } = useOrganization();
   const router = useRouter();
   const pathname = usePathname();
@@ -51,6 +52,16 @@ export default function LabLayout({ children }: { children: React.ReactNode }) {
       setActiveOrgId(organization.id);
     }
   }, [organization]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getToken().then((token) => {
+      if (!cancelled) setAuthToken(token);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [getToken, user?.id, organization?.id]);
 
   // Fetch conversations once org context is ready
   useEffect(() => {

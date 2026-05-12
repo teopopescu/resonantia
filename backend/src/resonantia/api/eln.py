@@ -12,9 +12,10 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from resonantia.db.session import get_db
-from resonantia.dependencies import get_org_context
+from resonantia.dependencies import get_request_context
 from resonantia.models.eln_entry import ELNAppendix, ELNEntry
 from resonantia.models.experiment import Experiment
+from resonantia.models.request_context import RequestContext
 from resonantia.schemas.eln_entry import (
     AppendixCreate,
     AppendixResponse,
@@ -44,9 +45,12 @@ async def _next_entry_number(db: AsyncSession, org_id: str = "org_default") -> s
 @router.post("/", response_model=ELNEntryResponse, status_code=201)
 async def create_eln_entry(
     body: ELNEntryCreate,
-    org_id: str = Depends(get_org_context),
+    ctx: RequestContext = Depends(get_request_context),
     db: AsyncSession = Depends(get_db),
 ) -> ELNEntry:
+    if not ctx.can_write():
+        raise HTTPException(status_code=403, detail="Member role required to create ELN entries")
+    org_id = ctx.org_id
     entry_number = await _next_entry_number(db, org_id)
     entry = ELNEntry(
         title=body.title,
@@ -74,9 +78,10 @@ async def list_eln_entries(
     status: str | None = None,
     experiment_id: uuid.UUID | None = None,
     tag: str | None = None,
-    org_id: str = Depends(get_org_context),
+    ctx: RequestContext = Depends(get_request_context),
     db: AsyncSession = Depends(get_db),
 ) -> list[ELNEntry]:
+    org_id = ctx.org_id
     stmt = select(ELNEntry).where(ELNEntry.org_id == org_id).order_by(ELNEntry.created_at.desc())
     if status:
         stmt = stmt.where(ELNEntry.status == status)
@@ -91,9 +96,10 @@ async def list_eln_entries(
 @router.get("/{entry_id}", response_model=ELNEntryResponse)
 async def get_eln_entry(
     entry_id: uuid.UUID,
-    org_id: str = Depends(get_org_context),
+    ctx: RequestContext = Depends(get_request_context),
     db: AsyncSession = Depends(get_db),
 ) -> ELNEntry:
+    org_id = ctx.org_id
     entry = await db.get(ELNEntry, entry_id)
     if not entry or entry.org_id != org_id:
         raise HTTPException(status_code=404, detail="ELN entry not found")
@@ -104,9 +110,12 @@ async def get_eln_entry(
 async def update_eln_entry(
     entry_id: uuid.UUID,
     body: ELNEntryUpdate,
-    org_id: str = Depends(get_org_context),
+    ctx: RequestContext = Depends(get_request_context),
     db: AsyncSession = Depends(get_db),
 ) -> ELNEntry:
+    if not ctx.can_write():
+        raise HTTPException(status_code=403, detail="Member role required to update ELN entries")
+    org_id = ctx.org_id
     entry = await db.get(ELNEntry, entry_id)
     if not entry or entry.org_id != org_id:
         raise HTTPException(status_code=404, detail="ELN entry not found")
@@ -125,9 +134,12 @@ async def update_eln_entry(
 @router.delete("/{entry_id}", status_code=204)
 async def delete_eln_entry(
     entry_id: uuid.UUID,
-    org_id: str = Depends(get_org_context),
+    ctx: RequestContext = Depends(get_request_context),
     db: AsyncSession = Depends(get_db),
 ) -> None:
+    if not ctx.can_write():
+        raise HTTPException(status_code=403, detail="Member role required to delete ELN entries")
+    org_id = ctx.org_id
     entry = await db.get(ELNEntry, entry_id)
     if not entry or entry.org_id != org_id:
         raise HTTPException(status_code=404, detail="ELN entry not found")
@@ -139,9 +151,12 @@ async def delete_eln_entry(
 @router.post("/{entry_id}/submit", response_model=ELNEntryResponse)
 async def submit_eln_entry(
     entry_id: uuid.UUID,
-    org_id: str = Depends(get_org_context),
+    ctx: RequestContext = Depends(get_request_context),
     db: AsyncSession = Depends(get_db),
 ) -> ELNEntry:
+    if not ctx.can_write():
+        raise HTTPException(status_code=403, detail="Member role required to submit ELN entries")
+    org_id = ctx.org_id
     entry = await db.get(ELNEntry, entry_id)
     if not entry or entry.org_id != org_id:
         raise HTTPException(status_code=404, detail="ELN entry not found")
@@ -157,9 +172,12 @@ async def submit_eln_entry(
 async def add_appendix(
     entry_id: uuid.UUID,
     body: AppendixCreate,
-    org_id: str = Depends(get_org_context),
+    ctx: RequestContext = Depends(get_request_context),
     db: AsyncSession = Depends(get_db),
 ) -> ELNAppendix:
+    if not ctx.can_write():
+        raise HTTPException(status_code=403, detail="Member role required to add appendices")
+    org_id = ctx.org_id
     entry = await db.get(ELNEntry, entry_id)
     if not entry or entry.org_id != org_id:
         raise HTTPException(status_code=404, detail="ELN entry not found")
@@ -185,10 +203,13 @@ async def add_appendix(
 @router.post("/auto-generate", response_model=ELNEntryResponse, status_code=201)
 async def auto_generate_eln_entry(
     body: ELNAutoGenerate,
-    org_id: str = Depends(get_org_context),
+    ctx: RequestContext = Depends(get_request_context),
     db: AsyncSession = Depends(get_db),
 ) -> ELNEntry:
     """Auto-generate an ELN entry from an experiment's data."""
+    if not ctx.can_write():
+        raise HTTPException(status_code=403, detail="Member role required to create ELN entries")
+    org_id = ctx.org_id
     exp = await db.get(Experiment, body.experiment_id)
     if not exp or exp.org_id != org_id:
         raise HTTPException(status_code=404, detail="Experiment not found")
@@ -245,9 +266,10 @@ async def auto_generate_eln_entry(
 @router.get("/{entry_id}/export/markdown")
 async def export_markdown(
     entry_id: uuid.UUID,
-    org_id: str = Depends(get_org_context),
+    ctx: RequestContext = Depends(get_request_context),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
+    org_id = ctx.org_id
     entry = await db.get(ELNEntry, entry_id)
     if not entry or entry.org_id != org_id:
         raise HTTPException(status_code=404, detail="ELN entry not found")
@@ -274,9 +296,10 @@ async def export_markdown(
 @router.get("/{entry_id}/export/pdf")
 async def export_pdf(
     entry_id: uuid.UUID,
-    org_id: str = Depends(get_org_context),
+    ctx: RequestContext = Depends(get_request_context),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
+    org_id = ctx.org_id
     entry = await db.get(ELNEntry, entry_id)
     if not entry or entry.org_id != org_id:
         raise HTTPException(status_code=404, detail="ELN entry not found")

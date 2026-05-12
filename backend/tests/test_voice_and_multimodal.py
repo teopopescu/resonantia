@@ -50,12 +50,12 @@ class TestVoiceToELNFlow:
     def test_query_eln_is_voice_safe(self):
         assert is_voice_safe("query_eln_entries")
 
-    def test_voice_endpoint_has_safety_import(self):
+    def test_tool_executor_has_voice_safety_gate(self):
         source = inspect.getsource(
-            __import__("resonantia.api.voice", fromlist=["voice_chat"])
+            __import__("resonantia.services.tool_executor", fromlist=["execute_tool_typed"])
         )
         assert "is_voice_safe" in source
-        assert "voice_block_message" in source
+        assert "create_pending" in source
 
 
 class TestMultimodalImageConversion:

@@ -104,7 +104,7 @@ class TestApprovalEndpoints:
         from resonantia.api.chat import approve_tool_call
         sig = inspect.signature(approve_tool_call)
         assert "token" in sig.parameters
-        assert "org_id" in sig.parameters
+        assert "ctx" in sig.parameters
 
     def test_reject_endpoint_exists(self):
         import inspect

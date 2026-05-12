@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from resonantia.config import get_settings
+from resonantia.models.request_context import RequestContext
 from resonantia.services.llm import LLMProvider, get_provider
 from resonantia.services.multi_agent.messages import (
     AgentName,
@@ -111,6 +112,7 @@ async def run_specialist(
     *,
     provider: LLMProvider | None = None,
     conversation_id: str | None = None,
+    request_context: RequestContext | None = None,
 ) -> TaskResult:
     """Run a single specialist subagent against a TaskAssignment.
 
@@ -222,7 +224,7 @@ async def run_specialist(
                 {"id": tc.id, "name": tc.name, "input": tool_input}
             )
             tool_result = await execute_tool(
-                tc.name, tool_input, org_id=org_id
+                tc.name, tool_input, org_id=org_id, request_context=request_context
             )
             history.append(
                 {

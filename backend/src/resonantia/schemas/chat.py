@@ -21,10 +21,10 @@ class ChatMessage(BaseModel):
 
 
 class ChatRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
     message: str = Field(..., min_length=1, max_length=32_000)
     conversation_id: str | None = None
-    clerk_user_id: str | None = None
-    org_id: str | None = None
     context: dict[str, Any] | None = Field(
         None,
         description="Optional context like current plate map, experiment, etc.",

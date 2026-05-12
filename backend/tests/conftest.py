@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
+from fastapi import Request
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -75,6 +76,8 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     from resonantia.api.router import api_router
     from resonantia.config import get_settings
     from resonantia.db.session import get_db
+    from resonantia.dependencies import get_org_context, get_request_context
+    from resonantia.models.request_context import RequestContext
 
     settings = get_settings()
 
@@ -101,7 +104,22 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     async def _override_get_db() -> AsyncGenerator[AsyncSession, None]:
         yield db_session
 
+    async def _override_request_context(request: Request) -> RequestContext:
+        org_id = request.headers.get("X-Org-Id", "org_default")
+        return RequestContext(
+            user_id="test-user",
+            org_id=org_id,
+            roles=["org:admin"],
+            permissions=[],
+            request_id="test-request",
+        )
+
+    async def _override_org_context(request: Request) -> str:
+        return request.headers.get("X-Org-Id", "org_default")
+
     app.dependency_overrides[get_db] = _override_get_db
+    app.dependency_overrides[get_request_context] = _override_request_context
+    app.dependency_overrides[get_org_context] = _override_org_context
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as ac:

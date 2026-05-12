@@ -24,6 +24,7 @@ import uuid
 from typing import Any
 
 from resonantia.config import get_settings
+from resonantia.models.request_context import RequestContext
 from resonantia.services.guardrails import (
     GUARDRAIL_SYSTEM_PROMPT,
     check_guardrails,
@@ -104,6 +105,7 @@ async def _execute_assignments(
     org_id: str,
     provider: LLMProvider,
     conversation_id: str | None = None,
+    request_context: RequestContext | None = None,
 ) -> list[TaskResult]:
     """Run specialist assignments either in parallel or sequentially.
 
@@ -119,6 +121,14 @@ async def _execute_assignments(
         return await asyncio.gather(
             *(
                 run_specialist(a, org_id, provider=provider, conversation_id=conversation_id)
+                if request_context is None
+                else run_specialist(
+                    a,
+                    org_id,
+                    provider=provider,
+                    conversation_id=conversation_id,
+                    request_context=request_context,
+                )
                 for a in plan.assignments
             )
         )
@@ -141,9 +151,22 @@ async def _execute_assignments(
                     }
                 }
             )
-        results.append(
-            await run_specialist(assignment, org_id, provider=provider, conversation_id=conversation_id)
-        )
+        if request_context is None:
+            result = await run_specialist(
+                assignment,
+                org_id,
+                provider=provider,
+                conversation_id=conversation_id,
+            )
+        else:
+            result = await run_specialist(
+                assignment,
+                org_id,
+                provider=provider,
+                conversation_id=conversation_id,
+                request_context=request_context,
+            )
+        results.append(result)
     return results
 
 
@@ -235,6 +258,7 @@ async def chat(
     clerk_user_id: str | None = None,
     org_id: str | None = None,
     request_id: str | None = None,
+    request_context: RequestContext | None = None,
 ) -> dict[str, Any]:
     """Multi-agent equivalent of ``services.agent.chat``.
 
@@ -248,8 +272,8 @@ async def chat(
         _update_conversation_title,
     )
 
-    user_id = clerk_user_id or "anonymous"
-    org = org_id or "org_default"
+    user_id = request_context.user_id if request_context else (clerk_user_id or "anonymous")
+    org = request_context.org_id if request_context else (org_id or "org_default")
 
     conv_uuid, _history = await _get_or_create_conversation(conversation_id, user_id, org)
     cid = str(conv_uuid)
@@ -301,7 +325,9 @@ async def chat(
         latency_ms=decompose_latency,
     )
 
-    results = await _execute_assignments(plan, org, provider, conversation_id=cid)
+    results = await _execute_assignments(
+        plan, org, provider, conversation_id=cid, request_context=request_context
+    )
     verdicts = await _critic_pass(message, results, provider, org_id=org, conversation_id=cid)
     final_text = await _synthesize_answer(message, results, verdicts, provider)
 

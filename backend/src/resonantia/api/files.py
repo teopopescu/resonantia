@@ -19,8 +19,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from resonantia.config import get_settings
 from resonantia.db.session import get_db
-from resonantia.dependencies import get_org_context
+from resonantia.dependencies import get_request_context
 from resonantia.models.file_upload import FileUpload
+from resonantia.models.request_context import RequestContext
 
 router = APIRouter()
 
@@ -195,8 +196,10 @@ def _parse_csv(content: bytes, filename: str) -> dict[str, Any]:
 @router.post("/upload", response_model=list[FileMetadata], status_code=201)
 async def upload_files(
     files: list[UploadFile] = File(...),
-    org_id: str = Depends(get_org_context),
+    ctx: RequestContext = Depends(get_request_context),
 ) -> list[FileMetadata]:
+    if not ctx.can_write():
+        raise HTTPException(status_code=403, detail="Member role required to upload files")
     upload_dir = _ensure_upload_dir()
     upload_dir_real = os.path.realpath(upload_dir)
     results: list[FileMetadata] = []
@@ -229,7 +232,7 @@ async def upload_files(
             "uploaded_at": datetime.now(timezone.utc).isoformat(),
             "download_url": _build_download_url(file_id),
             "stored_path": dest_path,
-            "org_id": org_id,
+            "org_id": ctx.org_id,
         }
         _file_registry[file_id] = meta
         results.append(FileMetadata(**{k: v for k, v in meta.items()
@@ -244,9 +247,11 @@ async def upload_files(
 @router.post("/upload-and-parse", response_model=CSVParseResponse, status_code=201)
 async def upload_and_parse(
     file: UploadFile = File(...),
-    org_id: str = Depends(get_org_context),
+    ctx: RequestContext = Depends(get_request_context),
     db: AsyncSession = Depends(get_db),
 ) -> CSVParseResponse:
+    if not ctx.can_write():
+        raise HTTPException(status_code=403, detail="Member role required to upload files")
     filename = file.filename or "upload.csv"
     content_type = file.content_type or "text/csv"
 
@@ -269,7 +274,7 @@ async def upload_and_parse(
     try:
         upload_record = FileUpload(
             id=uuid.UUID(file_id),
-            org_id=org_id,
+            org_id=ctx.org_id,
             filename=filename,
             content_type=content_type,
             size_bytes=len(contents),
@@ -344,16 +349,16 @@ def _get_meta_or_404(file_id: str, org_id: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 @router.get("/", response_model=list[FileMetadata])
 async def list_files(
-    org_id: str = Depends(get_org_context),
+    ctx: RequestContext = Depends(get_request_context),
     db: AsyncSession = Depends(get_db),
 ) -> list[FileMetadata]:
     registry_files = [
         FileMetadata(**_strip_internal(m))
         for m in _file_registry.values()
-        if m.get("org_id") == org_id
+        if m.get("org_id") == ctx.org_id
     ]
     result = await db.execute(
-        select(FileUpload).where(FileUpload.org_id == org_id).order_by(FileUpload.created_at.desc())
+        select(FileUpload).where(FileUpload.org_id == ctx.org_id).order_by(FileUpload.created_at.desc())
     )
     db_files = [
         FileMetadata(
@@ -376,14 +381,14 @@ async def list_files(
 @router.get("/{file_id}", response_model=FileMetadata)
 async def get_file_metadata(
     file_id: str,
-    org_id: str = Depends(get_org_context),
+    ctx: RequestContext = Depends(get_request_context),
     db: AsyncSession = Depends(get_db),
 ) -> FileMetadata:
     meta = _file_registry.get(file_id)
-    if meta and meta.get("org_id") == org_id:
+    if meta and meta.get("org_id") == ctx.org_id:
         return FileMetadata(**_strip_internal(meta))
     upload = await db.get(FileUpload, uuid.UUID(file_id))
-    if not upload or upload.org_id != org_id:
+    if not upload or upload.org_id != ctx.org_id:
         raise HTTPException(status_code=404, detail="File not found")
     return FileMetadata(
         id=str(upload.id),
@@ -401,18 +406,18 @@ async def get_file_metadata(
 @router.get("/{file_id}/download")
 async def download_file(
     file_id: str,
-    org_id: str = Depends(get_org_context),
+    ctx: RequestContext = Depends(get_request_context),
     db: AsyncSession = Depends(get_db),
 ) -> FileResponse:
     meta = _file_registry.get(file_id)
-    if meta and meta.get("org_id") == org_id:
+    if meta and meta.get("org_id") == ctx.org_id:
         path = meta["stored_path"]
         if not os.path.exists(path):
             raise HTTPException(status_code=404, detail="File missing from storage")
         return FileResponse(path, media_type=meta["content_type"], filename=meta["filename"])
 
     upload = await db.get(FileUpload, uuid.UUID(file_id))
-    if not upload or upload.org_id != org_id:
+    if not upload or upload.org_id != ctx.org_id:
         raise HTTPException(status_code=404, detail="File not found")
     path = str(Path(get_settings().upload_dir) / upload.storage_path)
     if not os.path.exists(path):
@@ -426,9 +431,11 @@ async def download_file(
 @router.delete("/{file_id}", status_code=204)
 async def delete_file(
     file_id: str,
-    org_id: str = Depends(get_org_context),
+    ctx: RequestContext = Depends(get_request_context),
 ) -> None:
-    meta = _get_meta_or_404(file_id, org_id)
+    if not ctx.can_write():
+        raise HTTPException(status_code=403, detail="Member role required to delete files")
+    meta = _get_meta_or_404(file_id, ctx.org_id)
     _file_registry.pop(file_id, None)
     path = meta["stored_path"]
     if os.path.exists(path):

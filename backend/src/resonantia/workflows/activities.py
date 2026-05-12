@@ -79,16 +79,19 @@ async def execute_tool_activity(
     tool_name: str,
     tool_args: dict[str, Any],
     org_id: str,
+    request_context: dict[str, Any] | None = None,
 ) -> str:
     """Execute a registered tool handler and return the JSON result.
 
     Uses the TOOL_HANDLERS registry from tool_executor — no arbitrary
     code execution.
     """
+    from resonantia.models.request_context import RequestContext
     from resonantia.services.tool_executor import execute_tool
 
     logger.info("execute_tool_activity: tool=%s, org_id=%s", tool_name, org_id)
-    result = await execute_tool(tool_name, tool_args, org_id=org_id)
+    ctx = RequestContext(**request_context) if request_context else None
+    result = await execute_tool(tool_name, tool_args, org_id=org_id, request_context=ctx)
     return result
 
 
