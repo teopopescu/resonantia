@@ -4,8 +4,8 @@
 
 AI-powered plate mapping, dose-response analysis, and sample tracking for lab scientists. Design worklists, browse microscopy data, and manage reagent inventory — from one intelligent interface.
 
-[![Backend Tests](https://img.shields.io/badge/backend_tests-62_passed-brightgreen)](backend/tests/)
-[![Frontend Tests](https://img.shields.io/badge/frontend_tests-46_passed-brightgreen)](frontend/src/)
+[![Backend Tests](https://img.shields.io/badge/backend_tests-300%2B_passed-brightgreen)](backend/tests/)
+[![Frontend Tests](https://img.shields.io/badge/frontend_tests-53_passed-brightgreen)](frontend/src/)
 [![Python](https://img.shields.io/badge/python-3.12-blue)](backend/pyproject.toml)
 [![Next.js](https://img.shields.io/badge/next.js-16-black)](frontend/package.json)
 [![License](https://img.shields.io/badge/license-proprietary-lightgrey)]()

@@ -486,7 +486,7 @@ function LifecyclePanel() {
           chat ·
           <span className="text-ink-muted">⌘ K</span>
         </span>
-        <span>32 tools · cited traces</span>
+        <span>30+ tools · cited traces</span>
       </div>
     </motion.div>
   );
@@ -576,16 +576,12 @@ export function Hero() {
               transition={{ duration: 0.7, delay: 0.65 }}
               className="mt-14 grid grid-cols-2 sm:grid-cols-4 gap-5 pt-5 border-t border-dashed border-line-strong"
             >
-              <HeroStat k="Plate formats" v="96 · 384 · 1536" />
-              <HeroStat k="Worklists" v="Echo · STAR · OT-2" />
+              <HeroStat k="Plate formats" v="96 · 384" />
+              <HeroStat k="Worklists" v="Echo · Hamilton · OT-2" />
               <HeroStat k="Modes" v="chat · voice · plan" />
               <HeroStat
                 k="Design partners"
-                v={
-                  <>
-                    <em className="text-brand not-italic">3 slots</em> open
-                  </>
-                }
+                v="accepting applications"
               />
             </motion.div>
           </div>

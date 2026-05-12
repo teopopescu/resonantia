@@ -1,8 +1,8 @@
 # Resonantia AI — Critical Path to Seed Round
 
 ## Founders
-- Teo Popescu
-- Beatriz (co-founder)
+- Teodor Popescu — Co-Founder & CTO
+- Beatriz — Co-Founder
 
 ## Timeline Overview (18-24 months to $1M ARR)
 
