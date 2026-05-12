@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     # --- Application ---
     app_name: str = "Resonantia"
     debug: bool = False
+    demo_mode: bool = False
 
     # --- Database ---
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/resonantia"

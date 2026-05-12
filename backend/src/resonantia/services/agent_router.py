@@ -19,6 +19,8 @@ async def chat(
     context: dict[str, Any] | None = None,
     clerk_user_id: str | None = None,
     org_id: str | None = None,
+    attachments: list[str] | None = None,
+    request_id: str | None = None,
 ) -> dict[str, Any]:
     if get_settings().multi_agent_enabled:
         from resonantia.services.multi_agent.orchestrator import chat as multi_chat
@@ -29,6 +31,7 @@ async def chat(
             context=context,
             clerk_user_id=clerk_user_id,
             org_id=org_id,
+            request_id=request_id,
         )
 
     from resonantia.services import agent as legacy_agent
@@ -39,4 +42,6 @@ async def chat(
         context=context,
         clerk_user_id=clerk_user_id,
         org_id=org_id,
+        attachments=attachments,
+        request_id=request_id,
     )

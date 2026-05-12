@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from resonantia.api.router import api_router
 from resonantia.config import get_settings
 from resonantia.db.session import close_db, init_db
+from resonantia.middleware import RequestContextMiddleware
 
 logger = logging.getLogger("resonantia")
 
@@ -77,6 +78,7 @@ def create_app() -> FastAPI:
     )
 
     # CORS
+    app.add_middleware(RequestContextMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,

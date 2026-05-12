@@ -59,12 +59,40 @@ class TestVoiceSafetyClassification:
         assert "text confirmation" in msg.lower()
 
 
-class TestVoiceEndpointImport:
-    def test_voice_endpoint_imports_safety_filter(self):
-        import inspect
-        source = inspect.getsource(__import__("resonantia.api.voice", fromlist=["voice_chat"]))
-        assert "is_voice_safe" in source
-        assert "voice_block_message" in source
+class TestVoiceSafetyExecutionGate:
+    @pytest.mark.asyncio
+    async def test_voice_blocked_tool_returns_pending_approval(self):
+        from unittest.mock import AsyncMock, patch
+
+        from resonantia.services.output_validator import ToolResult
+        from resonantia.services.tool_executor import execute_tool_typed
+
+        async def _handler(params, org_id):
+            return {"executed": True}
+
+        with patch.dict(
+            "resonantia.services.tool_executor.TOOL_HANDLERS",
+            {"submit_eln_entry": _handler},
+        ), patch(
+            "resonantia.services.tool_executor._get_tool_schema",
+            new_callable=AsyncMock,
+            return_value=None,
+        ), patch(
+            "resonantia.services.tool_executor.check_tenant_refs",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
+            result = await execute_tool_typed(
+                "submit_eln_entry",
+                {"entry_id": "eln-1"},
+                "org_1",
+                source="voice",
+                user_id="user_1",
+            )
+
+        assert isinstance(result, ToolResult)
+        assert result.data["approval_required"] is True
+        assert result.data["pending_approval"]["tool_name"] == "submit_eln_entry"
 
 
 class TestMultimodalProviderConversion:

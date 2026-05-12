@@ -14,7 +14,7 @@ import logging
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -63,6 +63,7 @@ class WorkflowStatusResponse(BaseModel):
 
 @router.post("/message", response_model=ChatResponse)
 async def send_message(
+    request: Request,
     body: ChatRequest,
     org_id: str = Depends(get_org_context),
 ) -> ChatResponse:
@@ -128,6 +129,7 @@ async def send_message(
             clerk_user_id=clerk_user_id,
             org_id=org_id,
             attachments=body.attachments,
+            request_id=getattr(request.state, "request_id", None),
         )
     except ValueError as exc:
         if "not accessible" in str(exc):
@@ -148,6 +150,7 @@ async def send_message(
 
 @router.post("/message/stream")
 async def stream_message(
+    request: Request,
     body: ChatRequest,
     org_id: str = Depends(get_org_context),
 ) -> EventSourceResponse:
@@ -158,6 +161,7 @@ async def stream_message(
             context=body.context,
             clerk_user_id=body.clerk_user_id or "anonymous",
             org_id=org_id,
+            request_id=getattr(request.state, "request_id", None),
         )
     )
 

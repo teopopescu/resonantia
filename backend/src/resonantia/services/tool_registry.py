@@ -276,22 +276,6 @@ def _default_tools() -> list[ToolSchema]:
                 ToolParameter(name="check_expiry", type="boolean", description="Whether to include expiry date check", required=False, default=True),
             ],
         ),
-        ToolSchema(
-            name="add_sample",
-            description="Register a new sample or reagent in the inventory system.",
-            category="sample_management",
-            parameters=[
-                ToolParameter(name="name", type="string", description="Sample name"),
-                ToolParameter(name="type", type="string", description="Sample type (e.g. compound, antibody, cell-line, plasmid)"),
-                ToolParameter(name="barcode", type="string", description="Unique barcode identifier"),
-                ToolParameter(name="location", type="string", description="Storage location (e.g. Freezer-2/Shelf-3/Box-A)"),
-                ToolParameter(name="storage_temp", type="string", description="Storage temperature (e.g. -20C, 4C, RT)", required=False),
-                ToolParameter(name="lot_number", type="string", description="Manufacturer lot number", required=False),
-                ToolParameter(name="quantity", type="number", description="Amount in stock"),
-                ToolParameter(name="unit", type="string", description="Unit of quantity (e.g. uL, mg, vials)"),
-            ],
-        ),
-
         # -- microscopy --
         ToolSchema(
             name="browse_microscopy",
@@ -313,31 +297,6 @@ def _default_tools() -> list[ToolSchema]:
                 ToolParameter(name="wells", type="array", description="Array of well positions to include"),
                 ToolParameter(name="channels", type="array", description="Array of channels to overlay"),
                 ToolParameter(name="layout", type="string", description="Montage layout (e.g. '2x3', '4x4', 'auto')", required=False, default="auto"),
-            ],
-        ),
-
-        # -- protocol --
-        ToolSchema(
-            name="design_protocol",
-            description="Design an experimental protocol with steps, reagents, and timing.",
-            category="protocol",
-            parameters=[
-                ToolParameter(name="experiment_type", type="string", description="Type of experiment (e.g. cytotoxicity, transfection, western-blot)"),
-                ToolParameter(name="cell_line", type="string", description="Cell line to use", required=False),
-                ToolParameter(name="target", type="string", description="Target gene/protein", required=False),
-                ToolParameter(name="assay_format", type="string", description="Assay plate format", enum=["96", "384", "6", "24"], required=False, default="96"),
-            ],
-        ),
-
-        # -- general --
-        ToolSchema(
-            name="search_literature",
-            description="Search scientific literature databases (PubMed, bioRxiv) for relevant papers.",
-            category="general",
-            parameters=[
-                ToolParameter(name="query", type="string", description="Search query (keywords, gene names, compound names)"),
-                ToolParameter(name="max_results", type="number", description="Maximum papers to return", required=False, default=10),
-                ToolParameter(name="date_range", type="string", description="Date filter (e.g. 'last-year', 'last-5-years', '2020-2024')", required=False),
             ],
         ),
 
