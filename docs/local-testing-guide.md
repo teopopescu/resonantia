@@ -1,6 +1,6 @@
 # Resonantia — Local Testing Guide
 
-Every workflow is accessible three ways: **Direct UI** (click through the module page), **Chat** (type a prompt), and **Voice** (hold Space and speak). This guide tests all three for every feature.
+Every workflow is accessible three ways: **Direct UI** (click through the module page), **Chat** (type a prompt), and **Voice** (hold Space and speak). This guide tests all three for every feature and tells you which test file to use.
 
 ---
 
@@ -31,6 +31,25 @@ open http://localhost:3001
 
 ---
 
+## Test Files
+
+All in `demo-data/`. Upload via the paperclip icon in the chat composer.
+
+| File | What It Contains | Used In |
+|------|-----------------|---------|
+| `dose_response_staurosporine_HEK293T.csv` | 8 compounds, 10 concentrations, 3 replicates (240 rows). Staurosporine IC50 ~42 nM. | Killer workflow, dose-response fitting, ELN drafting |
+| `dose-response.csv` | Minimal 8-row single-compound dose-response | Quick dose-response test |
+| `compound-hit-list.csv` | 8 compounds with IC50, Hill slope, potency class, recommended action | Cherry-pick testing |
+| `plate-reader-96well-controls.csv` | 96-well raw luminescence with labeled positive/negative controls, 4 compounds | Plate normalization, Z-prime |
+| `qpcr-ct-values.csv` | 3 conditions, 2 genes, 2 replicates | Quick qPCR test |
+| `qpcr-multiplex-experiment.csv` | 4 staurosporine concentrations, 6 genes (4 target + 2 reference), 3 replicates | Full qPCR analysis |
+| `sample-inventory-import.csv` | 20 lab items: reagents, compounds, cell lines. 3 expiring within days. | Inventory import, expiry triage |
+| `protocol-western-blot.csv` | 11-step Western Blot protocol with reagent names and volumes | Protocol creation, inventory pre-flight |
+| `eln-experiment-results.csv` | 8 results across 3 studies (screen → confirmation → cell line panel) | ELN auto-generation |
+| `microscopy-sample-DAPI-GFP.png` | Synthetic cell image with DAPI (blue nuclei) and GFP (green cytoplasm) | Multimodal image attachment |
+
+---
+
 ## Interaction Modes
 
 Every test below can be run three ways. Voice-blocked actions (creates, submits, exports) redirect to chat for text confirmation — the agent drafts the action but the user must click Confirm.
@@ -53,17 +72,25 @@ Every test below can be run three ways. Voice-blocked actions (creates, submits,
 | **Chat** | "Look up sample DMEM" |
 | **Voice** | Hold Space: "Look up sample DMEM" |
 
-**Expected:** Table/response shows matching samples with barcode, location, quantity, expiry.
+**Expected:** Matching samples with barcode, location, quantity, expiry.
+
+### Bulk Import
+
+| Path | Action |
+|------|--------|
+| **Chat** | Attach `sample-inventory-import.csv` → "Import these samples into inventory" |
+
+**Expected:** Agent reads the CSV, identifies 20 items (reagents, compounds, cell lines), and creates sample records. Three items flagged as expiring soon: CellTiter-Glo (May 25), Anti-p53 (Jun 10), Puromycin (May 20).
 
 ### Expiry Triage
 
 | Path | Action |
 |------|--------|
 | **UI** | `/lab/samples` → look for orange/red expiry indicators |
-| **Chat** | "What reagents are expiring in the next 30 days?" |
+| **Chat** | "What reagents are expiring in the next 30 days?" or attach `sample-inventory-import.csv` → "Which of these are expiring soon?" |
 | **Voice** | Hold Space: "What's expiring soon?" |
 
-**Expected:** List of samples with days until expiry, status (ok / expiring_soon / expired).
+**Expected:** CellTiter-Glo, Anti-p53 antibody, and Puromycin flagged with days until expiry.
 
 ### Check Stock
 
@@ -81,7 +108,7 @@ Every test below can be run three ways. Voice-blocked actions (creates, submits,
 |------|--------|
 | **UI** | `/lab/samples` → click + → fill form → save |
 | **Chat** | "Add a new sample: RPMI-1640, reagent, 500 mL, Freezer B shelf 3" |
-| **Voice** | Hold Space: "Add a new reagent RPMI" → **redirected to chat for confirmation** |
+| **Voice** | Hold Space: "Add a new reagent RPMI" → **redirected to chat** → Confirm |
 
 **Expected:** UI/Chat: sample created. Voice: agent drafts, says "confirm in chat."
 
@@ -99,15 +126,15 @@ Every test below can be run three ways. Voice-blocked actions (creates, submits,
 
 **Expected:** Color-coded well grid (blue=sample, green=positive control, red=negative control).
 
-### Cherry-Pick (voice-blocked)
+### Cherry-Pick from Hit List (voice-blocked)
 
 | Path | Action |
 |------|--------|
 | **UI** | `/lab/plates` → select Cherry Pick mode → select source wells → apply |
-| **Chat** | "Cherry-pick wells A2, A3, B2 from source plate into a 384-well confirmation plate" |
-| **Voice** | Hold Space: "Cherry-pick the top 3 hits" → **redirected to chat** → approval card with plate preview → Confirm |
+| **Chat** | Attach `compound-hit-list.csv` → "Cherry-pick all compounds with Potency_Class potent into a 384-well confirmation plate" |
+| **Voice** | Hold Space: "Cherry-pick the top 3 hits" → **redirected to chat** → approval card → Confirm |
 
-**Expected:** New plate map with selected wells mapped to destination. Approval card shows visual preview.
+**Expected:** Agent reads hit list, identifies Staurosporine (A2), Dasatinib (B2), Compound_G (C2) as potent, creates plate map. Approval card shows plate grid with 3 compounds + controls.
 
 ### Serial Dilution (voice-blocked)
 
@@ -127,7 +154,7 @@ Every test below can be run three ways. Voice-blocked actions (creates, submits,
 | **Chat** | "Generate an Echo worklist for plate map HTS Screen Round 1" |
 | **Voice** | Hold Space: "Generate a worklist for the Echo" → **redirected to chat** → amber warning + approval card → Confirm → download |
 
-**Expected:** CSV (Echo), GWL (Hamilton), or Python (OT-2) file with transfer volumes and well mappings.
+**Expected:** CSV (Echo), GWL (Hamilton), or Python (OT-2) file downloads.
 
 ---
 
@@ -138,40 +165,42 @@ Every test below can be run three ways. Voice-blocked actions (creates, submits,
 | Path | Action |
 |------|--------|
 | **UI** | `/lab/processing` → paste concentration/response data → click Fit |
-| **Chat** | "Fit a dose-response curve for concentrations [0.1, 1, 10, 100, 1000] and responses [95, 88, 62, 25, 8]" |
-| **Voice** | Hold Space: "Fit a dose-response curve for staurosporine" (needs data context) |
+| **Chat (quick)** | Attach `dose-response.csv` → "Fit a dose-response curve for this data" |
+| **Chat (full)** | Attach `dose_response_staurosporine_HEK293T.csv` → "Fit dose-response curves for all 8 compounds" |
+| **Voice** | Hold Space: "Fit a dose-response curve for staurosporine" (needs data already uploaded) |
 
-**Expected:** IC50, Hill slope, R², Z' (if controls provided). Inline plot with sigmoidal curve.
+**Expected:** Quick: single IC50 value. Full: 8 compounds — Staurosporine IC50 ~42 nM, Compound_G ~8 nM (most potent), Compound_F inactive. Inline plot with sigmoidal curve.
 
 ### Plate Normalization
 
 | Path | Action |
 |------|--------|
-| **UI** | `/lab/processing` → enter raw data → select Z-score method → normalize |
-| **Chat** | "Normalize this plate data using Z-score: [45, 52, 48, 95, 92, 88, 5, 3, 7]" |
+| **UI** | `/lab/processing` → enter raw data → select Z-score method |
+| **Chat** | Attach `plate-reader-96well-controls.csv` → "Normalize this plate data. Use wells A1-B2 as positive controls and A12-D12 as negative controls." |
 | **Voice** | Hold Space: "Normalize my plate data using Z-score" (needs data in context) |
 
-**Expected:** Normalized values with method used and data count.
+**Expected:** Normalized values per well. Positive controls near +1, negative controls near -1 (Z-score) or 100%/0% (PoC).
 
 ### Z-Prime Calculation
 
 | Path | Action |
 |------|--------|
-| **UI** | `/lab/processing` → enter positive/negative control values → calculate |
-| **Chat** | "Calculate Z-prime with positive controls [100, 98, 102] and negative controls [5, 3, 7]" |
-| **Voice** | Hold Space: "What's the Z-prime for my latest plate?" |
+| **UI** | `/lab/processing` → enter control values → calculate |
+| **Chat** | Attach `plate-reader-96well-controls.csv` → "Calculate Z-prime using the positive and negative controls" |
+| **Voice** | Hold Space: "What's the Z-prime for my plate?" |
 
-**Expected:** Z' value with quality assessment (>0.5 = good assay, <0.5 = poor).
+**Expected:** Z' value. With the demo data: ~0.85 (excellent assay, good separation between controls).
 
 ### qPCR Delta-Delta Ct
 
 | Path | Action |
 |------|--------|
 | **UI** | `/lab/processing` → enter Ct values → calculate |
-| **Chat** | "Run qPCR analysis: target Ct [25.3, 25.1], reference Ct [18.2, 18.5], control target Ct [28.1, 27.9], control reference Ct [18.3, 18.1]" |
-| **Voice** | Hold Space: "Analyze my qPCR data" (needs Ct values in context) |
+| **Chat (quick)** | Attach `qpcr-ct-values.csv` → "Run delta-delta Ct analysis using GAPDH as reference and Untreated as control" |
+| **Chat (full)** | Attach `qpcr-multiplex-experiment.csv` → "Analyze this qPCR experiment. Which genes are most upregulated by staurosporine at 1 µM?" |
+| **Voice** | Hold Space: "Analyze my qPCR data" (needs file already uploaded) |
 
-**Expected:** Delta-delta Ct and fold-change values.
+**Expected:** Quick: fold-change for GFP at each treatment. Full: CASP3 and BAX most upregulated at 1 µM (apoptosis markers), TP53 upregulated, BCL2 slightly changed. Agent should note the apoptosis signature.
 
 ---
 
@@ -181,84 +210,65 @@ Every test below can be run three ways. Voice-blocked actions (creates, submits,
 
 | Path | Action |
 |------|--------|
-| **UI** | `/lab/eln` → browse list of entries |
+| **UI** | `/lab/eln` → browse list |
 | **Chat** | "Search ELN entries about staurosporine" |
 | **Voice** | Hold Space: "Find my staurosporine ELN entries" |
 
-**Expected:** List of matching entries with title, entry number, status, date.
+**Expected:** Matching entries with title, entry number, status, date.
 
 ### Create Entry (voice-blocked)
 
 | Path | Action |
 |------|--------|
-| **UI** | `/lab/eln` → click + → type title and markdown content → save |
+| **UI** | `/lab/eln` → click + → type title/content → save |
 | **Chat** | "Create an ELN entry titled 'Staurosporine IC50 Determination'" |
-| **Voice** | Hold Space: "Create a notebook entry for staurosporine" → **redirected to chat** → approval card with markdown preview → Confirm |
+| **Voice** | Hold Space: "Create a notebook entry for staurosporine" → **redirected to chat** → Confirm |
 
-**Expected:** New entry with auto-generated entry number (ELN-2026-XXXX), status: draft.
+**Expected:** New entry with auto-generated number (ELN-2026-XXXX), status: draft.
 
-### Auto-Generate from Experiment (voice-blocked)
+### Auto-Generate from Experiment Results (voice-blocked)
 
 | Path | Action |
 |------|--------|
 | **UI** | `/lab/eln` → click Auto-Generate → select experiment |
-| **Chat** | "Create an ELN entry for experiment EXP-001" |
-| **Voice** | Hold Space: "Draft a notebook entry from my latest experiment" → **redirected to chat** |
+| **Chat** | Attach `eln-experiment-results.csv` → "Create an ELN entry summarizing experiment EXP-2026-001 (Kinase Inhibitor Screen Round 1)" |
+| **Voice** | Hold Space: "Draft a notebook entry from my kinase screen" → **redirected to chat** |
 
-**Expected:** Structured entry with Objective, Methods, Results (IC50, Hill, R², Z'), Conclusions, References.
+**Expected:** Structured entry with: Objective (kinase inhibitor screen), Methods (96-well CellTiter-Glo, 3 replicates), Results (IC50 table: Staurosporine 42.3 nM, Dasatinib 18.7 nM, etc.), Conclusions (3 potent hits identified, recommend confirmation). References to experiment IDs.
 
 ### Submit Entry (voice-blocked, hard approval)
 
 | Path | Action |
 |------|--------|
-| **UI** | `/lab/eln` → click Submit on a draft entry |
+| **UI** | `/lab/eln` → click Submit on draft |
 | **Chat** | "Submit ELN entry ELN-2026-001" |
-| **Voice** | Hold Space: "Submit my ELN entry" → **redirected to chat** → approval card with warning → Confirm |
+| **Voice** | Hold Space: "Submit my ELN entry" → **redirected to chat** → warning + Confirm |
 
-**Expected:** Status changes to "submitted" (immutable — cannot be edited after submission).
-
-### Export
-
-| Path | Action |
-|------|--------|
-| **UI** | `/lab/eln` → click PDF or Markdown export button |
-| **Chat** | "Export ELN entry ELN-2026-001 as PDF" |
-
-**Expected:** PDF or Markdown file downloads.
+**Expected:** Status changes to "submitted" (immutable).
 
 ---
 
 ## 5. Protocol Builder
 
-### Search Protocols
+### Create Protocol from CSV (voice-blocked)
 
 | Path | Action |
 |------|--------|
-| **UI** | `/lab/protocols` → browse list |
-| **Chat** | "Search protocols about Western Blot" |
-| **Voice** | Hold Space: "What protocols do we have for Western Blot?" |
+| **UI** | `/lab/protocols` → click + → add steps manually |
+| **Chat** | Attach `protocol-western-blot.csv` → "Create a protocol from this CSV" |
+| **Voice** | Hold Space: "Create a Western Blot protocol" → **redirected to chat** → Confirm |
 
-**Expected:** List of matching protocols with name, version, status.
-
-### Create Protocol (voice-blocked)
-
-| Path | Action |
-|------|--------|
-| **UI** | `/lab/protocols` → click + → add steps with reagents |
-| **Chat** | "Create a protocol for CellTiter-Glo viability assay" |
-| **Voice** | Hold Space: "Create a cell viability protocol" → **redirected to chat** → Confirm |
-
-**Expected:** Protocol with numbered steps, reagent requirements, durations.
+**Expected:** 11-step protocol with step titles, instructions, durations, temperatures, equipment, and reagent volumes matching the CSV.
 
 ### Inventory Pre-Flight Check
 
 | Path | Action |
 |------|--------|
 | **UI** | `/lab/protocols` → click Check Inventory on a protocol |
-| **Chat** | "Check if we have all reagents for the Western Blot protocol" |
+| **Chat** | After creating the Western Blot protocol: "Check if we have all reagents for it" or attach both `protocol-western-blot.csv` and `sample-inventory-import.csv` → "Do we have everything needed for this protocol?" |
 | **Voice** | Hold Space: "Do we have everything for the Western Blot?" |
 
-**Expected:** List of required reagents with availability status (available/missing/low stock).
+**Expected:** Cross-references protocol reagents against inventory. RIPA Buffer (have 100 mL, need 200 µL — OK), Protease Inhibitor (have 2 mL, need 2 µL — OK), Anti-p53 (have 100 µL, need 5 µL — OK but expiring June 10).
 
 ### Dilution Calculator
 
@@ -268,38 +278,47 @@ Every test below can be run three ways. Voice-blocked actions (creates, submits,
 | **Chat** | "Calculate dilution: stock 10 mM, target 100 µM, volume 500 µL" |
 | **Voice** | Hold Space: "Calculate dilution from 10 millimolar to 100 micromolar in 500 microliters" |
 
-**Expected:** Stock volume (5 µL) and diluent volume (495 µL) with C1V1=C2V2 formula.
+**Expected:** Stock volume: 5 µL, diluent volume: 495 µL. Formula: C1V1 = C2V2.
 
 ---
 
 ## 6. Killer Workflow — End-to-End
 
-The core demo flow. Tests all modules working together via chat. Use `demo-data/dose_response_staurosporine_HEK293T.csv`.
+The core demo. Tests all modules working together in one conversation.
 
-See `docs/killer-workflow-demo.md` for the full script. Summary:
+**File:** `demo-data/dose_response_staurosporine_HEK293T.csv`
+**Full script:** `docs/killer-workflow-demo.md`
 
-| Step | Prompt | Expected | Approval? |
-|------|--------|----------|-----------|
-| 1. Upload | "Analyze this plate reader export" + attach CSV | Column preview, 240 rows detected | No |
-| 2. Fit | "Fit dose-response curves for all compounds" | IC50 ~42 nM for staurosporine, inline plot | No |
-| 3. ELN draft | "Create an ELN entry summarizing these results" | Structured markdown draft | Yes (L2) |
-| 4. Plate | "Cherry-pick the top 3 hits into a confirmation plate" | Visual plate grid preview | Yes (L2) |
-| 5. Follow-up | "What experiments should we run next?" | 2-3 options with scientific rationale | Yes (L2) |
-| 6. Worklist | "Generate an Echo worklist for the confirmation plate" | Preview + amber warning | Yes (L3) |
+| Step | Action | File | Expected | Approval? |
+|------|--------|------|----------|-----------|
+| 1. Upload | "Analyze this plate reader export" + attach CSV | `dose_response_staurosporine_HEK293T.csv` | Column preview: Compound, Concentration_nM, Response_Pct, Well, Replicate. 240 rows. | No |
+| 2. Fit | "Fit dose-response curves for all compounds" | (already uploaded) | IC50 ~42 nM for staurosporine, Hill -1.18, R² 0.99. Inline plot. | No |
+| 3. ELN draft | "Create an ELN entry summarizing these results" | (uses fit results) | Structured markdown: Objective, Methods, Results (IC50 table + plot), Conclusions | Yes (L2) |
+| 4. Cherry-pick | "Cherry-pick the top 3 hits into a confirmation plate" | (uses fit results) | Plate grid: Compound_G, Dasatinib, Staurosporine mapped to 384-well | Yes (L2) |
+| 5. Follow-up | "What experiments should we run next?" | (uses fit results) | Options: hit confirmation (tighter range), selectivity panel, cell line comparison | Yes (L2) |
+| 6. Worklist | "Generate an Echo worklist for the confirmation plate" | (uses plate from step 4) | Echo CSV preview + amber warning: "This will be sent to instrument" | Yes (L3) |
 
 ---
 
-## 7. Voice-Specific Tests
+## 7. Multimodal Image Test
 
-These test the voice pipeline itself, separate from the workflows above.
+| Path | Action |
+|------|--------|
+| **Chat** | Attach `microscopy-sample-DAPI-GFP.png` → "What cells do you see in this image?" |
+
+**Expected:** Agent describes cells visible in the image (blue DAPI nuclei, green GFP cytoplasm). Tests the multimodal vision pipeline — image is sent to the LLM as a base64-encoded content block.
+
+---
+
+## 8. Voice-Specific Tests
 
 | Test | Action | Expected |
 |------|--------|----------|
 | Push-to-talk | Hold Space → speak → release | Recording indicator, transcription in chat, agent responds, TTS plays |
-| VAD mode | Click mic icon → speak → pause 2s | Auto-stops recording on silence |
+| VAD mode | Click mic icon → speak → pause 2s | Auto-stops on silence |
 | Safe tool via voice | Hold Space: "Look up sample DMEM" | Tool executes, spoken response |
 | Blocked tool via voice | Hold Space: "Submit the ELN entry" | "This requires text confirmation" |
-| Voice dictation to ELN | Hold Space: "Record observation: cells at 80% confluence, passage 12, morphology normal" | Draft ELN entry created (must confirm in chat) |
+| Voice dictation to ELN | Hold Space: "Record observation: cells at 80% confluence, passage 12, morphology normal" | Draft ELN entry (must confirm in chat) |
 
 ---
 
@@ -307,27 +326,27 @@ These test the voice pipeline itself, separate from the workflows above.
 
 ### Ready — test via all 3 paths
 
-| Code | Use Case | Chat Prompt | Voice Prompt | UI Path |
-|------|----------|-------------|-------------|---------|
-| DAT/01 | Dose-response → IC50 → ELN | Upload CSV → "Fit curves" → "Draft ELN" | "Fit dose-response for staurosporine" (lookup only via voice) | `/lab/processing` |
-| PLT/01 | Cherry-pick hits to 384-well | "Cherry-pick wells A2, A3, B2 into 384-well" | "Cherry-pick the top hits" (→ confirm in chat) | `/lab/plates` → Cherry Pick mode |
-| PLT/02 | Serial dilution layout | "Serial dilution, A1, 8 points, 3-fold" | "Set up a serial dilution" (→ confirm in chat) | `/lab/plates` → Serial Dilution mode |
-| INV/01 | Reagent expiry triage | "What reagents expire within 30 days?" | "What's expiring soon?" | `/lab/samples` → check expiry column |
-| PRO/01 | Protocol pre-flight + dilution | "Check reagents for Western Blot" then "Dilution 10mM → 100µM in 500µL" | "Do we have everything for the Western Blot?" | `/lab/protocols` → Check Inventory |
-| DAT/02 | Plate normalization | "Normalize using Z-score: [45,52,48,95,92,88,5,3,7]" | "Normalize my plate data" | `/lab/processing` |
-| DAT/03 | qPCR ΔΔCt | "Run qPCR: target Ct [25.3,25.1], ref [18.2,18.5], ctrl target [28.1,27.9], ctrl ref [18.3,18.1]" | "Analyze my qPCR data" | `/lab/processing` |
-| SAM/01 | Hands-free sample lookup | "Look up sample DMEM" | "Look up sample DMEM" | `/lab/samples` → search |
-| WL/01 | Worklist export | "Generate Echo worklist for PM-demo-1" | "Generate a worklist" (→ confirm in chat) | `/lab/plates` → Export |
-| ELN/01 | ELN from artifacts | "Create ELN entry for experiment EXP-001" | "Draft a notebook entry" (→ confirm in chat) | `/lab/eln` → Auto-Generate |
-| VOC/01 | Voice → ELN capture | N/A (voice-first workflow) | "Record: HEK293T viability, staurosporine 10-point, CellTiter-Glo" | N/A |
+| Code | Use Case | File to Upload | Chat Prompt | Voice Prompt |
+|------|----------|---------------|-------------|-------------|
+| DAT/01 | Dose-response → IC50 → ELN | `dose_response_staurosporine_HEK293T.csv` | "Fit curves" → "Draft ELN" | "Fit dose-response" (read-only via voice) |
+| PLT/01 | Cherry-pick hits | `compound-hit-list.csv` | "Cherry-pick potent compounds into 384-well" | "Cherry-pick the top hits" (→ chat) |
+| PLT/02 | Serial dilution | — | "Serial dilution, A1, 8 points, 3-fold" | "Set up a serial dilution" (→ chat) |
+| INV/01 | Reagent expiry | `sample-inventory-import.csv` | "Which are expiring soon?" | "What's expiring?" |
+| PRO/01 | Protocol pre-flight | `protocol-western-blot.csv` + `sample-inventory-import.csv` | "Do we have all reagents?" | "Do we have everything for Western Blot?" |
+| DAT/02 | Plate normalization | `plate-reader-96well-controls.csv` | "Normalize with Z-score" | "Normalize my plate" |
+| DAT/03 | qPCR ΔΔCt | `qpcr-multiplex-experiment.csv` | "Analyze qPCR, which genes changed at 1 µM?" | "Analyze my qPCR" |
+| SAM/01 | Sample lookup | — | "Look up sample DMEM" | "Look up sample DMEM" |
+| WL/01 | Worklist export | — (after plate map exists) | "Generate Echo worklist" | "Generate worklist" (→ chat) |
+| ELN/01 | ELN from artifacts | `eln-experiment-results.csv` | "Create ELN for EXP-2026-001" | "Draft notebook entry" (→ chat) |
+| VOC/01 | Voice → ELN capture | — | N/A | "Record: HEK293T viability, staurosporine 10-point" |
 
 ### Preview — not fully functional
 
-| Code | Use Case | Status | What works |
-|------|----------|--------|------------|
-| MIC/01 | Microscopy run triage | Gated | Page at `/lab/microscopy` shows synthetic demo data. Tools disabled. |
-| BNL/01 | Benchling write-back | Stub | Settings shows "Coming Soon". No functional API. |
-| PLN/01 | Closed-loop campaign | Partial | Agent proposes follow-up experiments. Full multi-step Plan Mode not built. |
+| Code | Use Case | Status |
+|------|----------|--------|
+| MIC/01 | Microscopy run triage | Gated. `/lab/microscopy` shows synthetic demo data. Tools disabled. |
+| BNL/01 | Benchling write-back | Stub. Settings shows "Coming Soon". |
+| PLN/01 | Closed-loop campaign | Partial. Agent proposes follow-ups but full Plan Mode not built. |
 
 ---
 
@@ -372,4 +391,5 @@ cd frontend && npx vitest run
 | Port 3000 in use | Use `--port 3001` for frontend dev |
 | Voice not working | Allow microphone permission in browser |
 | No demo data | Set `NEXT_PUBLIC_DEMO_MODE=true` or seed DB |
-| Approval card not showing | Ensure P1.0 approval service is in the backend code |
+| Approval card not showing | Ensure approval service is running (check backend logs) |
+| CSV not parsed | Check file has headers; use UTF-8 encoding |
