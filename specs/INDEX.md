@@ -71,3 +71,4 @@
 |----|------|--------|-------------|
 | P5.1 | [Usage Metering + Billing](phase-5/P5-1-usage-metering-billing.md) | 5d | Phase 3 |
 | P5.2 | [Deployment Finalization](phase-5/P5-2-deployment-finalization.md) | 4d | All phases |
+| P5-OTel | [Observability Stack](phase-5/P5-OTel-observability-stack.md) | 5-6d | None |
