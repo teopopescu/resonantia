@@ -1,0 +1,12 @@
+Step_Number,Title,Instruction,Duration_Minutes,Temperature_C,Equipment,Reagent_1,Reagent_1_Volume,Reagent_1_Unit,Reagent_2,Reagent_2_Volume,Reagent_2_Unit,Notes
+1,Sample Preparation,"Lyse cells in RIPA buffer with protease inhibitors. Incubate on ice for 30 minutes, vortex every 10 minutes.",30,4,Sonicator,RIPA Buffer,200,uL,Protease Inhibitor Cocktail,2,uL,Keep samples on ice at all times
+2,Protein Quantification,"Measure protein concentration using BCA assay. Prepare BSA standards from 0-2 mg/mL.",45,37,Plate reader,BCA Reagent A,200,uL,BCA Reagent B,4,uL,Read absorbance at 562nm
+3,Sample Denaturation,"Add 4x loading buffer. Heat at 95°C for 5 minutes.",10,95,Heat block,Loading Buffer 4x,5,uL,,,Spin down briefly after heating
+4,Gel Electrophoresis,"Load 20 ug protein per lane on 10% SDS-PAGE gel. Run at 120V for 90 minutes.",90,25,Mini-PROTEAN system,Running Buffer 10x,100,mL,,,Include molecular weight marker in lane 1
+5,Transfer,"Transfer to PVDF membrane at 100V for 60 minutes in cold transfer buffer.",60,4,Transfer apparatus,Transfer Buffer 10x,100,mL,Methanol,200,mL,Pre-wet PVDF in methanol for 30 seconds
+6,Blocking,"Block membrane in 5% non-fat milk in TBST for 1 hour at room temperature.",60,25,,Non-fat milk powder,2.5,g,TBST,50,mL,Rock gently on orbital shaker
+7,Primary Antibody,"Incubate with anti-p53 (DO-1) at 1:1000 in 5% milk/TBST overnight at 4°C.",720,4,Orbital shaker,Anti-p53 (DO-1),5,uL,5% milk/TBST,5,mL,Seal container to prevent evaporation
+8,Wash,"Wash 3x with TBST for 10 minutes each.",30,25,Orbital shaker,TBST,50,mL,,,Rock gently
+9,Secondary Antibody,"Incubate with HRP-conjugated anti-mouse IgG at 1:5000 for 1 hour.",60,25,Orbital shaker,Anti-mouse HRP,1,uL,5% milk/TBST,5,mL,
+10,Final Wash,"Wash 3x with TBST for 10 minutes each.",30,25,Orbital shaker,TBST,50,mL,,,
+11,Detection,"Develop with ECL substrate. Image immediately.",15,25,ChemiDoc imager,ECL Substrate A,1,mL,ECL Substrate B,1,mL,Exposure time: start with 10 seconds

@@ -1,0 +1,21 @@
+Name,Barcode,Type,Location,Storage_Temp_C,Lot_Number,Expiry_Date,Quantity,Unit,Description
+DMEM High Glucose,RGN-DMEM-001,reagent,Fridge A - Shelf 2,4,LOT-2026-0234,2026-08-15,2000,mL,Dulbecco's Modified Eagle Medium with 4.5g/L glucose
+RPMI-1640,RGN-RPMI-001,reagent,Fridge A - Shelf 2,4,LOT-2026-0189,2026-07-20,1000,mL,Roswell Park Memorial Institute medium
+FBS Heat-Inactivated,RGN-FBS-001,reagent,Freezer B - Shelf 1,-20,LOT-2025-0892,2026-06-01,500,mL,Fetal bovine serum heat-inactivated
+Staurosporine,CMP-STAUR-001,compound,Freezer C - Shelf 3,-80,LOT-2026-0045,2027-01-15,5,mg,Broad-spectrum kinase inhibitor
+Rapamycin,CMP-RAPA-001,compound,Freezer C - Shelf 3,-80,LOT-2026-0046,2027-03-20,10,mg,mTOR inhibitor
+Imatinib,CMP-IMAT-001,compound,Freezer C - Shelf 3,-80,LOT-2026-0047,2027-02-28,25,mg,BCR-ABL tyrosine kinase inhibitor
+Dasatinib,CMP-DASA-001,compound,Freezer C - Shelf 3,-80,LOT-2026-0048,2027-04-10,10,mg,Multi-kinase inhibitor
+CellTiter-Glo Reagent,RGN-CTG-001,reagent,Freezer B - Shelf 2,-20,LOT-2026-0156,2026-05-25,50,mL,Luminescent cell viability assay (EXPIRING SOON)
+Protease Inhibitor Cocktail,RGN-PIC-001,reagent,Freezer B - Shelf 1,-20,LOT-2026-0201,2026-09-30,2,mL,100x cocktail for cell lysis
+RIPA Buffer,RGN-RIPA-001,reagent,Room Temp - Cabinet D,22,LOT-2026-0178,2027-06-15,100,mL,Radioimmunoprecipitation assay buffer
+TRIzol Reagent,RGN-TRIZ-001,reagent,Room Temp - Cabinet D,22,LOT-2026-0199,2026-12-01,100,mL,RNA isolation reagent
+Anti-p53 (DO-1),RGN-AB53-001,reagent,Fridge A - Shelf 4,4,LOT-2025-0567,2026-06-10,100,uL,Mouse monoclonal antibody (EXPIRING SOON)
+HEK293T Cells,CLN-HEK-001,cell_line,LN2 Tank 1 - Rack 3,-196,P12-2026-01,2028-01-01,10,vials,Human embryonic kidney cells passage 12
+HeLa Cells,CLN-HELA-001,cell_line,LN2 Tank 1 - Rack 4,-196,P15-2026-01,2028-01-01,8,vials,Cervical cancer cell line passage 15
+A549 Cells,CLN-A549-001,cell_line,LN2 Tank 1 - Rack 5,-196,P10-2026-01,2028-01-01,6,vials,Lung adenocarcinoma cell line passage 10
+Loading Buffer 4x,RGN-LB4X-001,reagent,Room Temp - Cabinet D,22,LOT-2026-0210,2027-05-01,50,mL,SDS-PAGE loading buffer
+Running Buffer 10x,RGN-RB10-001,reagent,Room Temp - Cabinet D,22,LOT-2026-0211,2027-08-15,1000,mL,Tris-glycine-SDS running buffer
+Transfer Buffer 10x,RGN-TB10-001,reagent,Room Temp - Cabinet D,22,LOT-2026-0212,2027-08-15,1000,mL,Tris-glycine transfer buffer
+PVDF Membrane,RGN-PVDF-001,reagent,Room Temp - Cabinet E,22,LOT-2026-0215,2027-12-01,10,sheets,0.45um PVDF membrane for western blot
+Puromycin,CMP-PURO-001,compound,Freezer C - Shelf 2,-20,LOT-2026-0089,2026-05-20,1,mL,Selection antibiotic 10mg/mL (EXPIRING SOON)
