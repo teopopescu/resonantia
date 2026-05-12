@@ -31,16 +31,6 @@ const modules: Array<{
     telemetry: "PM-2026-0428 · 63 transfers · 6.3 µL · 00:04:18",
   },
   {
-    code: "MIC/02",
-    title: "Microscopy Browser",
-    desc:
-      "Browse FOVs by plate, well, and channel. Smart overlays, side-by-side compare, terabyte-scale lazy loading. Available for imaging labs on request.",
-    status: "PREVIEW",
-    ver: "v0.9",
-    specs: ["DAPI · GFP · mCh · BF", "TIFF · OME-Zarr", "6 fovs/well"],
-    telemetry: "Plate A · row B · 576 images · 1.4 GB",
-  },
-  {
     code: "DAT/03",
     title: "Data Processing",
     desc:
@@ -167,7 +157,7 @@ export function Features() {
               <span>Modules · system manifest</span>
             </div>
             <h2 className="text-3xl sm:text-4xl lg:text-5xl font-semibold leading-[1.05] tracking-[-0.03em] text-ink">
-              Six modules.<br />
+              Five modules.<br />
               One <span className="text-brand">surface.</span>
             </h2>
           </div>

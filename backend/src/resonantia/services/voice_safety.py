@@ -17,8 +17,6 @@ VOICE_SAFE_TOOLS: frozenset[str] = frozenset({
     "query_plate_maps",
     "calculate_dilution",
     "get_ic50_values",
-    "browse_microscopy",
-    "generate_montage",
     "read_file_contents",
     "get_file_info",
     "list_files",
