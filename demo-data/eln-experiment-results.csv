@@ -1,0 +1,9 @@
+Experiment_ID,Experiment_Name,Compound,Cell_Line,Assay_Type,Plate_Format,Readout,IC50_nM,Hill_Slope,R_Squared,Z_Prime,Replicates,Date,Operator,Notes
+EXP-2026-001,Kinase Inhibitor Screen Round 1,Staurosporine,HEK293T,CellTiter-Glo,96,Luminescence,42.3,-1.18,0.994,0.71,3,2026-04-28,T. Popescu,Good assay quality. Recommend hit confirmation.
+EXP-2026-001,Kinase Inhibitor Screen Round 1,Dasatinib,HEK293T,CellTiter-Glo,96,Luminescence,18.7,-1.05,0.991,0.71,3,2026-04-28,T. Popescu,Most potent hit after Compound G.
+EXP-2026-001,Kinase Inhibitor Screen Round 1,Rapamycin,HEK293T,CellTiter-Glo,96,Luminescence,180.4,-1.32,0.987,0.71,3,2026-04-28,T. Popescu,Moderate potency. May need selectivity testing.
+EXP-2026-001,Kinase Inhibitor Screen Round 1,Imatinib,HEK293T,CellTiter-Glo,96,Luminescence,523.1,-0.88,0.972,0.71,3,2026-04-28,T. Popescu,Weak. Expected given HEK293T background.
+EXP-2026-002,Hit Confirmation,Staurosporine,HEK293T,CellTiter-Glo,384,Luminescence,39.8,-1.21,0.997,0.78,4,2026-05-02,T. Popescu,Confirmed. Tighter CI than round 1.
+EXP-2026-002,Hit Confirmation,Dasatinib,HEK293T,CellTiter-Glo,384,Luminescence,21.2,-1.08,0.995,0.78,4,2026-05-02,T. Popescu,Confirmed.
+EXP-2026-003,Cell Line Panel,Staurosporine,A549,CellTiter-Glo,96,Luminescence,55.1,-1.15,0.992,0.69,3,2026-05-05,B. Gomes,Slightly less potent in A549.
+EXP-2026-003,Cell Line Panel,Staurosporine,HeLa,CellTiter-Glo,96,Luminescence,38.9,-1.22,0.996,0.73,3,2026-05-05,B. Gomes,Similar potency to HEK293T.

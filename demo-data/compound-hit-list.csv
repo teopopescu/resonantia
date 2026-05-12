@@ -1,0 +1,9 @@
+Compound,Well,IC50_nM,Hill_Slope,R_Squared,Potency_Class,Action
+Staurosporine,A2,42.3,-1.18,0.994,potent,cherry-pick
+Dasatinib,B2,18.7,-1.05,0.991,potent,cherry-pick
+Compound_G,C2,8.2,-0.95,0.988,potent,cherry-pick
+Rapamycin,D2,180.4,-1.32,0.987,moderate,re-test
+Imatinib,E2,523.1,-0.88,0.972,weak,deprioritize
+Sorafenib,F2,1240.0,-1.45,0.965,weak,deprioritize
+Erlotinib,G2,890.5,-1.12,0.978,weak,deprioritize
+Compound_F,H2,10000.0,-0.42,0.654,inactive,drop
