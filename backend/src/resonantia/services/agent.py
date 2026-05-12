@@ -215,9 +215,11 @@ async def chat(
         messages = [{"role": "system", "content": SYSTEM_PROMPT}] + history
 
         try:
+            llm_start = time.monotonic()
             llm_response = await provider.completion(
                 messages, tools=tools if tools else None, max_tokens=4096,
             )
+            log_stage_latency("llm", (time.monotonic() - llm_start) * 1000)
         except Exception as exc:
             exc_name = exc.__class__.__name__
             if "auth" in exc_name.lower():
