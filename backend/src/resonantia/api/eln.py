@@ -16,6 +16,7 @@ from resonantia.dependencies import get_request_context
 from resonantia.models.eln_entry import ELNAppendix, ELNEntry
 from resonantia.models.experiment import Experiment
 from resonantia.models.request_context import RequestContext
+from resonantia.repositories.audit_log import append_audit_log
 from resonantia.schemas.eln_entry import (
     AppendixCreate,
     AppendixResponse,
@@ -67,6 +68,14 @@ async def create_eln_entry(
     )
     db.add(entry)
     await db.flush()
+    await append_audit_log(
+        db,
+        ctx=ctx,
+        action="eln.create",
+        target_type="eln_entry",
+        target_id=str(entry.id),
+        metadata={"entry_number": entry.entry_number, "title": entry.title},
+    )
     await db.refresh(entry)
     return entry
 
@@ -164,6 +173,14 @@ async def submit_eln_entry(
         raise HTTPException(status_code=409, detail="Entry is already submitted")
     entry.status = "submitted"
     await db.flush()
+    await append_audit_log(
+        db,
+        ctx=ctx,
+        action="eln.submit",
+        target_type="eln_entry",
+        target_id=str(entry.id),
+        metadata={"entry_number": entry.entry_number, "title": entry.title},
+    )
     await db.refresh(entry)
     return entry
 

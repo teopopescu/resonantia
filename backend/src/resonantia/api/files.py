@@ -3,25 +3,26 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
 import os
 import re
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from resonantia.config import get_settings
 from resonantia.db.session import get_db
 from resonantia.dependencies import get_request_context
 from resonantia.models.file_upload import FileUpload
 from resonantia.models.request_context import RequestContext
+from resonantia.repositories.audit_log import append_audit_log
+from resonantia.services.storage import get_storage
 
 router = APIRouter()
 
@@ -30,13 +31,8 @@ router = APIRouter()
 # preserved separately in the registry.
 _SAFE_EXT_RE = re.compile(r"^\.[A-Za-z0-9]{1,8}$")
 
-# ---------------------------------------------------------------------------
-# In-memory file registry (keyed by file-id).  A production version would
-# persist this to Postgres, but for the prototype an in-process dict is fine
-# because the upload_dir already provides durable storage.
-# ---------------------------------------------------------------------------
-
-_file_registry: dict[str, dict[str, Any]] = {}
+INLINE_CONTENT_MAX_BYTES = 5 * 1024 * 1024
+STORAGE_BACKEND = "local"
 
 
 class FileMetadata(BaseModel):
@@ -62,15 +58,37 @@ class CSVParseResponse(BaseModel):
     detected_format: str
 
 
-def _ensure_upload_dir() -> str:
-    settings = get_settings()
-    upload_dir = os.path.join(settings.upload_dir, "files")
-    os.makedirs(upload_dir, exist_ok=True)
-    return upload_dir
-
-
 def _build_download_url(file_id: str) -> str:
     return f"/api/v1/files/{file_id}/download"
+
+
+def _parse_file_id(file_id: str) -> uuid.UUID:
+    try:
+        return uuid.UUID(file_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="File not found") from None
+
+
+def _metadata_from_upload(upload: FileUpload) -> FileMetadata:
+    return FileMetadata(
+        id=str(upload.id),
+        filename=upload.filename,
+        size=upload.size_bytes,
+        content_type=upload.content_type,
+        uploaded_at=upload.created_at.isoformat() if upload.created_at else "",
+        download_url=_build_download_url(str(upload.id)),
+    )
+
+
+async def _get_upload_or_404(
+    db: AsyncSession,
+    file_id: str,
+    org_id: str,
+) -> FileUpload:
+    upload = await db.get(FileUpload, _parse_file_id(file_id))
+    if not upload or upload.org_id != org_id:
+        raise HTTPException(status_code=404, detail="File not found")
+    return upload
 
 
 # ---------------------------------------------------------------------------
@@ -197,46 +215,53 @@ def _parse_csv(content: bytes, filename: str) -> dict[str, Any]:
 async def upload_files(
     files: list[UploadFile] = File(...),
     ctx: RequestContext = Depends(get_request_context),
+    db: AsyncSession = Depends(get_db),
 ) -> list[FileMetadata]:
     if not ctx.can_write():
         raise HTTPException(status_code=403, detail="Member role required to upload files")
-    upload_dir = _ensure_upload_dir()
-    upload_dir_real = os.path.realpath(upload_dir)
+
+    storage = get_storage()
     results: list[FileMetadata] = []
 
     for f in files:
         file_id = str(uuid.uuid4())
-        # Normalize the extension: only accept short alphanumeric. Anything
-        # else (path traversal, NUL bytes, multi-dot, etc.) is dropped so
-        # the on-disk name is fully derived from server-controlled values.
         raw_ext = os.path.splitext(f.filename or "")[1]
         ext = raw_ext if _SAFE_EXT_RE.match(raw_ext) else ""
-        stored_name = f"{file_id}{ext}"
-        dest_path = os.path.join(upload_dir, stored_name)
-
-        # Defense in depth: refuse to write outside upload_dir even
-        # though the components above are now safe.
-        dest_real = os.path.realpath(dest_path)
-        if os.path.commonpath([upload_dir_real, dest_real]) != upload_dir_real:
-            raise HTTPException(status_code=400, detail="Invalid file path")
-
+        storage_path = f"files/{file_id}{ext}"
         contents = await f.read()
-        with open(dest_path, "wb") as fp:
-            fp.write(contents)
+        content_type = f.content_type or "application/octet-stream"
+        await storage.save(storage_path, contents, content_type)
 
-        meta: dict[str, Any] = {
-            "id": file_id,
-            "filename": f.filename or "file",
-            "size": len(contents),
-            "content_type": f.content_type or "application/octet-stream",
-            "uploaded_at": datetime.now(timezone.utc).isoformat(),
-            "download_url": _build_download_url(file_id),
-            "stored_path": dest_path,
-            "org_id": ctx.org_id,
-        }
-        _file_registry[file_id] = meta
-        results.append(FileMetadata(**{k: v for k, v in meta.items()
-                                       if k not in ("stored_path", "org_id")}))
+        upload_record = FileUpload(
+            id=uuid.UUID(file_id),
+            org_id=ctx.org_id,
+            uploaded_by=ctx.user_id,
+            filename=f.filename or "file",
+            content_type=content_type,
+            size_bytes=len(contents),
+            storage_path=storage_path,
+            checksum_sha256=hashlib.sha256(contents).hexdigest(),
+            storage_backend=STORAGE_BACKEND,
+            content_bytes=contents if len(contents) <= INLINE_CONTENT_MAX_BYTES else None,
+        )
+        db.add(upload_record)
+        await db.flush()
+        await append_audit_log(
+            db,
+            ctx=ctx,
+            action="file.upload",
+            target_type="file_upload",
+            target_id=file_id,
+            metadata={
+                "filename": upload_record.filename,
+                "size": upload_record.size_bytes,
+                "content_type": upload_record.content_type,
+                "checksum_sha256": upload_record.checksum_sha256,
+                "storage_backend": upload_record.storage_backend,
+                "storage_path": storage_path,
+            },
+        )
+        results.append(_metadata_from_upload(upload_record))
 
     return results
 
@@ -260,9 +285,6 @@ async def upload_and_parse(
 
     contents = await file.read()
 
-    # Save via storage abstraction
-    from resonantia.services.storage import get_storage
-
     storage = get_storage()
     file_id = str(uuid.uuid4())
     storage_path = f"csv/{file_id}.csv"
@@ -275,14 +297,46 @@ async def upload_and_parse(
         upload_record = FileUpload(
             id=uuid.UUID(file_id),
             org_id=ctx.org_id,
+            uploaded_by=ctx.user_id,
             filename=filename,
             content_type=content_type,
             size_bytes=len(contents),
             storage_path=storage_path,
+            checksum_sha256=hashlib.sha256(contents).hexdigest(),
+            storage_backend=STORAGE_BACKEND,
+            content_bytes=contents if len(contents) <= INLINE_CONTENT_MAX_BYTES else None,
+            detected_format=parsed["detected_format"],
             parsed_metadata=parsed,
         )
         db.add(upload_record)
         await db.flush()
+        await append_audit_log(
+            db,
+            ctx=ctx,
+            action="file.upload",
+            target_type="file_upload",
+            target_id=file_id,
+            metadata={
+                "filename": filename,
+                "size": len(contents),
+                "content_type": content_type,
+                "checksum_sha256": upload_record.checksum_sha256,
+                "storage_backend": upload_record.storage_backend,
+                "storage_path": storage_path,
+            },
+        )
+        await append_audit_log(
+            db,
+            ctx=ctx,
+            action="file.parse",
+            target_type="file_upload",
+            target_id=file_id,
+            metadata={
+                "detected_format": parsed["detected_format"],
+                "row_count": parsed["row_count"],
+                "columns": parsed["columns"],
+            },
+        )
     except Exception as exc:
         raise HTTPException(status_code=500, detail="Could not persist uploaded file metadata") from exc
 
@@ -303,8 +357,6 @@ async def upload_and_parse(
 @router.get("/serve/{path:path}")
 async def serve_file(path: str) -> Response:
     """Serve a file from the storage backend."""
-    from resonantia.services.storage import get_storage
-
     storage = get_storage()
     try:
         content = await storage.load(path)
@@ -327,23 +379,6 @@ async def serve_file(path: str) -> Response:
     return Response(content=content, media_type=ct)
 
 
-def _strip_internal(meta: dict[str, Any]) -> dict[str, Any]:
-    """Remove server-only fields before returning metadata to clients."""
-    return {k: v for k, v in meta.items() if k not in ("stored_path", "org_id")}
-
-
-def _get_meta_or_404(file_id: str, org_id: str) -> dict[str, Any]:
-    """Look up a file and enforce org_id ownership.
-
-    Returns 404 (not 403) on cross-tenant access so the existence of a
-    file ID in another tenant cannot be probed.
-    """
-    meta = _file_registry.get(file_id)
-    if not meta or meta.get("org_id") != org_id:
-        raise HTTPException(status_code=404, detail="File not found")
-    return meta
-
-
 # ---------------------------------------------------------------------------
 # GET /  --  list all uploaded files in the caller's org
 # ---------------------------------------------------------------------------
@@ -352,27 +387,10 @@ async def list_files(
     ctx: RequestContext = Depends(get_request_context),
     db: AsyncSession = Depends(get_db),
 ) -> list[FileMetadata]:
-    registry_files = [
-        FileMetadata(**_strip_internal(m))
-        for m in _file_registry.values()
-        if m.get("org_id") == ctx.org_id
-    ]
     result = await db.execute(
         select(FileUpload).where(FileUpload.org_id == ctx.org_id).order_by(FileUpload.created_at.desc())
     )
-    db_files = [
-        FileMetadata(
-            id=str(f.id),
-            filename=f.filename,
-            size=f.size_bytes,
-            content_type=f.content_type,
-            uploaded_at=f.created_at.isoformat() if f.created_at else "",
-            download_url=_build_download_url(str(f.id)),
-        )
-        for f in result.scalars().all()
-    ]
-    seen = {f.id for f in registry_files}
-    return registry_files + [f for f in db_files if f.id not in seen]
+    return [_metadata_from_upload(f) for f in result.scalars().all()]
 
 
 # ---------------------------------------------------------------------------
@@ -384,20 +402,8 @@ async def get_file_metadata(
     ctx: RequestContext = Depends(get_request_context),
     db: AsyncSession = Depends(get_db),
 ) -> FileMetadata:
-    meta = _file_registry.get(file_id)
-    if meta and meta.get("org_id") == ctx.org_id:
-        return FileMetadata(**_strip_internal(meta))
-    upload = await db.get(FileUpload, uuid.UUID(file_id))
-    if not upload or upload.org_id != ctx.org_id:
-        raise HTTPException(status_code=404, detail="File not found")
-    return FileMetadata(
-        id=str(upload.id),
-        filename=upload.filename,
-        size=upload.size_bytes,
-        content_type=upload.content_type,
-        uploaded_at=upload.created_at.isoformat() if upload.created_at else "",
-        download_url=_build_download_url(str(upload.id)),
-    )
+    upload = await _get_upload_or_404(db, file_id, ctx.org_id)
+    return _metadata_from_upload(upload)
 
 
 # ---------------------------------------------------------------------------
@@ -408,21 +414,20 @@ async def download_file(
     file_id: str,
     ctx: RequestContext = Depends(get_request_context),
     db: AsyncSession = Depends(get_db),
-) -> FileResponse:
-    meta = _file_registry.get(file_id)
-    if meta and meta.get("org_id") == ctx.org_id:
-        path = meta["stored_path"]
-        if not os.path.exists(path):
-            raise HTTPException(status_code=404, detail="File missing from storage")
-        return FileResponse(path, media_type=meta["content_type"], filename=meta["filename"])
-
-    upload = await db.get(FileUpload, uuid.UUID(file_id))
-    if not upload or upload.org_id != ctx.org_id:
-        raise HTTPException(status_code=404, detail="File not found")
-    path = str(Path(get_settings().upload_dir) / upload.storage_path)
-    if not os.path.exists(path):
+) -> Response:
+    upload = await _get_upload_or_404(db, file_id, ctx.org_id)
+    storage = get_storage()
+    try:
+        content = upload.content_bytes
+        if content is None:
+            content = await storage.load(upload.storage_path)
+    except FileNotFoundError:
         raise HTTPException(status_code=404, detail="File missing from storage")
-    return FileResponse(path, media_type=upload.content_type, filename=upload.filename)
+    return Response(
+        content=content,
+        media_type=upload.content_type,
+        headers={"Content-Disposition": f'attachment; filename="{upload.filename}"'},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -432,11 +437,13 @@ async def download_file(
 async def delete_file(
     file_id: str,
     ctx: RequestContext = Depends(get_request_context),
+    db: AsyncSession = Depends(get_db),
 ) -> None:
     if not ctx.can_write():
         raise HTTPException(status_code=403, detail="Member role required to delete files")
-    meta = _get_meta_or_404(file_id, ctx.org_id)
-    _file_registry.pop(file_id, None)
-    path = meta["stored_path"]
-    if os.path.exists(path):
-        os.remove(path)
+    upload = await _get_upload_or_404(db, file_id, ctx.org_id)
+    try:
+        await get_storage().delete(upload.storage_path)
+    except FileNotFoundError:
+        pass
+    await db.delete(upload)

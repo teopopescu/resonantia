@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from datetime import date, datetime
 from typing import Any
 
@@ -22,8 +23,14 @@ from resonantia.models.plate import PlateMap
 from resonantia.models.experiment import Experiment
 from resonantia.models.microscopy import MicroscopyImage
 from resonantia.models.eln_entry import ELNEntry
+from resonantia.models.file_upload import FileUpload
 from resonantia.models.protocol import Protocol, ProtocolStep
 from resonantia.models.request_context import RequestContext
+from resonantia.models.processing_result import ProcessingResult
+from resonantia.repositories.processing_result import (
+    ProcessingResultRepository,
+    make_idempotency_key,
+)
 from resonantia.services.output_validator import (
     ToolError,
     ToolResult,
@@ -105,6 +112,42 @@ async def _get_tool_schema(tool_name: str) -> dict[str, Any] | None:
     return None
 
 
+async def _append_tool_audit(
+    *,
+    tool_name: str,
+    tool_input: dict[str, Any],
+    org_id: str,
+    user_id: str | None,
+    request_id: str | None,
+    status: str,
+    source_refs: list[str] | None = None,
+    error_type: str | None = None,
+) -> None:
+    try:
+        from resonantia.repositories.audit_log import append_audit_log
+
+        async with async_session_factory() as session:
+            await append_audit_log(
+                session,
+                org_id=org_id,
+                actor_user_id=user_id,
+                action="tool.execution",
+                target_type="tool",
+                target_id=tool_name,
+                request_id=request_id,
+                metadata={
+                    "tool_name": tool_name,
+                    "tool_input": tool_input,
+                    "status": status,
+                    "source_refs": source_refs or [],
+                    "error_type": error_type,
+                },
+            )
+            await session.commit()
+    except Exception:
+        logger.exception("Failed to append audit log for tool %s", tool_name)
+
+
 async def execute_tool_typed(
     tool_name: str,
     tool_input: dict[str, Any],
@@ -114,6 +157,7 @@ async def execute_tool_typed(
     source: str = "text",
     request_id: str | None = None,
     request_context: RequestContext | None = None,
+    skip_gate: bool = False,
 ) -> ToolResult | ToolError:
     """Execute a tool and return a typed ``ToolResult`` or ``ToolError``.
 
@@ -166,31 +210,43 @@ async def execute_tool_typed(
                 retry_allowed=False,
             )
 
-    # --- Step 3: Voice safety / approval gate ---
-    if source == "voice":
-        from resonantia.services.approval import create_pending, get_gate
-        from resonantia.services.voice_safety import is_voice_safe
+    # --- Step 3: Approval gate ---
+    if not skip_gate:
+        from resonantia.services.approval import approval_card, create_pending, get_gate, is_gated
 
-        if not is_voice_safe(tool_name):
-            pending = create_pending(
-                tool_name=tool_name,
-                tool_args=tool_input,
-                org_id=org_id,
-                user_id=user_id,
-                preview={
-                    "tool_name": tool_name,
-                    "tool_args": tool_input,
-                    "reason": "voice_pre_execution_gate",
-                    "request_id": request_id,
-                },
-            )
+        if is_gated(tool_name):
+            try:
+                async with async_session_factory() as session:
+                    pending = await create_pending(
+                        session,
+                        tool_name=tool_name,
+                        tool_args=tool_input,
+                        org_id=org_id,
+                        user_id=user_id,
+                        preview={
+                            "tool_name": tool_name,
+                            "tool_args": tool_input,
+                            "source": source,
+                            "request_id": request_id,
+                        },
+                    )
+                    await session.commit()
+            except Exception:
+                logger.exception("Could not create pending approval for %s", tool_name)
+                return ToolError(
+                    tool_name=tool_name,
+                    error_type="system",
+                    message="Could not create pending approval",
+                    retry_allowed=True,
+                )
             return ToolResult(
                 tool_name=tool_name,
                 data={
                     "approval_required": True,
                     "pending_approval": pending.model_dump(mode="json"),
+                    "approval_card": approval_card(pending),
                     "gate_kind": get_gate(tool_name).value,
-                    "message": "This action requires text confirmation before execution.",
+                    "message": "This action requires approval before execution.",
                 },
                 source_refs=_extract_source_refs(tool_input),
             )
@@ -199,13 +255,32 @@ async def execute_tool_typed(
     try:
         result = await handler(tool_input, org_id)
         serialized = _serialize(result)
+        source_refs = _extract_source_refs(tool_input)
+        await _append_tool_audit(
+            tool_name=tool_name,
+            tool_input=tool_input,
+            org_id=org_id,
+            user_id=user_id,
+            request_id=request_id,
+            status="success",
+            source_refs=source_refs,
+        )
         return ToolResult(
             tool_name=tool_name,
             data=serialized if isinstance(serialized, dict) else {"result": serialized},
-            source_refs=_extract_source_refs(tool_input),
+            source_refs=source_refs,
         )
     except Exception:
         logger.exception("Tool execution failed: %s", tool_name)
+        await _append_tool_audit(
+            tool_name=tool_name,
+            tool_input=tool_input,
+            org_id=org_id,
+            user_id=user_id,
+            request_id=request_id,
+            status="error",
+            error_type="system",
+        )
         return ToolError(
             tool_name=tool_name,
             error_type="system",
@@ -223,6 +298,7 @@ async def execute_tool(
     source: str = "text",
     request_id: str | None = None,
     request_context: RequestContext | None = None,
+    skip_gate: bool = False,
 ) -> str:
     """Execute a tool by name and return a JSON string result.
 
@@ -238,6 +314,7 @@ async def execute_tool(
         source=source,
         request_id=request_id,
         request_context=request_context,
+        skip_gate=skip_gate,
     )
 
     if isinstance(typed, ToolResult):
@@ -525,13 +602,23 @@ async def _get_sample_stats(params: dict, org_id: str = "org_default") -> dict:
 
 async def _list_files(params: dict, org_id: str = "org_default") -> dict:
     """List all uploaded files for the current org."""
-    from resonantia.api.files import _file_registry
-    files = [f for f in _file_registry.values() if f.get("org_id", "org_default") == org_id]
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(FileUpload)
+            .where(FileUpload.org_id == org_id)
+            .order_by(FileUpload.created_at.desc())
+        )
+        files = result.scalars().all()
     return {
         "found": len(files),
         "files": [
-            {"id": f["id"], "filename": f["filename"], "size": f["size"],
-             "content_type": f.get("content_type", ""), "uploaded_at": f.get("uploaded_at", "")}
+            {
+                "id": str(f.id),
+                "filename": f.filename,
+                "size": f.size_bytes,
+                "content_type": f.content_type,
+                "uploaded_at": f.created_at.isoformat() if f.created_at else "",
+            }
             for f in files
         ],
     }
@@ -539,73 +626,89 @@ async def _list_files(params: dict, org_id: str = "org_default") -> dict:
 
 async def _get_file_info(params: dict, org_id: str = "org_default") -> dict:
     """Get details about a specific uploaded file (scoped to org)."""
-    from resonantia.api.files import _file_registry
     file_id = params.get("file_id", "")
-    if file_id in _file_registry:
-        f = _file_registry[file_id]
-        if f.get("org_id", "org_default") != org_id:
-            return {"found": False, "message": "File not found or not accessible"}
-        return {"found": True, **f}
-    for f in _file_registry.values():
-        if f.get("org_id", "org_default") != org_id:
-            continue
-        if params.get("filename", "").lower() in f.get("filename", "").lower():
-            return {"found": True, **f}
+    filename = params.get("filename", "")
+    async with async_session_factory() as session:
+        upload = None
+        if file_id:
+            try:
+                upload = await session.get(FileUpload, uuid.UUID(file_id))
+            except ValueError:
+                upload = None
+            if upload and upload.org_id != org_id:
+                return {"found": False, "message": "File not found or not accessible"}
+        if upload is None and filename:
+            result = await session.execute(
+                select(FileUpload)
+                .where(FileUpload.org_id == org_id)
+                .where(FileUpload.filename.ilike(f"%{filename}%"))
+                .order_by(FileUpload.created_at.desc())
+                .limit(1)
+            )
+            upload = result.scalar_one_or_none()
+        if upload and upload.org_id == org_id:
+            return {
+                "found": True,
+                "id": str(upload.id),
+                "filename": upload.filename,
+                "size": upload.size_bytes,
+                "content_type": upload.content_type,
+                "uploaded_at": upload.created_at.isoformat() if upload.created_at else "",
+                "storage_backend": upload.storage_backend,
+                "checksum_sha256": upload.checksum_sha256,
+                "detected_format": upload.detected_format,
+                "parsed_metadata": upload.parsed_metadata,
+            }
     return {"found": False, "message": f"No file found with id or name matching '{file_id or params.get('filename', '')}'"}
 
 
 async def _read_file_contents(params: dict, org_id: str = "org_default") -> dict:
     """Read the actual contents of an uploaded file (CSV, TSV, TXT)."""
-    from resonantia.api.files import _file_registry
-    import os
+    from resonantia.services.storage import get_storage
 
     file_id = params.get("file_id", "")
     filename = params.get("filename", "")
 
-    # Find the file path
-    path = None
-    matched_file = None
+    async with async_session_factory() as session:
+        upload = None
+        if file_id:
+            try:
+                upload = await session.get(FileUpload, uuid.UUID(file_id))
+            except ValueError:
+                upload = None
+            if upload and upload.org_id != org_id:
+                return {"error": "File not found or not accessible"}
+        if upload is None and filename:
+            result = await session.execute(
+                select(FileUpload)
+                .where(FileUpload.org_id == org_id)
+                .where(FileUpload.filename.ilike(f"%{filename}%"))
+                .order_by(FileUpload.created_at.desc())
+                .limit(1)
+            )
+            upload = result.scalar_one_or_none()
+        if upload is None or upload.org_id != org_id:
+            return {"error": f"File not found: {file_id or filename}. Use list_files to see available files."}
 
-    # Search by ID (with org_id check)
-    if file_id and file_id in _file_registry:
-        matched_file = _file_registry[file_id]
-        if matched_file.get("org_id", "org_default") != org_id:
-            return {"error": "File not found or not accessible"}
-        path = matched_file.get("stored_path") or matched_file.get("path")
+        try:
+            raw = upload.content_bytes
+            if raw is None:
+                raw = await get_storage().load(upload.storage_path)
+            content = raw.decode("utf-8-sig", errors="replace")
+            max_chars = 8000
+            truncated = len(content) > max_chars
+            if truncated:
+                content = content[:max_chars]
 
-    # Search by filename (with org_id check)
-    if not path and filename:
-        for f in _file_registry.values():
-            if f.get("org_id", "org_default") != org_id:
-                continue
-            if filename.lower() in f.get("filename", "").lower():
-                matched_file = f
-                path = f.get("path")
-                break
-
-    if not path or not os.path.exists(path):
-        return {"error": f"File not found: {file_id or filename}. Use list_files to see available files."}
-
-    # Read the file
-    try:
-        with open(path, "r", errors="replace") as f:
-            content = f.read()
-
-        # Truncate very large files to avoid overwhelming the LLM context
-        max_chars = 8000
-        truncated = len(content) > max_chars
-        if truncated:
-            content = content[:max_chars]
-
-        return {
-            "filename": matched_file.get("filename", os.path.basename(path)) if matched_file else os.path.basename(path),
-            "content": content,
-            "truncated": truncated,
-            "size_bytes": os.path.getsize(path),
-            "lines": content.count("\n") + 1,
-        }
-    except Exception as e:
-        return {"error": f"Could not read file: {str(e)}"}
+            return {
+                "filename": upload.filename,
+                "content": content,
+                "truncated": truncated,
+                "size_bytes": upload.size_bytes,
+                "lines": content.count("\n") + 1,
+            }
+        except Exception as e:
+            return {"error": f"Could not read file: {str(e)}"}
 
 
 # ---------------------------------------------------------------------------
@@ -1241,9 +1344,91 @@ async def _calculate_dilution(params: dict, org_id: str = "org_default") -> dict
 # Data processing tools
 # ---------------------------------------------------------------------------
 
+_PROCESSING_METADATA_KEYS = {
+    "created_by",
+    "experiment_id",
+    "file_upload_id",
+    "request_id",
+    "user_id",
+}
+
+
+def _processing_parameters(params: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in params.items() if k not in _PROCESSING_METADATA_KEYS}
+
+
+def _processing_created_by(params: dict[str, Any]) -> str:
+    return str(params.get("created_by") or params.get("user_id") or "agent")
+
+
+def _processing_key(params: dict[str, Any], analysis_type: str) -> str:
+    return make_idempotency_key(
+        file_upload_id=params.get("file_upload_id"),
+        analysis_type=analysis_type,
+        parameters=_processing_parameters(params),
+    )
+
+
+async def _get_cached_processing_result(
+    params: dict[str, Any],
+    *,
+    org_id: str,
+    analysis_type: str,
+) -> dict[str, Any] | None:
+    try:
+        async with async_session_factory() as session:
+            cached = await ProcessingResultRepository(session).get_by_idempotency_key(
+                org_id=org_id,
+                idempotency_key=_processing_key(params, analysis_type),
+            )
+            if not isinstance(cached, ProcessingResult):
+                return None
+            result = _serialize(cached.result)
+            if not isinstance(result, dict):
+                result = {"result": result}
+            result = dict(result)
+            result["cached"] = True
+            result["processing_result_id"] = str(cached.id)
+            return result
+    except Exception:
+        logger.warning("Could not read cached %s processing result", analysis_type, exc_info=True)
+        return None
+
+
+async def _persist_processing_result(
+    params: dict[str, Any],
+    result: dict[str, Any],
+    *,
+    org_id: str,
+    analysis_type: str,
+    experiment_id: str | None = None,
+) -> str | None:
+    try:
+        async with async_session_factory() as session:
+            record = await ProcessingResultRepository(session).create(
+                org_id=org_id,
+                created_by=_processing_created_by(params),
+                idempotency_key=_processing_key(params, analysis_type),
+                analysis_type=analysis_type,
+                parameters=_processing_parameters(params),
+                result=result,
+                file_upload_id=params.get("file_upload_id"),
+                experiment_id=experiment_id or params.get("experiment_id"),
+            )
+            await session.commit()
+            return str(record.id)
+    except Exception:
+        logger.warning("Could not persist %s processing result", analysis_type, exc_info=True)
+        return None
+
+
 async def _fit_dose_response_tool(params: dict, org_id: str = "org_default") -> dict:
     """Fit a 4PL dose-response curve, generate plot, and persist to Experiment."""
     from resonantia.services.data_processor import fit_dose_response_full
+
+    cached = await _get_cached_processing_result(params, org_id=org_id, analysis_type="fit_dose_response")
+    if cached is not None:
+        return cached
 
     concentrations = params.get("concentrations", [])
     responses = params.get("responses", [])
@@ -1303,19 +1488,47 @@ async def _fit_dose_response_tool(params: dict, org_id: str = "org_default") -> 
         logger.warning("Could not persist dose-response experiment to DB")
 
     result["experiment_id"] = experiment_id
+    result["cached"] = False
+    processing_result_id = await _persist_processing_result(
+        params,
+        result,
+        org_id=org_id,
+        analysis_type="fit_dose_response",
+        experiment_id=experiment_id,
+    )
+    if processing_result_id:
+        result["processing_result_id"] = processing_result_id
     return result
 
 
 async def _normalize_plate_tool(params: dict, org_id: str = "org_default") -> dict:
     """Normalize plate reader data."""
     from resonantia.services.data_processor import normalize_plate
+    cached = await _get_cached_processing_result(params, org_id=org_id, analysis_type="normalize_plate")
+    if cached is not None:
+        return cached
+
     raw_data = params.get("raw_data", [])
     method = params.get("method", "z-score")
     if not raw_data:
         return {"error": "'raw_data' array is required."}
     try:
         result = normalize_plate(raw_data, method)
-        return {"normalized_data": result.tolist() if hasattr(result, 'tolist') else list(result), "method": method, "count": len(raw_data)}
+        payload = {
+            "normalized_data": result.tolist() if hasattr(result, 'tolist') else list(result),
+            "method": method,
+            "count": len(raw_data),
+            "cached": False,
+        }
+        processing_result_id = await _persist_processing_result(
+            params,
+            payload,
+            org_id=org_id,
+            analysis_type="normalize_plate",
+        )
+        if processing_result_id:
+            payload["processing_result_id"] = processing_result_id
+        return payload
     except Exception as e:
         return {"error": f"Normalization failed: {str(e)}"}
 
@@ -1323,12 +1536,25 @@ async def _normalize_plate_tool(params: dict, org_id: str = "org_default") -> di
 async def _calculate_z_prime_tool(params: dict, org_id: str = "org_default") -> dict:
     """Calculate Z-prime factor for assay quality."""
     from resonantia.services.data_processor import calculate_z_prime
+    cached = await _get_cached_processing_result(params, org_id=org_id, analysis_type="calculate_z_prime")
+    if cached is not None:
+        return cached
+
     positive = params.get("positive_values", [])
     negative = params.get("negative_values", [])
     if not positive or not negative:
         return {"error": "Both 'positive_values' and 'negative_values' arrays are required."}
     try:
         result = calculate_z_prime(positive, negative)
+        result["cached"] = False
+        processing_result_id = await _persist_processing_result(
+            params,
+            result,
+            org_id=org_id,
+            analysis_type="calculate_z_prime",
+        )
+        if processing_result_id:
+            result["processing_result_id"] = processing_result_id
         return result
     except Exception as e:
         return {"error": f"Z-prime calculation failed: {str(e)}"}
@@ -1336,6 +1562,10 @@ async def _calculate_z_prime_tool(params: dict, org_id: str = "org_default") -> 
 
 async def _qpcr_analysis_tool(params: dict, org_id: str = "org_default") -> dict:
     """Delta-delta Ct analysis for qPCR data."""
+    cached = await _get_cached_processing_result(params, org_id=org_id, analysis_type="qpcr_analysis")
+    if cached is not None:
+        return cached
+
     ct_values = params.get("ct_values", {})
     ref_gene = params.get("reference_gene", "GAPDH")
     control = params.get("control_sample", "Control")
@@ -1356,7 +1586,21 @@ async def _qpcr_analysis_tool(params: dict, org_id: str = "org_default") -> dict
                     delta_delta_ct = delta_ct - control_delta
                     fold_change = 2 ** (-delta_delta_ct)
                     results[sample] = {"avg_ct": round(avg_ct, 2), "delta_ct": round(delta_ct, 2), "delta_delta_ct": round(delta_delta_ct, 2), "fold_change": round(fold_change, 3)}
-        return {"reference_gene": ref_gene, "control_sample": control, "results": results}
+        payload = {
+            "reference_gene": ref_gene,
+            "control_sample": control,
+            "results": results,
+            "cached": False,
+        }
+        processing_result_id = await _persist_processing_result(
+            params,
+            payload,
+            org_id=org_id,
+            analysis_type="qpcr_analysis",
+        )
+        if processing_result_id:
+            payload["processing_result_id"] = processing_result_id
+        return payload
     except Exception as e:
         return {"error": f"qPCR analysis failed: {str(e)}"}
 

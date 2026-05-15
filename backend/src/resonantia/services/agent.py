@@ -10,6 +10,7 @@ Conversations are persisted to PostgreSQL for history/multi-tenancy.
 from __future__ import annotations
 
 import json
+import logging
 import time
 import uuid
 from typing import Any, AsyncGenerator
@@ -19,6 +20,7 @@ from resonantia.db.session import async_session_factory
 from resonantia.models.conversation import Conversation, ConversationMessage
 from resonantia.models.request_context import RequestContext
 from resonantia.middleware import log_stage_latency
+from resonantia.repositories.audit_log import append_audit_log
 from resonantia.services.guardrails import GUARDRAIL_SYSTEM_PROMPT, check_guardrails
 from resonantia.services.llm import LLMProvider, ToolCall, get_provider
 from resonantia.services.multimodal import build_user_content
@@ -28,6 +30,7 @@ from resonantia.services.tracing import trace_llm_call
 SYSTEM_PROMPT = GUARDRAIL_SYSTEM_PROMPT
 
 MAX_TOOL_ROUNDS = 5  # prevent infinite loops
+logger = logging.getLogger(__name__)
 
 
 async def _load_tools() -> list[dict[str, Any]]:
@@ -96,38 +99,89 @@ async def _get_or_create_conversation(
         return conv.id, []
 
 
-async def _persist_message(
-    conversation_id: uuid.UUID,
+def _approval_message_from_tool_result(tool_result: str) -> str | None:
+    try:
+        payload = json.loads(tool_result)
+    except Exception:
+        return None
+    if not isinstance(payload, dict) or not payload.get("approval_required"):
+        return None
+    pending = payload.get("pending_approval") or {}
+    card = payload.get("approval_card") or {}
+    tool_name = card.get("tool_name") or pending.get("tool_name", "tool")
+    gate_kind = card.get("gate_kind") or payload.get("gate_kind", "approval")
+    token = card.get("token") or pending.get("token")
+    return (
+        f"Approval required for `{tool_name}` ({gate_kind}). "
+        f"Use approval token `{token}` to approve or reject this action."
+    )
+
+
+def _stage_message(
+    staged: list[dict[str, Any]],
     role: str,
+    *,
     content: str | None = None,
-    tool_calls: dict | None = None,
+    tool_calls: Any | None = None,
     tool_call_id: str | None = None,
     token_usage: dict | None = None,
 ) -> None:
-    """Persist a single message to the database."""
-    async with async_session_factory() as session:
-        msg = ConversationMessage(
-            conversation_id=conversation_id,
-            role=role,
-            content=content,
-            tool_calls=tool_calls,
-            tool_call_id=tool_call_id,
-            token_usage=token_usage,
-        )
-        session.add(msg)
-        await session.commit()
+    staged.append(
+        {
+            "role": role,
+            "content": content,
+            "tool_calls": tool_calls,
+            "tool_call_id": tool_call_id,
+            "token_usage": token_usage,
+        }
+    )
 
 
-async def _update_conversation_title(conversation_id: uuid.UUID, first_message: str) -> None:
-    """Auto-generate title from first user message (first 50 chars)."""
-    title = first_message[:50].strip()
-    if len(first_message) > 50:
-        title += "..."
-    async with async_session_factory() as session:
-        conv = await session.get(Conversation, conversation_id)
-        if conv and conv.title == "New conversation":
-            conv.title = title
-            await session.commit()
+async def _commit_agent_turn(
+    *,
+    conversation_id: uuid.UUID,
+    org_id: str,
+    user_id: str,
+    request_id: str | None,
+    staged_messages: list[dict[str, Any]],
+    title_source: str | None,
+    audit_metadata: dict[str, Any],
+) -> bool:
+    try:
+        async with async_session_factory() as session:
+            async with session.begin():
+                for item in staged_messages:
+                    session.add(
+                        ConversationMessage(
+                            conversation_id=conversation_id,
+                            role=item["role"],
+                            content=item.get("content"),
+                            tool_calls=item.get("tool_calls"),
+                            tool_call_id=item.get("tool_call_id"),
+                            token_usage=item.get("token_usage"),
+                        )
+                    )
+                if title_source:
+                    conv = await session.get(Conversation, conversation_id)
+                    if conv and conv.title == "New conversation":
+                        title = title_source[:50].strip()
+                        if len(title_source) > 50:
+                            title += "..."
+                        conv.title = title
+                await append_audit_log(
+                    session,
+                    org_id=org_id,
+                    actor_user_id=user_id,
+                    action="agent.turn",
+                    target_type="conversation",
+                    target_id=str(conversation_id),
+                    request_id=request_id,
+                    metadata=audit_metadata,
+                )
+        return True
+    except Exception:
+        logger.exception("Failed to commit agent turn for conversation %s", conversation_id)
+        return False
 
 
 async def chat(
@@ -172,21 +226,19 @@ async def chat(
     # are byte-identical to the pre-multimodal code path. The org_id
     # scope here is the security boundary: only files owned by the
     # caller's org are eligible to be encoded.
-    user_content = build_user_content(
+    user_content = await build_user_content(
         text_content, attachments=attachments, org_id=org,
     )
 
+    staged_messages: list[dict[str, Any]] = []
+    title_source = message if len(history) == 0 else None
     history.append({"role": "user", "content": user_content})
 
     # Persist the text representation; binary image bytes are NOT
-    # written to the conversation row — the file registry is the source
+    # written to the conversation row — file storage is the source
     # of truth for image bytes. Tracing below also receives the text-only
     # form so image bytes don't egress to Langfuse.
-    await _persist_message(conv_uuid, "user", content=text_content)
-
-    # Auto-generate title from first message
-    if len(history) == 1:
-        await _update_conversation_title(conv_uuid, message)
+    _stage_message(staged_messages, "user", content=text_content)
 
     settings = get_settings()
 
@@ -204,7 +256,18 @@ async def chat(
             f"To enable AI chat, set the API key for the '{provider_name}' provider."
         )
         history.append({"role": "assistant", "content": no_key_msg})
-        await _persist_message(conv_uuid, "assistant", content=no_key_msg)
+        _stage_message(staged_messages, "assistant", content=no_key_msg)
+        committed = await _commit_agent_turn(
+            conversation_id=conv_uuid,
+            org_id=org,
+            user_id=user_id,
+            request_id=request_id,
+            staged_messages=staged_messages,
+            title_source=title_source,
+            audit_metadata={"status": "completed", "reason": "missing_api_key", "tool_calls": []},
+        )
+        if not committed:
+            return {"message": "Could not persist this chat turn. Please retry.", "conversation_id": cid, "tool_calls": None}
         return {"message": no_key_msg, "conversation_id": cid, "tool_calls": None}
 
     provider = _get_provider()
@@ -241,8 +304,24 @@ async def chat(
             if llm_response.input_tokens or llm_response.output_tokens:
                 token_usage = {"input": llm_response.input_tokens, "output": llm_response.output_tokens}
 
-            # Persist assistant message
-            await _persist_message(conv_uuid, "assistant", content=assistant_text, token_usage=token_usage)
+            _stage_message(staged_messages, "assistant", content=assistant_text, token_usage=token_usage)
+            committed = await _commit_agent_turn(
+                conversation_id=conv_uuid,
+                org_id=org,
+                user_id=user_id,
+                request_id=request_id,
+                staged_messages=staged_messages,
+                title_source=title_source,
+                audit_metadata={
+                    "status": "completed",
+                    "rounds": round_num + 1,
+                    "tools_used": [tc["name"] for tc in all_tool_calls],
+                    "tool_call_count": len(all_tool_calls),
+                    "token_usage": token_usage,
+                },
+            )
+            if not committed:
+                return {"message": "Could not persist this chat turn. Please retry.", "conversation_id": cid, "tool_calls": None}
 
             trace_llm_call(
                 user_message=message, system_prompt=SYSTEM_PROMPT,
@@ -271,9 +350,8 @@ async def chat(
             "tool_calls": tool_calls_data,
         })
 
-        # Persist assistant message with tool calls
-        await _persist_message(
-            conv_uuid, "assistant",
+        _stage_message(
+            staged_messages, "assistant",
             content=llm_response.content,
             tool_calls=tool_calls_data,
         )
@@ -304,16 +382,56 @@ async def chat(
                 "content": tool_result,
             })
 
-            # Persist tool result message
-            await _persist_message(
-                conv_uuid, "tool",
+            _stage_message(
+                staged_messages, "tool",
                 content=tool_result,
                 tool_call_id=tc.id,
             )
+            approval_message = _approval_message_from_tool_result(tool_result)
+            if approval_message:
+                _stage_message(staged_messages, "assistant", content=approval_message)
+                committed = await _commit_agent_turn(
+                    conversation_id=conv_uuid,
+                    org_id=org,
+                    user_id=user_id,
+                    request_id=request_id,
+                    staged_messages=staged_messages,
+                    title_source=title_source,
+                    audit_metadata={
+                        "status": "approval_required",
+                        "tools_used": [tc["name"] for tc in all_tool_calls],
+                        "tool_call_count": len(all_tool_calls),
+                    },
+                )
+                if not committed:
+                    return {"message": "Could not persist this chat turn. Please retry.", "conversation_id": cid, "tool_calls": None}
+                return {
+                    "message": approval_message,
+                    "conversation_id": cid,
+                    "tool_calls": all_tool_calls,
+                }
 
     # Max rounds reached
+    max_rounds_message = "I've gathered the data but reached the processing limit. Please try a more specific query."
+    _stage_message(staged_messages, "assistant", content=max_rounds_message)
+    committed = await _commit_agent_turn(
+        conversation_id=conv_uuid,
+        org_id=org,
+        user_id=user_id,
+        request_id=request_id,
+        staged_messages=staged_messages,
+        title_source=title_source,
+        audit_metadata={
+            "status": "max_rounds",
+            "rounds": MAX_TOOL_ROUNDS,
+            "tools_used": [tc["name"] for tc in all_tool_calls],
+            "tool_call_count": len(all_tool_calls),
+        },
+    )
+    if not committed:
+        return {"message": "Could not persist this chat turn. Please retry.", "conversation_id": cid, "tool_calls": None}
     return {
-        "message": "I've gathered the data but reached the processing limit. Please try a more specific query.",
+        "message": max_rounds_message,
         "conversation_id": cid,
         "tool_calls": all_tool_calls,
     }
