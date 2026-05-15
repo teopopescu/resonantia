@@ -28,6 +28,15 @@ from resonantia.workflows.activities import (
 from resonantia.workflows.agent_workflow import AgentToolCallWorkflow
 from resonantia.workflows.plate_workflow import PlateMapWorkflow
 from resonantia.workflows.processing_workflow import DataProcessingWorkflow
+from resonantia.workflows.voice_activities import (
+    complete_voice_turn_activity,
+    create_voice_turn_activity,
+    fail_voice_turn_activity,
+    run_voice_agent_activity,
+    synthesize_voice_turn_activity,
+    transcribe_voice_turn_activity,
+)
+from resonantia.workflows.voice_turn_workflow import VoiceTurnWorkflow
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +44,7 @@ ALL_WORKFLOWS = [
     AgentToolCallWorkflow,
     PlateMapWorkflow,
     DataProcessingWorkflow,
+    VoiceTurnWorkflow,
 ]
 
 ALL_ACTIVITIES = [
@@ -55,6 +65,13 @@ ALL_ACTIVITIES = [
     run_processing,
     generate_figures,
     save_results,
+    # Voice turn activities
+    create_voice_turn_activity,
+    transcribe_voice_turn_activity,
+    run_voice_agent_activity,
+    synthesize_voice_turn_activity,
+    complete_voice_turn_activity,
+    fail_voice_turn_activity,
 ]
 
 
