@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from datetime import date, datetime
 from typing import Any
 
@@ -22,6 +23,7 @@ from resonantia.models.plate import PlateMap
 from resonantia.models.experiment import Experiment
 from resonantia.models.microscopy import MicroscopyImage
 from resonantia.models.eln_entry import ELNEntry
+from resonantia.models.file_upload import FileUpload
 from resonantia.models.protocol import Protocol, ProtocolStep
 from resonantia.models.request_context import RequestContext
 from resonantia.services.output_validator import (
@@ -580,13 +582,23 @@ async def _get_sample_stats(params: dict, org_id: str = "org_default") -> dict:
 
 async def _list_files(params: dict, org_id: str = "org_default") -> dict:
     """List all uploaded files for the current org."""
-    from resonantia.api.files import _file_registry
-    files = [f for f in _file_registry.values() if f.get("org_id", "org_default") == org_id]
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(FileUpload)
+            .where(FileUpload.org_id == org_id)
+            .order_by(FileUpload.created_at.desc())
+        )
+        files = result.scalars().all()
     return {
         "found": len(files),
         "files": [
-            {"id": f["id"], "filename": f["filename"], "size": f["size"],
-             "content_type": f.get("content_type", ""), "uploaded_at": f.get("uploaded_at", "")}
+            {
+                "id": str(f.id),
+                "filename": f.filename,
+                "size": f.size_bytes,
+                "content_type": f.content_type,
+                "uploaded_at": f.created_at.isoformat() if f.created_at else "",
+            }
             for f in files
         ],
     }
@@ -594,73 +606,89 @@ async def _list_files(params: dict, org_id: str = "org_default") -> dict:
 
 async def _get_file_info(params: dict, org_id: str = "org_default") -> dict:
     """Get details about a specific uploaded file (scoped to org)."""
-    from resonantia.api.files import _file_registry
     file_id = params.get("file_id", "")
-    if file_id in _file_registry:
-        f = _file_registry[file_id]
-        if f.get("org_id", "org_default") != org_id:
-            return {"found": False, "message": "File not found or not accessible"}
-        return {"found": True, **f}
-    for f in _file_registry.values():
-        if f.get("org_id", "org_default") != org_id:
-            continue
-        if params.get("filename", "").lower() in f.get("filename", "").lower():
-            return {"found": True, **f}
+    filename = params.get("filename", "")
+    async with async_session_factory() as session:
+        upload = None
+        if file_id:
+            try:
+                upload = await session.get(FileUpload, uuid.UUID(file_id))
+            except ValueError:
+                upload = None
+            if upload and upload.org_id != org_id:
+                return {"found": False, "message": "File not found or not accessible"}
+        if upload is None and filename:
+            result = await session.execute(
+                select(FileUpload)
+                .where(FileUpload.org_id == org_id)
+                .where(FileUpload.filename.ilike(f"%{filename}%"))
+                .order_by(FileUpload.created_at.desc())
+                .limit(1)
+            )
+            upload = result.scalar_one_or_none()
+        if upload and upload.org_id == org_id:
+            return {
+                "found": True,
+                "id": str(upload.id),
+                "filename": upload.filename,
+                "size": upload.size_bytes,
+                "content_type": upload.content_type,
+                "uploaded_at": upload.created_at.isoformat() if upload.created_at else "",
+                "storage_backend": upload.storage_backend,
+                "checksum_sha256": upload.checksum_sha256,
+                "detected_format": upload.detected_format,
+                "parsed_metadata": upload.parsed_metadata,
+            }
     return {"found": False, "message": f"No file found with id or name matching '{file_id or params.get('filename', '')}'"}
 
 
 async def _read_file_contents(params: dict, org_id: str = "org_default") -> dict:
     """Read the actual contents of an uploaded file (CSV, TSV, TXT)."""
-    from resonantia.api.files import _file_registry
-    import os
+    from resonantia.services.storage import get_storage
 
     file_id = params.get("file_id", "")
     filename = params.get("filename", "")
 
-    # Find the file path
-    path = None
-    matched_file = None
+    async with async_session_factory() as session:
+        upload = None
+        if file_id:
+            try:
+                upload = await session.get(FileUpload, uuid.UUID(file_id))
+            except ValueError:
+                upload = None
+            if upload and upload.org_id != org_id:
+                return {"error": "File not found or not accessible"}
+        if upload is None and filename:
+            result = await session.execute(
+                select(FileUpload)
+                .where(FileUpload.org_id == org_id)
+                .where(FileUpload.filename.ilike(f"%{filename}%"))
+                .order_by(FileUpload.created_at.desc())
+                .limit(1)
+            )
+            upload = result.scalar_one_or_none()
+        if upload is None or upload.org_id != org_id:
+            return {"error": f"File not found: {file_id or filename}. Use list_files to see available files."}
 
-    # Search by ID (with org_id check)
-    if file_id and file_id in _file_registry:
-        matched_file = _file_registry[file_id]
-        if matched_file.get("org_id", "org_default") != org_id:
-            return {"error": "File not found or not accessible"}
-        path = matched_file.get("stored_path") or matched_file.get("path")
+        try:
+            raw = upload.content_bytes
+            if raw is None:
+                raw = await get_storage().load(upload.storage_path)
+            content = raw.decode("utf-8-sig", errors="replace")
+            max_chars = 8000
+            truncated = len(content) > max_chars
+            if truncated:
+                content = content[:max_chars]
 
-    # Search by filename (with org_id check)
-    if not path and filename:
-        for f in _file_registry.values():
-            if f.get("org_id", "org_default") != org_id:
-                continue
-            if filename.lower() in f.get("filename", "").lower():
-                matched_file = f
-                path = f.get("path")
-                break
-
-    if not path or not os.path.exists(path):
-        return {"error": f"File not found: {file_id or filename}. Use list_files to see available files."}
-
-    # Read the file
-    try:
-        with open(path, "r", errors="replace") as f:
-            content = f.read()
-
-        # Truncate very large files to avoid overwhelming the LLM context
-        max_chars = 8000
-        truncated = len(content) > max_chars
-        if truncated:
-            content = content[:max_chars]
-
-        return {
-            "filename": matched_file.get("filename", os.path.basename(path)) if matched_file else os.path.basename(path),
-            "content": content,
-            "truncated": truncated,
-            "size_bytes": os.path.getsize(path),
-            "lines": content.count("\n") + 1,
-        }
-    except Exception as e:
-        return {"error": f"Could not read file: {str(e)}"}
+            return {
+                "filename": upload.filename,
+                "content": content,
+                "truncated": truncated,
+                "size_bytes": upload.size_bytes,
+                "lines": content.count("\n") + 1,
+            }
+        except Exception as e:
+            return {"error": f"Could not read file: {str(e)}"}
 
 
 # ---------------------------------------------------------------------------

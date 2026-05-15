@@ -8,7 +8,7 @@ them as vision content blocks.
 This module:
 1. Parses a chat message for ``[file:...](URL)`` markers (and accepts a
    parallel ``attachments`` field for direct file IDs).
-2. Resolves each reference against the in-process file registry, with
+2. Resolves each reference against persisted file metadata, with
    org_id ownership enforcement so a chat in tenant A cannot reference
    a file uploaded by tenant B.
 3. For image MIME types, reads the file and base64-encodes it into a
@@ -21,17 +21,23 @@ Non-image attachments (CSV, PDF, TXT) are NOT inlined as bytes —
 those are read separately via the ``read_file_contents`` agent tool
 since they need to be parsed, not just looked at.
 
-Network fetch is forbidden in this module: image bytes are read from
-the configured upload directory, never from a user-supplied URL.
+Network fetch is forbidden in this module: image bytes are read through
+the configured storage backend, never from a user-supplied URL.
 """
 
 from __future__ import annotations
 
 import base64
 import logging
-import os
 import re
+import uuid
 from typing import Any
+
+from sqlalchemy import select
+
+from resonantia.db.session import async_session_factory
+from resonantia.models.file_upload import FileUpload
+from resonantia.services.storage import get_storage
 
 logger = logging.getLogger(__name__)
 
@@ -73,97 +79,62 @@ def _file_id_from_url(url: str) -> str | None:
     return match.group("file_id") if match else None
 
 
-def _resolve_file_meta(file_id: str, org_id: str) -> dict[str, Any] | None:
-    """Look up a file in the in-process registry, scoped by org_id.
-
-    Imported lazily so this module doesn't pull the FastAPI router at
-    import time (and so tests can monkeypatch the registry).
-    """
-    from resonantia.api.files import _file_registry
-
-    meta = _file_registry.get(file_id)
-    if meta is None:
+async def _resolve_file_upload(file_id: str, org_id: str) -> FileUpload | None:
+    """Look up persisted file metadata, scoped by org_id."""
+    try:
+        upload_id = uuid.UUID(file_id)
+    except ValueError:
         return None
-    if meta.get("org_id") != org_id:
+
+    async with async_session_factory() as session:
+        upload = await session.scalar(
+            select(FileUpload).where(FileUpload.id == upload_id)
+        )
+    if upload is None:
+        return None
+    if upload.org_id != org_id:
         # Cross-tenant access attempt. Log it (anonymized) so the
         # security team has a signal, then act as if the file does
         # not exist.
         logger.warning(
             "Cross-tenant file access blocked: file %s belongs to org "
             "%r, requester is org %r",
-            file_id, meta.get("org_id"), org_id,
+            file_id, upload.org_id, org_id,
         )
         return None
-    return meta
+    return upload
 
 
-def _safe_path(file_id: str, ext: str) -> str | None:
-    """Re-derive the on-disk path from upload_dir + file_id, never trust
-    a stored_path field. Returns None if the resolved path escapes the
-    configured upload directory."""
-    from resonantia.config import get_settings
-
-    settings = get_settings()
-    upload_dir = os.path.realpath(os.path.join(settings.upload_dir, "files"))
-    candidate = os.path.realpath(os.path.join(upload_dir, f"{file_id}{ext}"))
-    if os.path.commonpath([upload_dir, candidate]) != upload_dir:
-        return None
-    return candidate
-
-
-def _encode_image(meta: dict[str, Any]) -> tuple[dict[str, Any] | None, int]:
+async def _encode_image(upload: FileUpload) -> tuple[dict[str, Any] | None, int]:
     """Read + base64 a single image file. Returns (block, bytes_read).
-    block is None if the file is missing / too large / outside upload_dir.
+    block is None if the file is missing / too large / unsupported.
     """
-    file_id = meta.get("id")
-    if not file_id:
-        return None, 0
-    raw_ext = os.path.splitext(meta.get("filename") or "")[1]
-    # Validate stored_path against the safe-derived path. If they differ
-    # (legacy upload before the path-traversal fix) we fall back to the
-    # safe-derived path and refuse to read anywhere else.
-    safe_path = _safe_path(file_id, raw_ext)
-    if safe_path is None or not os.path.exists(safe_path):
-        # Try the registry's stored_path as a fallback, but only if it
-        # still resolves under upload_dir.
-        stored = meta.get("stored_path")
-        if not stored:
-            return None, 0
-        from resonantia.config import get_settings
-
-        upload_dir = os.path.realpath(
-            os.path.join(get_settings().upload_dir, "files")
-        )
-        stored_real = os.path.realpath(stored)
-        if os.path.commonpath([upload_dir, stored_real]) != upload_dir:
-            logger.warning("File %s stored_path escapes upload_dir", file_id)
-            return None, 0
-        safe_path = stored_real
-        if not os.path.exists(safe_path):
-            return None, 0
-
-    size = os.path.getsize(safe_path)
-    if size > MAX_IMAGE_BYTES:
+    if upload.size_bytes > MAX_IMAGE_BYTES:
         logger.warning(
             "Image %s skipped: %d bytes > MAX_IMAGE_BYTES (%d)",
-            file_id, size, MAX_IMAGE_BYTES,
+            upload.id, upload.size_bytes, MAX_IMAGE_BYTES,
         )
         return None, 0
 
-    with open(safe_path, "rb") as fp:
-        raw = fp.read()
+    try:
+        raw = upload.content_bytes
+        if raw is None:
+            raw = await get_storage().load(upload.storage_path)
+    except FileNotFoundError:
+        return None, 0
+
     encoded = base64.b64encode(raw).decode("ascii")
-    mime = (meta.get("content_type") or "image/png").split(";")[0].strip()
+    mime = (upload.content_type or "image/png").split(";")[0].strip()
     if mime not in ALLOWED_IMAGE_MIMES:
         return None, 0
     block = {
         "type": "image_url",
         "image_url": {"url": f"data:{mime};base64,{encoded}"},
     }
-    return block, size
+    return block, len(raw)
 
 
-def _collect_image_file_ids(
+async def _collect_image_file_ids(
     message: str,
     explicit_file_ids: list[str] | None,
     org_id: str,
@@ -187,16 +158,16 @@ def _collect_image_file_ids(
 
     image_ids: list[str] = []
     for fid in file_ids:
-        meta = _resolve_file_meta(fid, org_id)
-        if not meta:
+        upload = await _resolve_file_upload(fid, org_id)
+        if not upload:
             continue
-        if _is_image(meta.get("content_type")):
+        if _is_image(upload.content_type):
             image_ids.append(fid)
 
     return image_ids
 
 
-def build_user_content(
+async def build_user_content(
     message: str,
     *,
     attachments: list[str] | None = None,
@@ -216,7 +187,7 @@ def build_user_content(
     blocks natively. We emit the OpenAI shape since that's what the
     current backend uses.
     """
-    image_ids = _collect_image_file_ids(message, attachments, org_id)
+    image_ids = await _collect_image_file_ids(message, attachments, org_id)
     if not image_ids:
         return message
 
@@ -230,10 +201,10 @@ def build_user_content(
     blocks: list[dict[str, Any]] = [{"type": "text", "text": message}]
     total_bytes = 0
     for fid in image_ids:
-        meta = _resolve_file_meta(fid, org_id)
-        if meta is None:
+        upload = await _resolve_file_upload(fid, org_id)
+        if upload is None:
             continue
-        block, size = _encode_image(meta)
+        block, size = await _encode_image(upload)
         if block is None:
             continue
         if total_bytes + size > MAX_TOTAL_IMAGE_BYTES:

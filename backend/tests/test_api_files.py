@@ -8,9 +8,20 @@ non-owning tenant.
 from __future__ import annotations
 
 import io
+import hashlib
+import uuid
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from resonantia.models.file_upload import FileUpload
+
+
+def test_in_memory_file_registry_removed():
+    from resonantia.api import files
+
+    assert not hasattr(files, "_file_registry")
 
 
 @pytest.mark.asyncio
@@ -28,6 +39,49 @@ async def test_uploaded_file_is_listed_for_owner(client: AsyncClient):
     r2 = await client.get("/api/v1/files/", headers={"X-Org-Id": "org_alpha"})
     assert r2.status_code == 200
     assert any(f["id"] == file_id for f in r2.json())
+
+
+@pytest.mark.asyncio
+async def test_uploaded_file_persists_bytes_and_checksum(client: AsyncClient, db_session: AsyncSession):
+    payload = b"alpha,beta\n1,2\n"
+    files = {"files": ("data.csv", io.BytesIO(payload), "text/csv")}
+    r = await client.post(
+        "/api/v1/files/upload",
+        files=files,
+        headers={"X-Org-Id": "org_alpha"},
+    )
+    assert r.status_code == 201
+    file_id = r.json()[0]["id"]
+
+    upload = await db_session.get(FileUpload, uuid.UUID(file_id))
+    assert upload is not None
+    assert upload.org_id == "org_alpha"
+    assert upload.storage_backend == "local"
+    assert upload.content_bytes == payload
+    assert upload.checksum_sha256 == hashlib.sha256(payload).hexdigest()
+
+
+@pytest.mark.asyncio
+async def test_upload_and_parse_file_access_survives_storage_reinitialization(client: AsyncClient, monkeypatch):
+    from resonantia.services import storage as storage_module
+
+    payload = b"alpha,beta\n1,2\n"
+    files = {"file": ("data.csv", io.BytesIO(payload), "text/csv")}
+    r = await client.post(
+        "/api/v1/files/upload-and-parse",
+        files=files,
+        headers={"X-Org-Id": "org_alpha"},
+    )
+    assert r.status_code == 201
+    file_id = r.json()["file_id"]
+
+    monkeypatch.setattr(storage_module, "_storage_instance", None)
+    download = await client.get(
+        f"/api/v1/files/{file_id}/download",
+        headers={"X-Org-Id": "org_alpha"},
+    )
+    assert download.status_code == 200
+    assert download.content == payload
 
 
 @pytest.mark.asyncio
