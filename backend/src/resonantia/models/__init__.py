@@ -6,6 +6,7 @@ from resonantia.models.audit_log import AuditLog
 from resonantia.models.eln_entry import ELNAppendix, ELNEntry
 from resonantia.models.experiment import Experiment
 from resonantia.models.file_upload import FileUpload
+from resonantia.models.intent import IntentClass, IntentClassification
 from resonantia.models.microscopy import MicroscopyImage
 from resonantia.models.pending_approval import PendingApprovalRecord
 from resonantia.models.plate import PlateMap
@@ -24,6 +25,8 @@ __all__ = [
     "ELNEntry",
     "Experiment",
     "FileUpload",
+    "IntentClass",
+    "IntentClassification",
     "MicroscopyImage",
     "PendingApprovalRecord",
     "PlateMap",

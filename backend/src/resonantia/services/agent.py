@@ -23,6 +23,7 @@ from resonantia.models.request_context import RequestContext
 from resonantia.middleware import log_stage_latency
 from resonantia.repositories.audit_log import append_audit_log
 from resonantia.services.guardrails import GUARDRAIL_SYSTEM_PROMPT, check_guardrails
+from resonantia.services.intent_classifier import classify_intent
 from resonantia.services.llm import LLMProvider, ToolCall, get_provider
 from resonantia.services.multimodal import build_user_content
 from resonantia.services.tool_executor import execute_tool
@@ -32,6 +33,16 @@ SYSTEM_PROMPT = GUARDRAIL_SYSTEM_PROMPT
 
 MAX_TOOL_ROUNDS = 5  # prevent infinite loops
 logger = logging.getLogger(__name__)
+
+_FAST_PATH_TOOLS = {
+    "lookup_sample",
+    "check_inventory",
+    "get_expiring_samples",
+    "query_experiments",
+    "get_ic50_values",
+    "list_files",
+    "read_file_contents",
+}
 
 
 async def _load_tools() -> list[dict[str, Any]]:
@@ -116,6 +127,30 @@ def _approval_message_from_tool_result(tool_result: str) -> str | None:
         f"Approval required for `{tool_name}` ({gate_kind}). "
         f"Use approval token `{token}` to approve or reject this action."
     )
+
+
+def _fast_path_args(tool_name: str, message: str) -> dict[str, Any]:
+    if tool_name in {"lookup_sample", "check_inventory"}:
+        return {"query": message}
+    if tool_name == "query_experiments":
+        return {"query": message}
+    if tool_name == "get_ic50_values":
+        return {"compound": message}
+    if tool_name == "read_file_contents":
+        return {"filename": message}
+    return {}
+
+
+def _fast_path_summary(tool_name: str, tool_result: str) -> str:
+    try:
+        payload = json.loads(tool_result)
+    except json.JSONDecodeError:
+        return tool_result
+    if "error" in payload:
+        return str(payload["error"])
+    if tool_name == "lookup_sample" and payload.get("found") is False:
+        return "I couldn't find a matching sample."
+    return json.dumps(payload, default=str)
 
 
 def _stage_message(
@@ -240,6 +275,68 @@ async def chat(
     # of truth for image bytes. Tracing below also receives the text-only
     # form so image bytes don't egress to Langfuse.
     _stage_message(staged_messages, "user", content=text_content)
+
+    try:
+        intent = await classify_intent(text_content, turn_id=request_id, context=context)
+    except Exception:
+        logger.exception("Intent classification failed unexpectedly")
+        intent = None
+
+    if intent and intent.route == "single_tool" and intent.recommended_tool in _FAST_PATH_TOOLS:
+        tool_name = intent.recommended_tool
+        tool_input = _fast_path_args(tool_name, message)
+        tool_result = await execute_tool(
+            tool_name,
+            tool_input,
+            org_id=org,
+            user_id=user_id,
+            source=source,
+            request_id=request_id,
+            request_context=request_context,
+        )
+        tool_call_id = f"intent-{uuid.uuid4().hex[:8]}"
+        tool_calls = [{"id": tool_call_id, "name": tool_name, "input": tool_input}]
+        _stage_message(
+            staged_messages,
+            "assistant",
+            content="",
+            tool_calls=[
+                {
+                    "id": tool_call_id,
+                    "type": "function",
+                    "function": {"name": tool_name, "arguments": json.dumps(tool_input)},
+                }
+            ],
+        )
+        _stage_message(staged_messages, "tool", content=tool_result, tool_call_id=tool_call_id)
+        assistant_text = _fast_path_summary(tool_name, tool_result)
+        _stage_message(staged_messages, "assistant", content=assistant_text)
+        committed = await _commit_agent_turn(
+            conversation_id=conv_uuid,
+            org_id=org,
+            user_id=user_id,
+            request_id=request_id,
+            staged_messages=staged_messages,
+            title_source=title_source,
+            audit_metadata={
+                "status": "completed",
+                "route": "single_tool",
+                "intent_class": intent.intent_class.value,
+                "intent_confidence": intent.confidence,
+                "tools_used": [tool_name],
+                "tool_call_count": 1,
+            },
+        )
+        if not committed:
+            return {"message": "Could not persist this chat turn. Please retry.", "conversation_id": cid, "tool_calls": None}
+        return {
+            "message": assistant_text,
+            "conversation_id": cid,
+            "tool_calls": tool_calls,
+            "intent_class": intent.intent_class.value,
+            "intent_confidence": intent.confidence,
+            "routed_to": ["single_tool"],
+        }
 
     settings = get_settings()
 
