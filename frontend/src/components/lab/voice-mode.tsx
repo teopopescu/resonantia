@@ -4,23 +4,35 @@ import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Mic, X } from "lucide-react";
 import { useAudioRecorder } from "@/lib/hooks/use-audio-recorder";
-import { useAudioPlayer } from "@/lib/hooks/use-audio-player";
 import { useLabStore } from "@/stores/lab-store";
+import { getActiveOrgId } from "@/lib/api";
+import { MicPermission } from "./mic-permission";
+import { VoiceSseClient } from "./voice-sse-client";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const ACK_CLIPS = [
+  "/audio/ack-working-on-that.mp3",
+  "/audio/ack-looking-that-up.mp3",
+  "/audio/ack-checking-the-run.mp3",
+  "/audio/ack-one-moment.mp3",
+  "/audio/ack-running-the-tool.mp3",
+  "/audio/ack-on-it.mp3",
+  "/audio/ack-let-me-check.mp3",
+  "/audio/ack-got-it.mp3",
+];
 
-type VoiceStatus = "listening" | "silence_detected" | "transcribing" | "thinking" | "speaking" | "error";
+type VoiceStatus = "listening" | "silence_detected" | "processing" | "transcribing" | "thinking" | "speaking" | "error";
 
 interface VoiceModeProps {
   onExit: () => void;
 }
 
 export default function VoiceMode({ onExit }: VoiceModeProps) {
-  const { addMessage } = useLabStore();
+  const { addMessage, activeConversationId } = useLabStore();
   const recorder = useAudioRecorder();
-  const player = useAudioPlayer();
   const [status, setStatus] = useState<VoiceStatus>("listening");
   const [errorMsg, setErrorMsg] = useState("");
+  const [turnId, setTurnId] = useState<string | null>(null);
   const activeRef = useRef(true);
 
   // Start listening on mount
@@ -30,9 +42,15 @@ export default function VoiceMode({ onExit }: VoiceModeProps) {
     return () => {
       activeRef.current = false;
       recorder.reset();
-      player.stop();
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function playAckClip() {
+    const clip = ACK_CLIPS[Math.floor(Math.random() * ACK_CLIPS.length)];
+    const audio = new Audio(clip);
+    audio.volume = 0.55;
+    void audio.play().catch(() => undefined);
+  }
 
   // Update status from recorder state
   useEffect(() => {
@@ -52,20 +70,19 @@ export default function VoiceMode({ onExit }: VoiceModeProps) {
       const blob = recorder.audioBlob!;
       recorder.reset();
 
-      // Add placeholder user message
-      addMessage("user", "Transcribing...");
-      setStatus("transcribing");
+      setTurnId(null);
+      setStatus("processing");
+      playAckClip();
 
       try {
         const formData = new FormData();
         formData.append("audio", blob, "recording.webm");
-        formData.append("conversation_id", "voice-session");
+        if (activeConversationId) formData.append("conversation_id", activeConversationId);
 
-        setStatus("thinking");
-
-        const res = await fetch(`${API_URL}/api/v1/voice/chat`, {
+        const res = await fetch(`${API_URL}/api/v1/voice/turn`, {
           method: "POST",
           body: formData,
+          headers: { "X-Org-Id": getActiveOrgId() },
         });
 
         if (!res.ok) {
@@ -73,39 +90,8 @@ export default function VoiceMode({ onExit }: VoiceModeProps) {
           throw new Error((err as { detail?: string }).detail || "Voice processing failed");
         }
 
-        const data = await res.json();
-
-        if (data.error === "no_speech_detected") {
-          // Resume listening
-          setStatus("listening");
-          if (activeRef.current) recorder.start();
-          return;
-        }
-
-        // Add the real transcription and response
-        addMessage("user", data.transcription);
-        addMessage("assistant", data.response);
-
-        // Play TTS audio
-        if (data.audio_url && activeRef.current) {
-          setStatus("speaking");
-          const audioUrl = `${API_URL}${data.audio_url}`;
-          console.log("[Voice] Playing TTS audio:", audioUrl);
-          try {
-            await player.play(audioUrl);
-            console.log("[Voice] TTS playback finished");
-          } catch (playErr) {
-            console.warn("[Voice] TTS playback error:", playErr);
-          }
-        } else {
-          console.log("[Voice] No audio_url in response or voice mode deactivated");
-        }
-
-        // Resume listening if still active
-        if (activeRef.current) {
-          setStatus("listening");
-          recorder.start();
-        }
+        const data = (await res.json()) as { turn_id?: string; turnId?: string };
+        setTurnId(data.turn_id || data.turnId || null);
       } catch (err: unknown) {
         const e = err as { message?: string };
         setStatus("error");
@@ -136,6 +122,7 @@ export default function VoiceMode({ onExit }: VoiceModeProps) {
   const statusLabels: Record<VoiceStatus, string> = {
     listening: "Listening...",
     silence_detected: `Sending in ${Math.ceil(recorder.silenceCountdown / 1000)}s...`,
+    processing: "Processing...",
     transcribing: "Transcribing...",
     thinking: "Thinking...",
     speaking: "Speaking...",
@@ -261,6 +248,21 @@ export default function VoiceMode({ onExit }: VoiceModeProps) {
       <p className="font-mono text-[10.5px] uppercase tracking-[0.04em] text-ink-subtle mt-3">
         {isActive ? "tap mic to send \u00b7 esc to exit" : ""}
       </p>
+      <MicPermission />
+      <VoiceSseClient
+        turnId={turnId}
+        onStatus={(next) => {
+          if (next === "processing") setStatus("processing");
+          if (next === "speaking") setStatus("speaking");
+          if (next === "error") setStatus("error");
+        }}
+        onDone={() => {
+          if (activeRef.current) {
+            setStatus("listening");
+            void recorder.start();
+          }
+        }}
+      />
     </div>
   );
 }

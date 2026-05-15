@@ -16,14 +16,27 @@ import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Mic, X } from "lucide-react";
 import { usePttRecorder } from "@/lib/hooks/use-ptt-recorder";
-import { useAudioPlayer } from "@/lib/hooks/use-audio-player";
 import { useLabStore } from "@/stores/lab-store";
+import { getActiveOrgId } from "@/lib/api";
+import { MicPermission } from "./mic-permission";
+import { VoiceSseClient } from "./voice-sse-client";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const ACK_CLIPS = [
+  "/audio/ack-working-on-that.mp3",
+  "/audio/ack-looking-that-up.mp3",
+  "/audio/ack-checking-the-run.mp3",
+  "/audio/ack-one-moment.mp3",
+  "/audio/ack-running-the-tool.mp3",
+  "/audio/ack-on-it.mp3",
+  "/audio/ack-let-me-check.mp3",
+  "/audio/ack-got-it.mp3",
+];
 
 type PttStatus =
   | "idle"
   | "recording"
+  | "processing"
   | "transcribing"
   | "thinking"
   | "speaking"
@@ -34,11 +47,11 @@ interface VoicePttProps {
 }
 
 export default function VoicePtt({ onExit }: VoicePttProps) {
-  const { addMessage } = useLabStore();
+  const { addMessage, activeConversationId } = useLabStore();
   const recorder = usePttRecorder();
-  const player = useAudioPlayer();
   const [status, setStatus] = useState<PttStatus>("idle");
   const [errorMsg, setErrorMsg] = useState("");
+  const [turnId, setTurnId] = useState<string | null>(null);
   const activeRef = useRef(true);
   // True only while the mouse is the active input source — set on
   // mouse/touch start, cleared on mouse/touch end. Lets us ignore
@@ -57,9 +70,15 @@ export default function VoicePtt({ onExit }: VoicePttProps) {
     return () => {
       activeRef.current = false;
       recorder.reset();
-      player.stop();
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function playAckClip() {
+    const clip = ACK_CLIPS[Math.floor(Math.random() * ACK_CLIPS.length)];
+    const audio = new Audio(clip);
+    audio.volume = 0.55;
+    void audio.play().catch(() => undefined);
+  }
 
   // Mirror recorder.state into our local status for UI.
   useEffect(() => {
@@ -98,7 +117,7 @@ export default function VoicePtt({ onExit }: VoicePttProps) {
       }
       if (e.code !== "Space" || e.repeat) return;
       if (isInteractiveOutside()) return;
-      if (status === "thinking" || status === "transcribing" || status === "speaking") return;
+      if (status === "processing" || status === "thinking" || status === "transcribing" || status === "speaking") return;
       e.preventDefault();
       void recorder.start();
     };
@@ -127,7 +146,9 @@ export default function VoicePtt({ onExit }: VoicePttProps) {
       const blob = recorder.audioBlob!;
       recorder.reset();
 
-      setStatus("transcribing");
+      setTurnId(null);
+      setStatus("processing");
+      playAckClip();
 
       try {
         const form = new FormData();
@@ -135,39 +156,19 @@ export default function VoicePtt({ onExit }: VoicePttProps) {
         // ffmpeg-based decode picks the right path.
         const ext = blob.type.startsWith("audio/mp4") ? "mp4" : "webm";
         form.append("audio", blob, `ptt.${ext}`);
-        form.append("conversation_id", "voice-ptt-session");
+        if (activeConversationId) form.append("conversation_id", activeConversationId);
 
-        setStatus("thinking");
-        const res = await fetch(`${API_URL}/api/v1/voice/chat`, {
+        const res = await fetch(`${API_URL}/api/v1/voice/turn`, {
           method: "POST",
           body: form,
+          headers: { "X-Org-Id": getActiveOrgId() },
         });
         if (!res.ok) {
           const err = (await res.json().catch(() => ({}))) as { detail?: string };
           throw new Error(err.detail || "Voice processing failed");
         }
-        const data = await res.json();
-
-        if (data.error === "no_speech_detected") {
-          setStatus("idle");
-          return;
-        }
-
-        // Append to chat once we have the real transcription. We never
-        // post a "Transcribing..." placeholder so the chat history stays
-        // clean if the request fails or returns no_speech_detected.
-        addMessage("user", data.transcription);
-        addMessage("assistant", data.response);
-
-        if (data.audio_url && activeRef.current) {
-          setStatus("speaking");
-          try {
-            await player.play(`${API_URL}${data.audio_url}`);
-          } catch {
-            /* ignore TTS playback errors */
-          }
-        }
-        if (activeRef.current) setStatus("idle");
+        const data = (await res.json()) as { turn_id?: string; turnId?: string };
+        setTurnId(data.turn_id || data.turnId || null);
       } catch (err) {
         const msg = err instanceof Error ? err.message : "voice processing failed";
         setStatus("error");
@@ -185,11 +186,12 @@ export default function VoicePtt({ onExit }: VoicePttProps) {
   }, [recorder.audioBlob]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const isRecording = status === "recording";
-  const isBusy = status === "thinking" || status === "transcribing" || status === "speaking";
+  const isBusy = status === "processing" || status === "thinking" || status === "transcribing" || status === "speaking";
 
   const labels: Record<PttStatus, string> = {
     idle: "Hold Space to talk",
     recording: "Listening — release to send",
+    processing: "Processing…",
     transcribing: "Transcribing…",
     thinking: "Thinking…",
     speaking: "Speaking…",
@@ -303,6 +305,18 @@ export default function VoicePtt({ onExit }: VoicePttProps) {
       <div className="mt-2 font-mono text-[10px] text-ink-subtle">
         Esc to close · works with foot pedals mapped to Space
       </div>
+      <MicPermission />
+      <VoiceSseClient
+        turnId={turnId}
+        onStatus={(next) => {
+          if (next === "processing") setStatus("processing");
+          if (next === "speaking") setStatus("speaking");
+          if (next === "error") setStatus("error");
+        }}
+        onDone={() => {
+          if (activeRef.current) setStatus("idle");
+        }}
+      />
     </div>
   );
 }
