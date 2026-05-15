@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from resonantia.config import get_settings
+from resonantia.models.request_context import RequestContext
 
 
 async def chat(
@@ -21,6 +22,7 @@ async def chat(
     org_id: str | None = None,
     attachments: list[str] | None = None,
     request_id: str | None = None,
+    request_context: RequestContext | None = None,
 ) -> dict[str, Any]:
     if get_settings().multi_agent_enabled:
         from resonantia.services.multi_agent.orchestrator import chat as multi_chat
@@ -32,6 +34,7 @@ async def chat(
             clerk_user_id=clerk_user_id,
             org_id=org_id,
             request_id=request_id,
+            request_context=request_context,
         )
 
     from resonantia.services import agent as legacy_agent
@@ -44,4 +47,5 @@ async def chat(
         org_id=org_id,
         attachments=attachments,
         request_id=request_id,
+        request_context=request_context,
     )

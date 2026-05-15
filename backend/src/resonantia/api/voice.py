@@ -8,12 +8,14 @@ import time
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile, HTTPException, Request
 from fastapi.responses import FileResponse
-from openai import AsyncOpenAI
 
 from resonantia.config import get_settings
-from resonantia.dependencies import get_org_context
+from resonantia.dependencies import get_request_context
 from resonantia.middleware import log_stage_latency
+from resonantia.models.request_context import RequestContext
 from resonantia.services.agent import chat as agent_chat
+from resonantia.services.stt import OpenAISTTProvider
+from resonantia.services.tts import OpenAITTSProvider
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -27,7 +29,7 @@ async def voice_chat(
     request: Request,
     audio: UploadFile = File(...),
     conversation_id: str = Form(default="default"),
-    org_id: str = Depends(get_org_context),
+    ctx: RequestContext = Depends(get_request_context),
 ):
     """Single endpoint: receive audio -> transcribe -> agent chat -> TTS -> return all."""
     settings = get_settings()
@@ -38,7 +40,8 @@ async def voice_chat(
             detail="OpenAI API key not configured. Voice mode requires OPENAI_API_KEY.",
         )
 
-    client = AsyncOpenAI(api_key=settings.openai_api_key)
+    stt_provider = OpenAISTTProvider(api_key=settings.openai_api_key, default_model=settings.stt_model)
+    tts_provider = OpenAITTSProvider(api_key=settings.openai_api_key, default_model=settings.tts_model)
 
     # 1. Save uploaded audio to temp file
     suffix = os.path.splitext(audio.filename or "recording.webm")[1] or ".webm"
@@ -51,13 +54,9 @@ async def voice_chat(
         # 2. Whisper STT
         stt_start = time.monotonic()
         with open(tmp_path, "rb") as f:
-            transcription = await client.audio.transcriptions.create(
-                model=settings.stt_model,
-                file=f,
-            )
+            transcribed_text = await stt_provider.transcribe(f)
         log_stage_latency("stt", (time.monotonic() - stt_start) * 1000)
 
-        transcribed_text = transcription.text.strip()
         if not transcribed_text:
             return {
                 "error": "no_speech_detected",
@@ -72,7 +71,7 @@ async def voice_chat(
         chat_result = await agent_chat(
             message=transcribed_text,
             conversation_id=conversation_id,
-            org_id=org_id,
+            request_context=ctx,
             source="voice",
             request_id=getattr(request.state, "request_id", None),
         )
@@ -81,11 +80,7 @@ async def voice_chat(
 
         # 4. TTS — generate spoken response
         tts_start = time.monotonic()
-        tts_response = await client.audio.speech.create(
-            model=settings.tts_model,
-            voice=settings.tts_voice,
-            input=response_text[:4096],  # TTS has a limit
-        )
+        audio_bytes = await tts_provider.synthesize(response_text[:4096], voice=settings.tts_voice)
         log_stage_latency("tts", (time.monotonic() - tts_start) * 1000)
 
         # Save TTS audio
@@ -94,7 +89,6 @@ async def voice_chat(
         audio_id = uuid.uuid4().hex
         audio_path = os.path.join(voice_dir, f"{audio_id}.mp3")
         # Write audio bytes to file (stream_to_file may not work in async context)
-        audio_bytes = tts_response.content
         with open(audio_path, "wb") as f:
             f.write(audio_bytes)
         logger.info("TTS audio saved: %s (%d bytes)", audio_path, len(audio_bytes))

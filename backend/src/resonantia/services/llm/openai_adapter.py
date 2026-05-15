@@ -68,6 +68,7 @@ class OpenAIAdapter(LLMProvider):
         temperature: float = 0.0,
         max_tokens: int = 4096,
         response_format: dict[str, str] | None = None,
+        cache_control: dict[str, str] | None = None,
     ) -> LLMResponse:
         model = model or self._default_model
 

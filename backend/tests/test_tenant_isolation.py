@@ -89,31 +89,32 @@ class TestFileRegistryTenantIsolation:
 
 
 class TestChatEndpointOrgDerivation:
-    """Verify send_message derives org_id from Depends, not body."""
+    """Verify send_message derives tenant context from verified auth."""
 
     def test_send_message_has_org_id_dependency(self):
         from resonantia.api.chat import send_message
 
         sig = inspect.signature(send_message)
-        assert "org_id" in sig.parameters
-        param = sig.parameters["org_id"]
+        assert "ctx" in sig.parameters
+        param = sig.parameters["ctx"]
         assert param.default is not inspect.Parameter.empty
 
     def test_stream_message_has_org_id_dependency(self):
         from resonantia.api.chat import stream_message
 
         sig = inspect.signature(stream_message)
-        assert "org_id" in sig.parameters
-        param = sig.parameters["org_id"]
+        assert "ctx" in sig.parameters
+        param = sig.parameters["ctx"]
         assert param.default is not inspect.Parameter.empty
 
-    def test_chat_request_org_id_not_used_by_endpoint(self):
-        """The endpoint signature takes org_id from Depends(get_org_context),
-        which reads the X-Org-Id header. body.org_id is ignored."""
+    def test_chat_request_org_id_removed_from_body(self):
+        """Tenant context must come from auth, not request body."""
+        import pytest
+        from pydantic import ValidationError
         from resonantia.schemas.chat import ChatRequest
 
-        req = ChatRequest(message="test", org_id="attacker_org")
-        assert req.org_id == "attacker_org"
+        with pytest.raises(ValidationError):
+            ChatRequest(message="test", org_id="attacker_org")
 
 
 class TestConversationOrgCheck:

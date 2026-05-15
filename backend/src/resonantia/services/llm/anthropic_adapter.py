@@ -38,6 +38,12 @@ def _to_anthropic_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return converted
 
 
+def _with_cache_control(block: dict[str, Any], cache_control: dict[str, str] | None) -> dict[str, Any]:
+    if cache_control:
+        block = {**block, "cache_control": cache_control}
+    return block
+
+
 def _extract_messages(
     messages: list[dict[str, Any]],
 ) -> tuple[str, list[dict[str, Any]]]:
@@ -175,9 +181,11 @@ class AnthropicAdapter(LLMProvider):
         temperature: float = 0.0,
         max_tokens: int = 4096,
         response_format: dict[str, str] | None = None,
+        cache_control: dict[str, str] | None = None,
     ) -> LLMResponse:
         model = model or self._default_model
         system_prompt, anthropic_messages = _extract_messages(messages)
+        cache_control = cache_control or {"type": "ephemeral"}
 
         kwargs: dict[str, Any] = {
             "model": model,
@@ -187,9 +195,14 @@ class AnthropicAdapter(LLMProvider):
         if temperature > 0:
             kwargs["temperature"] = temperature
         if system_prompt:
-            kwargs["system"] = system_prompt
+            kwargs["system"] = [
+                _with_cache_control({"type": "text", "text": system_prompt}, cache_control)
+            ]
         if tools:
-            kwargs["tools"] = _to_anthropic_tools(tools)
+            kwargs["tools"] = [
+                _with_cache_control(tool, cache_control)
+                for tool in _to_anthropic_tools(tools)
+            ]
 
         response = await self._client.messages.create(**kwargs)
 
@@ -200,6 +213,13 @@ class AnthropicAdapter(LLMProvider):
                 text_parts.append(block.text)
 
         tool_calls = _parse_tool_calls(response.content)
+        cache_read = getattr(response.usage, "cache_read_input_tokens", 0) or 0
+        logger.info(
+            "anthropic_completion cache_read_input_tokens=%s input_tokens=%s output_tokens=%s",
+            cache_read,
+            response.usage.input_tokens,
+            response.usage.output_tokens,
+        )
 
         return LLMResponse(
             content="\n".join(text_parts) if text_parts else None,
@@ -208,6 +228,7 @@ class AnthropicAdapter(LLMProvider):
             provider=self.provider_name,
             input_tokens=response.usage.input_tokens,
             output_tokens=response.usage.output_tokens,
+            cache_read_input_tokens=cache_read,
         )
 
     async def completion_stream(

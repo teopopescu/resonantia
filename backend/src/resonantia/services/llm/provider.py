@@ -31,6 +31,7 @@ class LLMResponse(BaseModel):
     provider: str = ""
     input_tokens: int = 0
     output_tokens: int = 0
+    cache_read_input_tokens: int = 0
 
 
 class LLMProvider(abc.ABC):
@@ -48,6 +49,7 @@ class LLMProvider(abc.ABC):
         temperature: float = 0.0,
         max_tokens: int = 4096,
         response_format: dict[str, str] | None = None,
+        cache_control: dict[str, str] | None = None,
     ) -> LLMResponse:
         """Non-streaming completion."""
         ...

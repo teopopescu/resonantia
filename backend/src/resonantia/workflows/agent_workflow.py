@@ -32,6 +32,7 @@ class AgentToolCallInput:
     messages: list[dict[str, Any]]
     tools: list[dict[str, Any]]
     org_id: str
+    request_context: dict[str, Any] | None = None
     conversation_id: str | None = None
     max_iterations: int = 10
 
@@ -102,7 +103,7 @@ class AgentToolCallWorkflow:
 
                 tool_result: str = await workflow.execute_activity(
                     execute_tool_activity,
-                    args=[tc_name, tc_args, inp.org_id],
+                    args=[tc_name, tc_args, inp.org_id, inp.request_context],
                     start_to_close_timeout=timedelta(seconds=30),
                     retry_policy=RETRY_POLICY,
                 )

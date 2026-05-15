@@ -17,6 +17,7 @@ from typing import Any, AsyncGenerator
 from resonantia.config import get_settings
 from resonantia.db.session import async_session_factory
 from resonantia.models.conversation import Conversation, ConversationMessage
+from resonantia.models.request_context import RequestContext
 from resonantia.middleware import log_stage_latency
 from resonantia.services.guardrails import GUARDRAIL_SYSTEM_PROMPT, check_guardrails
 from resonantia.services.llm import LLMProvider, ToolCall, get_provider
@@ -138,14 +139,16 @@ async def chat(
     attachments: list[str] | None = None,
     source: str = "text",
     request_id: str | None = None,
+    request_context: RequestContext | None = None,
 ) -> dict[str, Any]:
     """Send a user message and return the assistant's response.
 
     Implements a full agentic loop: if the LLM calls tools, we execute
     them and feed results back until we get a text response.
     """
-    user_id = clerk_user_id or "anonymous"
-    org = org_id or "org_default"
+    user_id = request_context.user_id if request_context else (clerk_user_id or "anonymous")
+    org = request_context.org_id if request_context else (org_id or "org_default")
+    request_id = request_id or (request_context.request_id if request_context else None)
 
     conv_uuid, history = await _get_or_create_conversation(conversation_id, user_id, org)
     cid = str(conv_uuid)
@@ -290,6 +293,7 @@ async def chat(
                 user_id=user_id,
                 source=source,
                 request_id=request_id,
+                request_context=request_context,
             )
             log_stage_latency("tool", (time.monotonic() - tool_start) * 1000, tool_name=tool_name)
 
@@ -322,11 +326,13 @@ async def chat_stream(
     clerk_user_id: str | None = None,
     org_id: str | None = None,
     request_id: str | None = None,
+    request_context: RequestContext | None = None,
 ) -> AsyncGenerator[str, None]:
     """Stream the assistant response. Falls back to non-streaming for tool calls."""
     result = await chat(
         message, conversation_id, context,
         clerk_user_id=clerk_user_id, org_id=org_id, request_id=request_id,
+        request_context=request_context,
     )
     text = result.get("message", "")
 

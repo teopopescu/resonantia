@@ -62,11 +62,10 @@ export const useLabStore = create<LabState>()(
       pendingPrompt: null,
       voiceModeActive: false,
 
-      fetchConversations: async (clerkUserId?: string) => {
+      fetchConversations: async (_clerkUserId?: string) => {
+        void _clerkUserId;
         try {
-          const uid = clerkUserId || "";
-          if (!uid) return;
-          const data = await api<Conversation[]>(`/api/v1/chat/conversations?clerk_user_id=${encodeURIComponent(uid)}`);
+          const data = await api<Conversation[]>("/api/v1/chat/conversations");
           set({ conversations: data });
         } catch (err) {
           console.error("Failed to fetch conversations:", err);

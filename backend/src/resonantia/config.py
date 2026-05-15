@@ -45,6 +45,8 @@ class Settings(BaseSettings):
 
     # --- Clerk ---
     clerk_secret_key: str = ""
+    clerk_jwt_key: str = ""
+    clerk_authorized_parties: list[str] = []
 
     # --- Storage ---
     upload_dir: str = "./uploads"
@@ -67,8 +69,8 @@ class Settings(BaseSettings):
 
     # --- Voice ---
     tts_voice: str = "nova"
-    tts_model: str = "tts-1"
-    stt_model: str = "whisper-1"
+    tts_model: str = "gpt-4o-mini-tts"
+    stt_model: str = "gpt-4o-transcribe"
 
     # --- CORS ---
     cors_origins: list[str] = [

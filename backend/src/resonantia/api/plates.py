@@ -11,8 +11,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from resonantia.db.session import get_db
-from resonantia.dependencies import get_org_context
+from resonantia.dependencies import get_request_context
 from resonantia.models.plate import PlateMap
+from resonantia.models.request_context import RequestContext
 from resonantia.schemas.plate import (
     AutoMapRequest,
     CherryPickRequest,
@@ -31,9 +32,11 @@ router = APIRouter()
 @router.post("/", response_model=PlateMapResponse, status_code=201)
 async def create_plate_map(
     body: PlateMapCreate,
-    org_id: str = Depends(get_org_context),
+    ctx: RequestContext = Depends(get_request_context),
     db: AsyncSession = Depends(get_db),
 ) -> PlateMap:
+    if not ctx.can_write():
+        raise HTTPException(status_code=403, detail="Member role required to create plate maps")
     pm = PlateMap(
         name=body.name,
         plate_type=body.plate_type.value,
@@ -42,7 +45,7 @@ async def create_plate_map(
         destination_plate=body.destination_plate,
         well_mappings=[m.model_dump() for m in body.well_mappings] if body.well_mappings else None,
         experiment_id=body.experiment_id,
-        org_id=org_id,
+        org_id=ctx.org_id,
     )
     db.add(pm)
     await db.flush()
@@ -54,12 +57,12 @@ async def create_plate_map(
 async def list_plate_maps(
     skip: int = 0,
     limit: int = 50,
-    org_id: str = Depends(get_org_context),
+    ctx: RequestContext = Depends(get_request_context),
     db: AsyncSession = Depends(get_db),
 ) -> list[PlateMap]:
     result = await db.execute(
         select(PlateMap)
-        .where(PlateMap.org_id == org_id)
+        .where(PlateMap.org_id == ctx.org_id)
         .order_by(PlateMap.created_at.desc())
         .offset(skip)
         .limit(limit)
@@ -70,11 +73,11 @@ async def list_plate_maps(
 @router.get("/{plate_map_id}", response_model=PlateMapResponse)
 async def get_plate_map(
     plate_map_id: uuid.UUID,
-    org_id: str = Depends(get_org_context),
+    ctx: RequestContext = Depends(get_request_context),
     db: AsyncSession = Depends(get_db),
 ) -> PlateMap:
     pm = await db.get(PlateMap, plate_map_id)
-    if not pm or pm.org_id != org_id:
+    if not pm or pm.org_id != ctx.org_id:
         raise HTTPException(status_code=404, detail="Plate map not found")
     return pm
 
@@ -83,11 +86,13 @@ async def get_plate_map(
 async def update_plate_map(
     plate_map_id: uuid.UUID,
     body: PlateMapUpdate,
-    org_id: str = Depends(get_org_context),
+    ctx: RequestContext = Depends(get_request_context),
     db: AsyncSession = Depends(get_db),
 ) -> PlateMap:
+    if not ctx.can_write():
+        raise HTTPException(status_code=403, detail="Member role required to update plate maps")
     pm = await db.get(PlateMap, plate_map_id)
-    if not pm or pm.org_id != org_id:
+    if not pm or pm.org_id != ctx.org_id:
         raise HTTPException(status_code=404, detail="Plate map not found")
     update_data = body.model_dump(exclude_unset=True)
     if "well_mappings" in update_data and update_data["well_mappings"] is not None:
@@ -105,11 +110,13 @@ async def update_plate_map(
 @router.delete("/{plate_map_id}", status_code=204)
 async def delete_plate_map(
     plate_map_id: uuid.UUID,
-    org_id: str = Depends(get_org_context),
+    ctx: RequestContext = Depends(get_request_context),
     db: AsyncSession = Depends(get_db),
 ) -> None:
+    if not ctx.can_write():
+        raise HTTPException(status_code=403, detail="Member role required to delete plate maps")
     pm = await db.get(PlateMap, plate_map_id)
-    if not pm or pm.org_id != org_id:
+    if not pm or pm.org_id != ctx.org_id:
         raise HTTPException(status_code=404, detail="Plate map not found")
     await db.delete(pm)
 
@@ -118,11 +125,13 @@ async def delete_plate_map(
 async def generate_worklist(
     plate_map_id: uuid.UUID,
     body: WorklistRequest,
-    org_id: str = Depends(get_org_context),
+    ctx: RequestContext = Depends(get_request_context),
     db: AsyncSession = Depends(get_db),
 ) -> PlainTextResponse:
+    if not ctx.can_write():
+        raise HTTPException(status_code=403, detail="Member role required to generate worklists")
     pm = await db.get(PlateMap, plate_map_id)
-    if not pm or pm.org_id != org_id:
+    if not pm or pm.org_id != ctx.org_id:
         raise HTTPException(status_code=404, detail="Plate map not found")
     if not pm.well_mappings:
         raise HTTPException(status_code=400, detail="Plate map has no well mappings")
@@ -144,7 +153,10 @@ async def generate_worklist(
 
 
 @router.post("/auto-map", response_model=dict[str, Any])
-async def auto_map(body: AutoMapRequest) -> dict[str, Any]:
+async def auto_map(
+    body: AutoMapRequest,
+    ctx: RequestContext = Depends(get_request_context),
+) -> dict[str, Any]:
     """AI-assisted plate mapping using rule-based logic."""
     result = plate_mapper.generate_plate_map(
         sources=body.source_plates,
@@ -157,7 +169,12 @@ async def auto_map(body: AutoMapRequest) -> dict[str, Any]:
 
 
 @router.post("/cherry-pick", response_model=dict[str, Any])
-async def cherry_pick(body: CherryPickRequest) -> dict[str, Any]:
+async def cherry_pick(
+    body: CherryPickRequest,
+    ctx: RequestContext = Depends(get_request_context),
+) -> dict[str, Any]:
+    if not ctx.can_write():
+        raise HTTPException(status_code=403, detail="Member role required to cherry-pick wells")
     return plate_mapper.cherry_pick(
         source_plates=body.source_plates,
         hit_list=body.hit_list,
@@ -166,7 +183,12 @@ async def cherry_pick(body: CherryPickRequest) -> dict[str, Any]:
 
 
 @router.post("/serial-dilution", response_model=dict[str, Any])
-async def serial_dilution(body: SerialDilutionRequest) -> dict[str, Any]:
+async def serial_dilution(
+    body: SerialDilutionRequest,
+    ctx: RequestContext = Depends(get_request_context),
+) -> dict[str, Any]:
+    if not ctx.can_write():
+        raise HTTPException(status_code=403, detail="Member role required to generate serial dilutions")
     return plate_mapper.serial_dilution(
         compound=body.compound,
         start_concentration=body.start_concentration,
