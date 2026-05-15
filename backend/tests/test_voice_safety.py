@@ -61,15 +61,18 @@ class TestVoiceSafetyClassification:
 
 class TestVoiceSafetyExecutionGate:
     @pytest.mark.asyncio
-    async def test_voice_blocked_tool_returns_pending_approval(self):
+    async def test_voice_blocked_tool_returns_pending_approval(self, db_session, monkeypatch):
         from unittest.mock import AsyncMock, patch
 
+        from resonantia.services import tool_executor
         from resonantia.services.output_validator import ToolResult
         from resonantia.services.tool_executor import execute_tool_typed
+        from tests.conftest import _test_session_factory
 
         async def _handler(params, org_id):
             return {"executed": True}
 
+        monkeypatch.setattr(tool_executor, "async_session_factory", _test_session_factory)
         with patch.dict(
             "resonantia.services.tool_executor.TOOL_HANDLERS",
             {"submit_eln_entry": _handler},

@@ -91,7 +91,13 @@ async def execute_tool_activity(
 
     logger.info("execute_tool_activity: tool=%s, org_id=%s", tool_name, org_id)
     ctx = RequestContext(**request_context) if request_context else None
-    result = await execute_tool(tool_name, tool_args, org_id=org_id, request_context=ctx)
+    result = await execute_tool(
+        tool_name,
+        tool_args,
+        org_id=org_id,
+        source="temporal",
+        request_context=ctx,
+    )
     return result
 
 

@@ -1,31 +1,40 @@
-"""Tests for the approval gate service."""
+"""Tests for DB-backed approval gates."""
 
 from __future__ import annotations
 
-import time
+import inspect
+import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from resonantia.models.pending_approval import PendingApprovalRecord
 from resonantia.services.approval import (
+    ApprovalStatus,
     GateKind,
-    PendingApproval,
     TOOL_GATES,
-    approve,
+    claim_for_approval,
     create_pending,
     get_gate,
-    get_pending,
+    get_pending_record,
     is_gated,
-    reject,
-    _pending,
+    is_expired,
+    mark_expired,
+    pending_from_record,
+    reject_pending,
 )
+from tests.conftest import _test_session_factory
 
 
 class TestGateClassification:
     def test_lookup_tools_are_ungated(self):
-        ungated = ["lookup_sample", "check_inventory", "query_experiments",
-                    "calculate_dilution", "fit_dose_response", "normalize_plate",
-                    "calculate_z_prime", "qpcr_analysis", "read_file_contents"]
+        ungated = [
+            "lookup_sample", "check_inventory", "query_experiments",
+            "calculate_dilution", "fit_dose_response", "normalize_plate",
+            "calculate_z_prime", "qpcr_analysis", "read_file_contents",
+        ]
         for tool in ungated:
             assert get_gate(tool) == GateKind.NONE, f"{tool} should be ungated"
 
@@ -47,67 +56,163 @@ class TestGateClassification:
         assert not is_gated("lookup_sample")
         assert is_gated("create_eln_entry")
         assert is_gated("submit_eln_entry")
+        assert TOOL_GATES["submit_eln_entry"] == GateKind.HARD_APPROVAL
 
 
 class TestPendingApprovals:
-    def setup_method(self):
-        _pending.clear()
+    @pytest.mark.asyncio
+    async def test_create_pending_persists_token(self, db_session: AsyncSession):
+        pending = await create_pending(
+            db_session,
+            "create_eln_entry",
+            {"title": "Test"},
+            "org_A",
+            "user_1",
+            {"markdown": "..."},
+        )
+        assert pending.token
+        assert pending.tool_name == "create_eln_entry"
+        assert pending.org_id == "org_A"
+        assert pending.user_id == "user_1"
 
-    def test_create_pending_returns_token(self):
-        p = create_pending("create_eln_entry", {"title": "Test"}, "org_A", "user_1", {"markdown": "..."})
-        assert p.token
-        assert p.tool_name == "create_eln_entry"
-        assert p.org_id == "org_A"
-        assert p.user_id == "user_1"
-
-    def test_get_pending_returns_created(self):
-        p = create_pending("create_eln_entry", {}, "org_A", "user_1", {})
-        loaded = get_pending(p.token)
+        loaded = await get_pending_record(db_session, pending.token)
         assert loaded is not None
-        assert loaded.token == p.token
+        assert pending_from_record(loaded).token == pending.token
 
-    def test_get_pending_returns_none_for_unknown(self):
-        assert get_pending("nonexistent-token") is None
+    @pytest.mark.asyncio
+    async def test_claim_and_reject_update_status(self, db_session: AsyncSession):
+        pending = await create_pending(db_session, "create_eln_entry", {}, "org_A", "user_1", {})
+        record = await get_pending_record(db_session, pending.token)
+        assert record is not None
+        await claim_for_approval(db_session, record, decided_by="approver")
+        assert record.status == ApprovalStatus.APPROVED.value
+        assert record.decided_by == "approver"
 
-    def test_approve_removes_and_returns(self):
-        p = create_pending("create_plate_map", {}, "org_A", "user_1", {})
-        approved = approve(p.token)
-        assert approved is not None
-        assert approved.token == p.token
-        assert get_pending(p.token) is None
+        pending_2 = await create_pending(db_session, "create_eln_entry", {}, "org_A", "user_1", {})
+        record_2 = await get_pending_record(db_session, pending_2.token)
+        assert record_2 is not None
+        await reject_pending(db_session, record_2, decided_by="approver")
+        assert record_2.status == ApprovalStatus.REJECTED.value
 
-    def test_approve_returns_none_for_unknown(self):
-        assert approve("nonexistent") is None
-
-    def test_reject_removes(self):
-        p = create_pending("create_eln_entry", {}, "org_A", "user_1", {})
-        assert reject(p.token) is True
-        assert get_pending(p.token) is None
-
-    def test_reject_returns_false_for_unknown(self):
-        assert reject("nonexistent") is False
-
-    def test_expired_approval_returns_none(self):
-        p = create_pending("create_eln_entry", {}, "org_A", "user_1", {})
-        _pending[p.token].expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
-        assert get_pending(p.token) is None
-
-    def test_double_approve_fails(self):
-        p = create_pending("create_eln_entry", {}, "org_A", "user_1", {})
-        assert approve(p.token) is not None
-        assert approve(p.token) is None
+    @pytest.mark.asyncio
+    async def test_expired_approval_is_marked(self, db_session: AsyncSession):
+        record = PendingApprovalRecord(
+            token="expired-token",
+            org_id="org_A",
+            requested_by="user_1",
+            tool_name="create_eln_entry",
+            tool_args={},
+            preview={},
+            gate_kind=GateKind.SOFT_REVIEW.value,
+            status=ApprovalStatus.PENDING.value,
+            expires_at=datetime.now(timezone.utc) - timedelta(seconds=1),
+        )
+        db_session.add(record)
+        await db_session.flush()
+        assert is_expired(record)
+        await mark_expired(db_session, record)
+        assert record.status == ApprovalStatus.EXPIRED.value
 
 
-class TestApprovalEndpoints:
-    def test_approve_endpoint_exists(self):
-        import inspect
-        from resonantia.api.chat import approve_tool_call
-        sig = inspect.signature(approve_tool_call)
-        assert "token" in sig.parameters
-        assert "ctx" in sig.parameters
+class TestApprovalExecution:
+    @pytest.mark.asyncio
+    async def test_text_gated_tool_returns_pending_approval(self, db_session: AsyncSession, monkeypatch):
+        from resonantia.services import tool_executor
+        from resonantia.services.output_validator import ToolResult
+        from resonantia.services.tool_executor import execute_tool_typed
 
-    def test_reject_endpoint_exists(self):
-        import inspect
-        from resonantia.api.chat import reject_tool_call
-        sig = inspect.signature(reject_tool_call)
-        assert "token" in sig.parameters
+        async def _handler(params, org_id):
+            return {"executed": True}
+
+        async def _no_schema(tool_name):
+            return None
+
+        async def _no_tenant_error(tool_input, org_id, session):
+            return None
+
+        monkeypatch.setattr(tool_executor, "async_session_factory", _test_session_factory)
+        monkeypatch.setitem(tool_executor.TOOL_HANDLERS, "submit_eln_entry", _handler)
+        monkeypatch.setattr(tool_executor, "_get_tool_schema", _no_schema)
+        monkeypatch.setattr(tool_executor, "check_tenant_refs", _no_tenant_error)
+
+        result = await execute_tool_typed(
+            "submit_eln_entry",
+            {"entry_id": "eln-1"},
+            "org_1",
+            source="text",
+            user_id="user_1",
+        )
+
+        assert isinstance(result, ToolResult)
+        assert result.data["approval_required"] is True
+        assert result.data["pending_approval"]["tool_name"] == "submit_eln_entry"
+        assert result.data["approval_card"]["type"] == "approval_card"
+
+    @pytest.mark.asyncio
+    async def test_approval_token_executes_once(self, client: AsyncClient, db_session: AsyncSession, monkeypatch):
+        from resonantia.services import tool_executor
+
+        monkeypatch.setattr(tool_executor, "async_session_factory", _test_session_factory)
+        pending = await create_pending(
+            db_session,
+            "create_eln_entry",
+            {"title": "Approved entry", "content_markdown": "body"},
+            "org_default",
+            "user_1",
+            {"title": "Approved entry"},
+        )
+
+        first = await client.post(f"/api/v1/chat/approve/{pending.token}")
+        assert first.status_code == 200
+        assert first.json()["status"] == "approved"
+
+        second = await client.post(f"/api/v1/chat/approve/{pending.token}")
+        assert second.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_expired_token_returns_error(self, client: AsyncClient, db_session: AsyncSession):
+        record = PendingApprovalRecord(
+            token="expired-token",
+            org_id="org_default",
+            requested_by="user_1",
+            tool_name="create_eln_entry",
+            tool_args={"title": "Expired"},
+            preview={},
+            gate_kind=GateKind.SOFT_REVIEW.value,
+            status=ApprovalStatus.PENDING.value,
+            expires_at=datetime.now(timezone.utc) - timedelta(seconds=1),
+        )
+        db_session.add(record)
+        await db_session.flush()
+
+        response = await client.post("/api/v1/chat/approve/expired-token")
+        assert response.status_code == 410
+
+    @pytest.mark.asyncio
+    async def test_temporal_activity_path_returns_pending_approval(self, db_session: AsyncSession, monkeypatch):
+        from resonantia.services import tool_executor
+        from resonantia.workflows.activities import execute_tool_activity
+
+        monkeypatch.setattr(tool_executor, "async_session_factory", _test_session_factory)
+        result = await execute_tool_activity(
+            "create_eln_entry",
+            {"title": "Temporal gated"},
+            "org_default",
+            request_context={
+                "user_id": "test-user",
+                "org_id": "org_default",
+                "roles": ["org:admin"],
+                "permissions": [],
+                "request_id": "req-1",
+            },
+        )
+        payload = json.loads(result)
+        assert payload["approval_required"] is True
+        assert payload["pending_approval"]["tool_name"] == "create_eln_entry"
+
+    def test_multi_agent_path_uses_execute_tool_gate(self):
+        from resonantia.services.multi_agent import subagents
+
+        source = inspect.getsource(subagents)
+        assert "execute_tool(" in source
+        assert "TOOL_HANDLERS" not in source

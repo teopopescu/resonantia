@@ -157,6 +157,7 @@ async def execute_tool_typed(
     source: str = "text",
     request_id: str | None = None,
     request_context: RequestContext | None = None,
+    skip_gate: bool = False,
 ) -> ToolResult | ToolError:
     """Execute a tool and return a typed ``ToolResult`` or ``ToolError``.
 
@@ -209,31 +210,43 @@ async def execute_tool_typed(
                 retry_allowed=False,
             )
 
-    # --- Step 3: Voice safety / approval gate ---
-    if source == "voice":
-        from resonantia.services.approval import create_pending, get_gate
-        from resonantia.services.voice_safety import is_voice_safe
+    # --- Step 3: Approval gate ---
+    if not skip_gate:
+        from resonantia.services.approval import approval_card, create_pending, get_gate, is_gated
 
-        if not is_voice_safe(tool_name):
-            pending = create_pending(
-                tool_name=tool_name,
-                tool_args=tool_input,
-                org_id=org_id,
-                user_id=user_id,
-                preview={
-                    "tool_name": tool_name,
-                    "tool_args": tool_input,
-                    "reason": "voice_pre_execution_gate",
-                    "request_id": request_id,
-                },
-            )
+        if is_gated(tool_name):
+            try:
+                async with async_session_factory() as session:
+                    pending = await create_pending(
+                        session,
+                        tool_name=tool_name,
+                        tool_args=tool_input,
+                        org_id=org_id,
+                        user_id=user_id,
+                        preview={
+                            "tool_name": tool_name,
+                            "tool_args": tool_input,
+                            "source": source,
+                            "request_id": request_id,
+                        },
+                    )
+                    await session.commit()
+            except Exception:
+                logger.exception("Could not create pending approval for %s", tool_name)
+                return ToolError(
+                    tool_name=tool_name,
+                    error_type="system",
+                    message="Could not create pending approval",
+                    retry_allowed=True,
+                )
             return ToolResult(
                 tool_name=tool_name,
                 data={
                     "approval_required": True,
                     "pending_approval": pending.model_dump(mode="json"),
+                    "approval_card": approval_card(pending),
                     "gate_kind": get_gate(tool_name).value,
-                    "message": "This action requires text confirmation before execution.",
+                    "message": "This action requires approval before execution.",
                 },
                 source_refs=_extract_source_refs(tool_input),
             )
@@ -285,6 +298,7 @@ async def execute_tool(
     source: str = "text",
     request_id: str | None = None,
     request_context: RequestContext | None = None,
+    skip_gate: bool = False,
 ) -> str:
     """Execute a tool by name and return a JSON string result.
 
@@ -300,6 +314,7 @@ async def execute_tool(
         source=source,
         request_id=request_id,
         request_context=request_context,
+        skip_gate=skip_gate,
     )
 
     if isinstance(typed, ToolResult):

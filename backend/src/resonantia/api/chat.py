@@ -10,6 +10,7 @@ Includes conversation CRUD for persistent chat history.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import uuid
 from typing import Any
@@ -295,18 +296,43 @@ async def delete_conversation(
 async def approve_tool_call(
     token: str,
     ctx: RequestContext = Depends(get_request_context),
+    db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Approve a pending tool call and execute it."""
-    from resonantia.services.approval import approve
+    from resonantia.services.approval import (
+        ApprovalStatus,
+        claim_for_approval,
+        get_pending_record,
+        is_expired,
+        mark_expired,
+        pending_from_record,
+    )
     from resonantia.services.tool_executor import execute_tool
 
-    pending = approve(token)
-    if pending is None:
+    record = await get_pending_record(db, token, for_update=True)
+    if record is None:
         raise HTTPException(status_code=410, detail="Approval expired or not found")
-    if pending.org_id != ctx.org_id or not ctx.can_approve():
+    if record.org_id != ctx.org_id or not ctx.can_approve():
         raise HTTPException(status_code=403, detail="Not authorized to approve this action")
+    if is_expired(record):
+        await mark_expired(db, record)
+        raise HTTPException(status_code=410, detail="Approval expired or not found")
+    if record.status != ApprovalStatus.PENDING.value:
+        raise HTTPException(status_code=409, detail="Approval has already been decided")
 
-    result = await execute_tool(pending.tool_name, pending.tool_args, request_context=ctx)
+    await claim_for_approval(db, record, decided_by=ctx.user_id)
+    pending = pending_from_record(record)
+    result = await execute_tool(
+        pending.tool_name,
+        pending.tool_args,
+        request_context=ctx,
+        skip_gate=True,
+    )
+    try:
+        record.result = json.loads(result)
+    except json.JSONDecodeError:
+        record.result = {"raw": result}
+    await db.flush()
     return {"status": "approved", "tool_name": pending.tool_name, "result": result}
 
 
@@ -314,12 +340,28 @@ async def approve_tool_call(
 async def reject_tool_call(
     token: str,
     ctx: RequestContext = Depends(get_request_context),
+    db: AsyncSession = Depends(get_db),
 ) -> dict[str, str]:
     """Reject a pending tool call."""
-    from resonantia.services.approval import reject
+    from resonantia.services.approval import (
+        ApprovalStatus,
+        get_pending_record,
+        is_expired,
+        mark_expired,
+        reject_pending,
+    )
 
-    if not reject(token):
+    record = await get_pending_record(db, token, for_update=True)
+    if record is None:
         raise HTTPException(status_code=410, detail="Approval expired or not found")
+    if record.org_id != ctx.org_id or not ctx.can_approve():
+        raise HTTPException(status_code=403, detail="Not authorized to reject this action")
+    if is_expired(record):
+        await mark_expired(db, record)
+        raise HTTPException(status_code=410, detail="Approval expired or not found")
+    if record.status != ApprovalStatus.PENDING.value:
+        raise HTTPException(status_code=409, detail="Approval has already been decided")
+    await reject_pending(db, record, decided_by=ctx.user_id)
     return {"status": "rejected"}
 
 

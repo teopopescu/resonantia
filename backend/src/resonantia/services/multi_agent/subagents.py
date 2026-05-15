@@ -224,7 +224,11 @@ async def run_specialist(
                 {"id": tc.id, "name": tc.name, "input": tool_input}
             )
             tool_result = await execute_tool(
-                tc.name, tool_input, org_id=org_id, request_context=request_context
+                tc.name,
+                tool_input,
+                org_id=org_id,
+                source="multi_agent",
+                request_context=request_context,
             )
             history.append(
                 {
