@@ -31,6 +31,9 @@ class StorageBackend(ABC):
     async def load(self, path: str) -> bytes:
         """Load raw bytes from *path*."""
 
+    async def delete(self, path: str) -> None:
+        """Delete stored bytes at *path* if present."""
+
     @abstractmethod
     def url(self, path: str) -> str:
         """Return a URL (relative or signed) for *path*."""
@@ -56,6 +59,11 @@ class LocalStorage(StorageBackend):
         if not full_path.exists():
             raise FileNotFoundError(f"File not found: {full_path}")
         return full_path.read_bytes()
+
+    async def delete(self, path: str) -> None:
+        full_path = self.base_dir / path
+        if full_path.exists():
+            full_path.unlink()
 
     def url(self, path: str) -> str:
         return f"/api/v1/files/serve/{path}"

@@ -172,14 +172,14 @@ async def chat(
     # are byte-identical to the pre-multimodal code path. The org_id
     # scope here is the security boundary: only files owned by the
     # caller's org are eligible to be encoded.
-    user_content = build_user_content(
+    user_content = await build_user_content(
         text_content, attachments=attachments, org_id=org,
     )
 
     history.append({"role": "user", "content": user_content})
 
     # Persist the text representation; binary image bytes are NOT
-    # written to the conversation row — the file registry is the source
+    # written to the conversation row — file storage is the source
     # of truth for image bytes. Tracing below also receives the text-only
     # form so image bytes don't egress to Langfuse.
     await _persist_message(conv_uuid, "user", content=text_content)

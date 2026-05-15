@@ -3,89 +3,87 @@
 from __future__ import annotations
 
 import inspect
+import uuid
 
 import pytest
 
+from resonantia.models.file_upload import FileUpload
+from tests.conftest import _test_session_factory
 
-class TestFileRegistryTenantIsolation:
+
+class TestFileUploadTenantIsolation:
     """Verify file tools filter by org_id."""
 
+    async def _add_file(self, db_session, *, org_id: str, filename: str, content: bytes = b"a,b\n1,2\n") -> str:
+        file_id = uuid.uuid4()
+        db_session.add(
+            FileUpload(
+                id=file_id,
+                org_id=org_id,
+                uploaded_by="test-user",
+                filename=filename,
+                content_type="text/csv",
+                size_bytes=len(content),
+                storage_path=f"files/{file_id}.csv",
+                storage_backend="local",
+                content_bytes=content,
+            )
+        )
+        await db_session.commit()
+        return str(file_id)
+
     @pytest.mark.asyncio
-    async def test_list_files_scoped_by_org(self):
-        from resonantia.api.files import _file_registry
+    async def test_list_files_scoped_by_org(self, db_session, monkeypatch):
+        from resonantia.services import tool_executor
         from resonantia.services.tool_executor import _list_files
 
-        _file_registry.clear()
-        _file_registry["file_A"] = {
-            "id": "file_A", "filename": "data_a.csv", "size": 100,
-            "content_type": "text/csv", "org_id": "org_A",
-        }
-        _file_registry["file_B"] = {
-            "id": "file_B", "filename": "data_b.csv", "size": 200,
-            "content_type": "text/csv", "org_id": "org_B",
-        }
+        monkeypatch.setattr(tool_executor, "async_session_factory", _test_session_factory)
+        file_a = await self._add_file(db_session, org_id="org_A", filename="data_a.csv")
+        file_b = await self._add_file(db_session, org_id="org_B", filename="data_b.csv")
 
         result_a = await _list_files({}, org_id="org_A")
         assert result_a["found"] == 1
-        assert result_a["files"][0]["id"] == "file_A"
+        assert result_a["files"][0]["id"] == file_a
 
         result_b = await _list_files({}, org_id="org_B")
         assert result_b["found"] == 1
-        assert result_b["files"][0]["id"] == "file_B"
-
-        _file_registry.clear()
+        assert result_b["files"][0]["id"] == file_b
 
     @pytest.mark.asyncio
-    async def test_get_file_info_blocks_cross_org(self):
-        from resonantia.api.files import _file_registry
+    async def test_get_file_info_blocks_cross_org(self, db_session, monkeypatch):
+        from resonantia.services import tool_executor
         from resonantia.services.tool_executor import _get_file_info
 
-        _file_registry.clear()
-        _file_registry["file_A"] = {
-            "id": "file_A", "filename": "data_a.csv", "size": 100,
-            "content_type": "text/csv", "org_id": "org_A",
-        }
+        monkeypatch.setattr(tool_executor, "async_session_factory", _test_session_factory)
+        file_a = await self._add_file(db_session, org_id="org_A", filename="data_a.csv")
 
-        result = await _get_file_info({"file_id": "file_A"}, org_id="org_B")
+        result = await _get_file_info({"file_id": file_a}, org_id="org_B")
         assert result["found"] is False
 
-        result_same = await _get_file_info({"file_id": "file_A"}, org_id="org_A")
+        result_same = await _get_file_info({"file_id": file_a}, org_id="org_A")
         assert result_same["found"] is True
 
-        _file_registry.clear()
-
     @pytest.mark.asyncio
-    async def test_get_file_info_blocks_cross_org_by_filename(self):
-        from resonantia.api.files import _file_registry
+    async def test_get_file_info_blocks_cross_org_by_filename(self, db_session, monkeypatch):
+        from resonantia.services import tool_executor
         from resonantia.services.tool_executor import _get_file_info
 
-        _file_registry.clear()
-        _file_registry["file_A"] = {
-            "id": "file_A", "filename": "secret_data.csv", "size": 100,
-            "content_type": "text/csv", "org_id": "org_A",
-        }
+        monkeypatch.setattr(tool_executor, "async_session_factory", _test_session_factory)
+        await self._add_file(db_session, org_id="org_A", filename="secret_data.csv")
 
         result = await _get_file_info({"filename": "secret"}, org_id="org_B")
         assert result["found"] is False
 
-        _file_registry.clear()
-
     @pytest.mark.asyncio
-    async def test_read_file_blocks_cross_org(self):
-        from resonantia.api.files import _file_registry
+    async def test_read_file_blocks_cross_org(self, db_session, monkeypatch):
+        from resonantia.services import tool_executor
         from resonantia.services.tool_executor import _read_file_contents
 
-        _file_registry.clear()
-        _file_registry["file_A"] = {
-            "id": "file_A", "filename": "data.csv", "size": 100,
-            "content_type": "text/csv", "org_id": "org_A",
-            "stored_path": "/nonexistent/path",
-        }
+        monkeypatch.setattr(tool_executor, "async_session_factory", _test_session_factory)
+        file_a = await self._add_file(db_session, org_id="org_A", filename="data.csv")
 
-        result = await _read_file_contents({"file_id": "file_A"}, org_id="org_B")
+        result = await _read_file_contents({"file_id": file_a}, org_id="org_B")
         assert "error" in result or "not" in str(result).lower()
-
-        _file_registry.clear()
 
 
 class TestChatEndpointOrgDerivation:
