@@ -22,6 +22,7 @@ from resonantia.db.session import get_db
 from resonantia.dependencies import get_request_context
 from resonantia.models.file_upload import FileUpload
 from resonantia.models.request_context import RequestContext
+from resonantia.repositories.audit_log import append_audit_log
 
 router = APIRouter()
 
@@ -197,6 +198,7 @@ def _parse_csv(content: bytes, filename: str) -> dict[str, Any]:
 async def upload_files(
     files: list[UploadFile] = File(...),
     ctx: RequestContext = Depends(get_request_context),
+    db: AsyncSession = Depends(get_db),
 ) -> list[FileMetadata]:
     if not ctx.can_write():
         raise HTTPException(status_code=403, detail="Member role required to upload files")
@@ -235,6 +237,19 @@ async def upload_files(
             "org_id": ctx.org_id,
         }
         _file_registry[file_id] = meta
+        await append_audit_log(
+            db,
+            ctx=ctx,
+            action="file.upload",
+            target_type="file_upload",
+            target_id=file_id,
+            metadata={
+                "filename": meta["filename"],
+                "size": meta["size"],
+                "content_type": meta["content_type"],
+                "storage": "registry",
+            },
+        )
         results.append(FileMetadata(**{k: v for k, v in meta.items()
                                        if k not in ("stored_path", "org_id")}))
 
@@ -283,6 +298,31 @@ async def upload_and_parse(
         )
         db.add(upload_record)
         await db.flush()
+        await append_audit_log(
+            db,
+            ctx=ctx,
+            action="file.upload",
+            target_type="file_upload",
+            target_id=file_id,
+            metadata={
+                "filename": filename,
+                "size": len(contents),
+                "content_type": content_type,
+                "storage_path": storage_path,
+            },
+        )
+        await append_audit_log(
+            db,
+            ctx=ctx,
+            action="file.parse",
+            target_type="file_upload",
+            target_id=file_id,
+            metadata={
+                "detected_format": parsed["detected_format"],
+                "row_count": parsed["row_count"],
+                "columns": parsed["columns"],
+            },
+        )
     except Exception as exc:
         raise HTTPException(status_code=500, detail="Could not persist uploaded file metadata") from exc
 

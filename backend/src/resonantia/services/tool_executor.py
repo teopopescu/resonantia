@@ -105,6 +105,42 @@ async def _get_tool_schema(tool_name: str) -> dict[str, Any] | None:
     return None
 
 
+async def _append_tool_audit(
+    *,
+    tool_name: str,
+    tool_input: dict[str, Any],
+    org_id: str,
+    user_id: str | None,
+    request_id: str | None,
+    status: str,
+    source_refs: list[str] | None = None,
+    error_type: str | None = None,
+) -> None:
+    try:
+        from resonantia.repositories.audit_log import append_audit_log
+
+        async with async_session_factory() as session:
+            await append_audit_log(
+                session,
+                org_id=org_id,
+                actor_user_id=user_id,
+                action="tool.execution",
+                target_type="tool",
+                target_id=tool_name,
+                request_id=request_id,
+                metadata={
+                    "tool_name": tool_name,
+                    "tool_input": tool_input,
+                    "status": status,
+                    "source_refs": source_refs or [],
+                    "error_type": error_type,
+                },
+            )
+            await session.commit()
+    except Exception:
+        logger.exception("Failed to append audit log for tool %s", tool_name)
+
+
 async def execute_tool_typed(
     tool_name: str,
     tool_input: dict[str, Any],
@@ -199,13 +235,32 @@ async def execute_tool_typed(
     try:
         result = await handler(tool_input, org_id)
         serialized = _serialize(result)
+        source_refs = _extract_source_refs(tool_input)
+        await _append_tool_audit(
+            tool_name=tool_name,
+            tool_input=tool_input,
+            org_id=org_id,
+            user_id=user_id,
+            request_id=request_id,
+            status="success",
+            source_refs=source_refs,
+        )
         return ToolResult(
             tool_name=tool_name,
             data=serialized if isinstance(serialized, dict) else {"result": serialized},
-            source_refs=_extract_source_refs(tool_input),
+            source_refs=source_refs,
         )
     except Exception:
         logger.exception("Tool execution failed: %s", tool_name)
+        await _append_tool_audit(
+            tool_name=tool_name,
+            tool_input=tool_input,
+            org_id=org_id,
+            user_id=user_id,
+            request_id=request_id,
+            status="error",
+            error_type="system",
+        )
         return ToolError(
             tool_name=tool_name,
             error_type="system",
