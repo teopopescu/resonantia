@@ -54,7 +54,7 @@ class TestVoiceToELNFlow:
         source = inspect.getsource(
             __import__("resonantia.services.tool_executor", fromlist=["execute_tool_typed"])
         )
-        assert "is_voice_safe" in source
+        assert "is_gated" in source
         assert "create_pending" in source
 
 

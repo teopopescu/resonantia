@@ -118,6 +118,24 @@ async def _persist_message(
         await session.commit()
 
 
+def _approval_message_from_tool_result(tool_result: str) -> str | None:
+    try:
+        payload = json.loads(tool_result)
+    except Exception:
+        return None
+    if not isinstance(payload, dict) or not payload.get("approval_required"):
+        return None
+    pending = payload.get("pending_approval") or {}
+    card = payload.get("approval_card") or {}
+    tool_name = card.get("tool_name") or pending.get("tool_name", "tool")
+    gate_kind = card.get("gate_kind") or payload.get("gate_kind", "approval")
+    token = card.get("token") or pending.get("token")
+    return (
+        f"Approval required for `{tool_name}` ({gate_kind}). "
+        f"Use approval token `{token}` to approve or reject this action."
+    )
+
+
 async def _update_conversation_title(conversation_id: uuid.UUID, first_message: str) -> None:
     """Auto-generate title from first user message (first 50 chars)."""
     title = first_message[:50].strip()
@@ -310,6 +328,14 @@ async def chat(
                 content=tool_result,
                 tool_call_id=tc.id,
             )
+            approval_message = _approval_message_from_tool_result(tool_result)
+            if approval_message:
+                await _persist_message(conv_uuid, "assistant", content=approval_message)
+                return {
+                    "message": approval_message,
+                    "conversation_id": cid,
+                    "tool_calls": all_tool_calls,
+                }
 
     # Max rounds reached
     return {
