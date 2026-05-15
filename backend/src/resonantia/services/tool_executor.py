@@ -26,6 +26,11 @@ from resonantia.models.eln_entry import ELNEntry
 from resonantia.models.file_upload import FileUpload
 from resonantia.models.protocol import Protocol, ProtocolStep
 from resonantia.models.request_context import RequestContext
+from resonantia.models.processing_result import ProcessingResult
+from resonantia.repositories.processing_result import (
+    ProcessingResultRepository,
+    make_idempotency_key,
+)
 from resonantia.services.output_validator import (
     ToolError,
     ToolResult,
@@ -1324,9 +1329,91 @@ async def _calculate_dilution(params: dict, org_id: str = "org_default") -> dict
 # Data processing tools
 # ---------------------------------------------------------------------------
 
+_PROCESSING_METADATA_KEYS = {
+    "created_by",
+    "experiment_id",
+    "file_upload_id",
+    "request_id",
+    "user_id",
+}
+
+
+def _processing_parameters(params: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in params.items() if k not in _PROCESSING_METADATA_KEYS}
+
+
+def _processing_created_by(params: dict[str, Any]) -> str:
+    return str(params.get("created_by") or params.get("user_id") or "agent")
+
+
+def _processing_key(params: dict[str, Any], analysis_type: str) -> str:
+    return make_idempotency_key(
+        file_upload_id=params.get("file_upload_id"),
+        analysis_type=analysis_type,
+        parameters=_processing_parameters(params),
+    )
+
+
+async def _get_cached_processing_result(
+    params: dict[str, Any],
+    *,
+    org_id: str,
+    analysis_type: str,
+) -> dict[str, Any] | None:
+    try:
+        async with async_session_factory() as session:
+            cached = await ProcessingResultRepository(session).get_by_idempotency_key(
+                org_id=org_id,
+                idempotency_key=_processing_key(params, analysis_type),
+            )
+            if not isinstance(cached, ProcessingResult):
+                return None
+            result = _serialize(cached.result)
+            if not isinstance(result, dict):
+                result = {"result": result}
+            result = dict(result)
+            result["cached"] = True
+            result["processing_result_id"] = str(cached.id)
+            return result
+    except Exception:
+        logger.warning("Could not read cached %s processing result", analysis_type, exc_info=True)
+        return None
+
+
+async def _persist_processing_result(
+    params: dict[str, Any],
+    result: dict[str, Any],
+    *,
+    org_id: str,
+    analysis_type: str,
+    experiment_id: str | None = None,
+) -> str | None:
+    try:
+        async with async_session_factory() as session:
+            record = await ProcessingResultRepository(session).create(
+                org_id=org_id,
+                created_by=_processing_created_by(params),
+                idempotency_key=_processing_key(params, analysis_type),
+                analysis_type=analysis_type,
+                parameters=_processing_parameters(params),
+                result=result,
+                file_upload_id=params.get("file_upload_id"),
+                experiment_id=experiment_id or params.get("experiment_id"),
+            )
+            await session.commit()
+            return str(record.id)
+    except Exception:
+        logger.warning("Could not persist %s processing result", analysis_type, exc_info=True)
+        return None
+
+
 async def _fit_dose_response_tool(params: dict, org_id: str = "org_default") -> dict:
     """Fit a 4PL dose-response curve, generate plot, and persist to Experiment."""
     from resonantia.services.data_processor import fit_dose_response_full
+
+    cached = await _get_cached_processing_result(params, org_id=org_id, analysis_type="fit_dose_response")
+    if cached is not None:
+        return cached
 
     concentrations = params.get("concentrations", [])
     responses = params.get("responses", [])
@@ -1386,19 +1473,47 @@ async def _fit_dose_response_tool(params: dict, org_id: str = "org_default") -> 
         logger.warning("Could not persist dose-response experiment to DB")
 
     result["experiment_id"] = experiment_id
+    result["cached"] = False
+    processing_result_id = await _persist_processing_result(
+        params,
+        result,
+        org_id=org_id,
+        analysis_type="fit_dose_response",
+        experiment_id=experiment_id,
+    )
+    if processing_result_id:
+        result["processing_result_id"] = processing_result_id
     return result
 
 
 async def _normalize_plate_tool(params: dict, org_id: str = "org_default") -> dict:
     """Normalize plate reader data."""
     from resonantia.services.data_processor import normalize_plate
+    cached = await _get_cached_processing_result(params, org_id=org_id, analysis_type="normalize_plate")
+    if cached is not None:
+        return cached
+
     raw_data = params.get("raw_data", [])
     method = params.get("method", "z-score")
     if not raw_data:
         return {"error": "'raw_data' array is required."}
     try:
         result = normalize_plate(raw_data, method)
-        return {"normalized_data": result.tolist() if hasattr(result, 'tolist') else list(result), "method": method, "count": len(raw_data)}
+        payload = {
+            "normalized_data": result.tolist() if hasattr(result, 'tolist') else list(result),
+            "method": method,
+            "count": len(raw_data),
+            "cached": False,
+        }
+        processing_result_id = await _persist_processing_result(
+            params,
+            payload,
+            org_id=org_id,
+            analysis_type="normalize_plate",
+        )
+        if processing_result_id:
+            payload["processing_result_id"] = processing_result_id
+        return payload
     except Exception as e:
         return {"error": f"Normalization failed: {str(e)}"}
 
@@ -1406,12 +1521,25 @@ async def _normalize_plate_tool(params: dict, org_id: str = "org_default") -> di
 async def _calculate_z_prime_tool(params: dict, org_id: str = "org_default") -> dict:
     """Calculate Z-prime factor for assay quality."""
     from resonantia.services.data_processor import calculate_z_prime
+    cached = await _get_cached_processing_result(params, org_id=org_id, analysis_type="calculate_z_prime")
+    if cached is not None:
+        return cached
+
     positive = params.get("positive_values", [])
     negative = params.get("negative_values", [])
     if not positive or not negative:
         return {"error": "Both 'positive_values' and 'negative_values' arrays are required."}
     try:
         result = calculate_z_prime(positive, negative)
+        result["cached"] = False
+        processing_result_id = await _persist_processing_result(
+            params,
+            result,
+            org_id=org_id,
+            analysis_type="calculate_z_prime",
+        )
+        if processing_result_id:
+            result["processing_result_id"] = processing_result_id
         return result
     except Exception as e:
         return {"error": f"Z-prime calculation failed: {str(e)}"}
@@ -1419,6 +1547,10 @@ async def _calculate_z_prime_tool(params: dict, org_id: str = "org_default") -> 
 
 async def _qpcr_analysis_tool(params: dict, org_id: str = "org_default") -> dict:
     """Delta-delta Ct analysis for qPCR data."""
+    cached = await _get_cached_processing_result(params, org_id=org_id, analysis_type="qpcr_analysis")
+    if cached is not None:
+        return cached
+
     ct_values = params.get("ct_values", {})
     ref_gene = params.get("reference_gene", "GAPDH")
     control = params.get("control_sample", "Control")
@@ -1439,7 +1571,21 @@ async def _qpcr_analysis_tool(params: dict, org_id: str = "org_default") -> dict
                     delta_delta_ct = delta_ct - control_delta
                     fold_change = 2 ** (-delta_delta_ct)
                     results[sample] = {"avg_ct": round(avg_ct, 2), "delta_ct": round(delta_ct, 2), "delta_delta_ct": round(delta_delta_ct, 2), "fold_change": round(fold_change, 3)}
-        return {"reference_gene": ref_gene, "control_sample": control, "results": results}
+        payload = {
+            "reference_gene": ref_gene,
+            "control_sample": control,
+            "results": results,
+            "cached": False,
+        }
+        processing_result_id = await _persist_processing_result(
+            params,
+            payload,
+            org_id=org_id,
+            analysis_type="qpcr_analysis",
+        )
+        if processing_result_id:
+            payload["processing_result_id"] = processing_result_id
+        return payload
     except Exception as e:
         return {"error": f"qPCR analysis failed: {str(e)}"}
 
