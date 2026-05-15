@@ -13,6 +13,7 @@ import json
 import logging
 import time
 import uuid
+from contextlib import suppress
 from typing import Any, AsyncGenerator
 
 from resonantia.config import get_settings
@@ -446,19 +447,207 @@ async def chat_stream(
     request_id: str | None = None,
     request_context: RequestContext | None = None,
 ) -> AsyncGenerator[str, None]:
-    """Stream the assistant response. Falls back to non-streaming for tool calls."""
-    result = await chat(
-        message, conversation_id, context,
-        clerk_user_id=clerk_user_id, org_id=org_id, request_id=request_id,
-        request_context=request_context,
+    """Stream real provider token deltas and execute streamed tool calls."""
+    user_id = request_context.user_id if request_context else (clerk_user_id or "anonymous")
+    org = request_context.org_id if request_context else (org_id or "org_default")
+    request_id = request_id or (request_context.request_id if request_context else None)
+
+    def sse(payload: dict[str, Any]) -> str:
+        return f"data: {json.dumps(payload, default=str)}\n\n"
+
+    conv_uuid, history = await _get_or_create_conversation(conversation_id, user_id, org)
+    cid = str(conv_uuid)
+
+    guardrail_result = check_guardrails(message)
+    if not guardrail_result[0]:
+        yield sse({"text": guardrail_result[1]})
+        yield sse({"done": True, "conversation_id": cid})
+        return
+
+    text_content = message
+    if context:
+        text_content = f"[Context: {json.dumps(context)}]\n\n{message}"
+
+    user_content = await build_user_content(
+        text_content, attachments=None, org_id=org,
     )
-    text = result.get("message", "")
+    staged_messages: list[dict[str, Any]] = []
+    title_source = message if len(history) == 0 else None
+    history.append({"role": "user", "content": user_content})
+    _stage_message(staged_messages, "user", content=text_content)
 
-    chunk_size = 8
-    for i in range(0, len(text), chunk_size):
-        yield f"data: {json.dumps({'text': text[i:i+chunk_size]})}\n\n"
+    settings = get_settings()
+    provider_name = settings.default_provider
+    has_key = (
+        (provider_name == "openai" and settings.openai_api_key)
+        or (provider_name == "anthropic" and settings.anthropic_api_key)
+        or settings.openai_api_key
+    )
+    if not has_key:
+        no_key_msg = (
+            "I'm Resonantia Lab Assistant. The LLM API key is not configured yet. "
+            "You can still use all lab tools directly via the sidebar tabs.\n\n"
+            f"To enable AI chat, set the API key for the '{provider_name}' provider."
+        )
+        _stage_message(staged_messages, "assistant", content=no_key_msg)
+        await _commit_agent_turn(
+            conversation_id=conv_uuid,
+            org_id=org,
+            user_id=user_id,
+            request_id=request_id,
+            staged_messages=staged_messages,
+            title_source=title_source,
+            audit_metadata={"status": "completed", "reason": "missing_api_key", "tool_calls": []},
+        )
+        yield sse({"text": no_key_msg})
+        yield sse({"done": True, "conversation_id": cid})
+        return
 
-    yield f"data: {json.dumps({'done': True, 'conversation_id': result.get('conversation_id')})}\n\n"
+    provider = _get_provider()
+    tools = await _load_tools()
+    all_tool_calls: list[dict[str, Any]] = []
+    final_text = ""
+    start_time = time.monotonic()
+
+    for round_num in range(MAX_TOOL_ROUNDS):
+        stream_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + history
+        assistant_text = ""
+        streamed_tool_calls: list[ToolCall] = []
+
+        try:
+            async for item in provider.completion_stream(
+                stream_messages,
+                tools=tools if tools else None,
+                max_tokens=4096,
+            ):
+                if isinstance(item, str):
+                    assistant_text += item
+                    final_text += item
+                    yield sse({"text": item})
+                elif isinstance(item, ToolCall):
+                    streamed_tool_calls.append(item)
+        except (AttributeError, NotImplementedError):
+            logger.warning("Provider %s does not support streaming; falling back to chunked chat()", provider_name)
+            result = await chat(
+                message,
+                conversation_id,
+                context,
+                clerk_user_id=clerk_user_id,
+                org_id=org_id,
+                request_id=request_id,
+                request_context=request_context,
+            )
+            text = result.get("message", "")
+            for i in range(0, len(text), 8):
+                yield sse({"text": text[i:i + 8]})
+            yield sse({"done": True, "conversation_id": result.get("conversation_id")})
+            return
+
+        if not streamed_tool_calls:
+            _stage_message(staged_messages, "assistant", content=assistant_text)
+            committed = await _commit_agent_turn(
+                conversation_id=conv_uuid,
+                org_id=org,
+                user_id=user_id,
+                request_id=request_id,
+                staged_messages=staged_messages,
+                title_source=title_source,
+                audit_metadata={
+                    "status": "completed",
+                    "rounds": round_num + 1,
+                    "tools_used": [tc["name"] for tc in all_tool_calls],
+                    "tool_call_count": len(all_tool_calls),
+                },
+            )
+            if not committed:
+                yield sse({"error": "Could not persist this chat turn. Please retry."})
+            else:
+                with suppress(Exception):
+                    trace_llm_call(
+                        user_message=message,
+                        system_prompt=SYSTEM_PROMPT,
+                        response=final_text,
+                        model=getattr(provider, "_default_model", settings.llm_model),
+                        conversation_id=cid,
+                        tools_used=[tc["name"] for tc in all_tool_calls],
+                        guardrail_result=guardrail_result,
+                        latency_ms=(time.monotonic() - start_time) * 1000,
+                        token_usage=None,
+                        metadata={"provider": provider.provider_name},
+                    )
+            yield sse({"done": True, "conversation_id": cid, "tool_calls": all_tool_calls or None})
+            return
+
+        tool_calls_data = [
+            {
+                "id": tc.id,
+                "type": "function",
+                "function": {"name": tc.name, "arguments": json.dumps(tc.arguments)},
+            }
+            for tc in streamed_tool_calls
+        ]
+        history.append({"role": "assistant", "content": assistant_text, "tool_calls": tool_calls_data})
+        _stage_message(staged_messages, "assistant", content=assistant_text, tool_calls=tool_calls_data)
+
+        for tc in streamed_tool_calls:
+            tool_input = tc.arguments
+            all_tool_calls.append({"id": tc.id, "name": tc.name, "input": tool_input})
+            yield sse({"tool_call": {"id": tc.id, "name": tc.name, "input": tool_input}})
+
+            tool_start = time.monotonic()
+            tool_result = await execute_tool(
+                tc.name,
+                tool_input,
+                org_id=org,
+                user_id=user_id,
+                source="text",
+                request_id=request_id,
+                request_context=request_context,
+            )
+            log_stage_latency("tool", (time.monotonic() - tool_start) * 1000, tool_name=tc.name)
+            yield sse({"tool_result": {"id": tc.id, "name": tc.name, "result": tool_result}})
+
+            history.append({"role": "tool", "tool_call_id": tc.id, "content": tool_result})
+            _stage_message(staged_messages, "tool", content=tool_result, tool_call_id=tc.id)
+
+            approval_message = _approval_message_from_tool_result(tool_result)
+            if approval_message:
+                _stage_message(staged_messages, "assistant", content=approval_message)
+                await _commit_agent_turn(
+                    conversation_id=conv_uuid,
+                    org_id=org,
+                    user_id=user_id,
+                    request_id=request_id,
+                    staged_messages=staged_messages,
+                    title_source=title_source,
+                    audit_metadata={
+                        "status": "approval_required",
+                        "tools_used": [call["name"] for call in all_tool_calls],
+                        "tool_call_count": len(all_tool_calls),
+                    },
+                )
+                yield sse({"approval_required": True, "text": approval_message})
+                yield sse({"done": True, "conversation_id": cid, "tool_calls": all_tool_calls})
+                return
+
+    max_rounds_message = "I've gathered the data but reached the processing limit. Please try a more specific query."
+    _stage_message(staged_messages, "assistant", content=max_rounds_message)
+    await _commit_agent_turn(
+        conversation_id=conv_uuid,
+        org_id=org,
+        user_id=user_id,
+        request_id=request_id,
+        staged_messages=staged_messages,
+        title_source=title_source,
+        audit_metadata={
+            "status": "max_rounds",
+            "rounds": MAX_TOOL_ROUNDS,
+            "tools_used": [tc["name"] for tc in all_tool_calls],
+            "tool_call_count": len(all_tool_calls),
+        },
+    )
+    yield sse({"text": max_rounds_message})
+    yield sse({"done": True, "conversation_id": cid, "tool_calls": all_tool_calls})
 
 
 def get_history(conversation_id: str) -> list[dict[str, Any]]:
