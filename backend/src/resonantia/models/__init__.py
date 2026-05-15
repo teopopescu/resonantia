@@ -13,6 +13,7 @@ from resonantia.models.processing_result import ProcessingResult
 from resonantia.models.protocol import Protocol, ProtocolStep
 from resonantia.models.sample import Sample
 from resonantia.models.user_profile import UserProfile
+from resonantia.models.voice_turn import VoiceTurn
 
 __all__ = [
     "Base",
@@ -31,4 +32,5 @@ __all__ = [
     "ProtocolStep",
     "Sample",
     "UserProfile",
+    "VoiceTurn",
 ]

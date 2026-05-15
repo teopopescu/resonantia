@@ -1,27 +1,123 @@
 """Voice chat endpoint — chained pipeline: Whisper STT -> agent -> TTS."""
 
+import hashlib
 import os
 import uuid
 import tempfile
 import logging
 import time
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile, HTTPException, Request
 from fastapi.responses import FileResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from resonantia.config import get_settings
+from resonantia.db.session import get_db
 from resonantia.dependencies import get_request_context
 from resonantia.middleware import log_stage_latency
 from resonantia.models.request_context import RequestContext
+from resonantia.models.voice_turn import VoiceTurn
 from resonantia.services.agent import chat as agent_chat
 from resonantia.services.stt import OpenAISTTProvider
 from resonantia.services.tts import OpenAITTSProvider
+from resonantia.api.voice_events import router as voice_events_router
+from resonantia.workflows.voice_turn_workflow import VoiceTurnInput, VoiceTurnWorkflow
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # In-memory registry of generated audio files
 _audio_registry: dict[str, str] = {}
+
+_SAFE_EXTENSIONS = {".webm", ".wav", ".mp3", ".m4a", ".ogg"}
+
+
+async def _start_voice_turn_workflow(inp: VoiceTurnInput) -> str:
+    from resonantia.services.temporal_client import get_temporal_client
+
+    client = await get_temporal_client()
+    settings = get_settings()
+    workflow_id = inp.workflow_id or f"voice-{inp.idempotency_key}"
+    await client.start_workflow(
+        VoiceTurnWorkflow.run,
+        inp,
+        id=workflow_id,
+        task_queue=settings.temporal_task_queue,
+    )
+    return workflow_id
+
+
+def _safe_audio_extension(filename: str | None) -> str:
+    ext = Path(filename or "recording.webm").suffix.lower()
+    return ext if ext in _SAFE_EXTENSIONS else ".webm"
+
+
+router.include_router(voice_events_router)
+
+
+@router.post("/turn", status_code=202)
+async def start_voice_turn(
+    request: Request,
+    audio: UploadFile = File(...),
+    conversation_id: str | None = Form(default=None),
+    ctx: RequestContext = Depends(get_request_context),
+    db: AsyncSession = Depends(get_db),
+):
+    """Start a durable voice turn workflow and return immediately."""
+    settings = get_settings()
+    content = await audio.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Audio upload is empty")
+
+    turn_id = str(uuid.uuid4())
+    ext = _safe_audio_extension(audio.filename)
+    input_dir = Path(settings.upload_dir) / "voice" / "input"
+    input_dir.mkdir(parents=True, exist_ok=True)
+    input_path = input_dir / f"{turn_id}{ext}"
+    input_path.write_bytes(content)
+
+    idempotency_key = hashlib.sha256(
+        f"{ctx.org_id}:{ctx.user_id}:{turn_id}".encode("utf-8")
+    ).hexdigest()
+    workflow_id = f"voice-{turn_id}"
+    turn = VoiceTurn(
+        id=uuid.UUID(turn_id),
+        org_id=ctx.org_id,
+        created_by=ctx.user_id,
+        idempotency_key=idempotency_key,
+        status="processing",
+        workflow_id=workflow_id,
+        conversation_id=conversation_id,
+        input_audio_path=os.fspath(input_path),
+        tool_calls=[],
+    )
+    db.add(turn)
+    await db.flush()
+    await db.commit()
+
+    try:
+        await _start_voice_turn_workflow(
+            VoiceTurnInput(
+                org_id=ctx.org_id,
+                user_id=ctx.user_id,
+                idempotency_key=idempotency_key,
+                input_audio_path=os.fspath(input_path),
+                conversation_id=conversation_id,
+                request_context=ctx.model_dump(),
+                workflow_id=workflow_id,
+            )
+        )
+    except Exception as exc:
+        turn.status = "failed"
+        turn.error_message = f"Could not start voice workflow: {exc.__class__.__name__}"
+        await db.commit()
+        raise HTTPException(status_code=503, detail="Could not start voice workflow") from exc
+
+    return {
+        "turn_id": turn_id,
+        "stream_url": f"/api/v1/voice/turns/{turn_id}/events",
+    }
 
 
 @router.post("/chat")
@@ -32,6 +128,7 @@ async def voice_chat(
     ctx: RequestContext = Depends(get_request_context),
 ):
     """Single endpoint: receive audio -> transcribe -> agent chat -> TTS -> return all."""
+    logger.warning("Deprecated endpoint /api/v1/voice/chat used; use /api/v1/voice/turn")
     settings = get_settings()
 
     if not settings.openai_api_key:
