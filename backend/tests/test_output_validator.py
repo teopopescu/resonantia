@@ -389,6 +389,10 @@ class TestExecuteToolTyped:
             "resonantia.services.tool_executor._get_tool_schema",
             new_callable=AsyncMock,
             return_value=None,
+        ), patch(
+            "resonantia.services.tool_executor.check_tenant_refs",
+            new_callable=AsyncMock,
+            return_value=None,
         ):
             result = await execute_tool_typed(
                 "test_tool", {"experiment_id": fake_exp_id}, "org_1"

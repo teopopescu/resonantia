@@ -4,14 +4,16 @@ import os
 import uuid
 import tempfile
 import logging
+import time
 
-from fastapi import APIRouter, File, Form, UploadFile, HTTPException
+from fastapi import APIRouter, Depends, File, Form, UploadFile, HTTPException, Request
 from fastapi.responses import FileResponse
 from openai import AsyncOpenAI
 
 from resonantia.config import get_settings
+from resonantia.dependencies import get_org_context
+from resonantia.middleware import log_stage_latency
 from resonantia.services.agent import chat as agent_chat
-from resonantia.services.voice_safety import is_voice_safe, voice_block_message
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -22,8 +24,10 @@ _audio_registry: dict[str, str] = {}
 
 @router.post("/chat")
 async def voice_chat(
+    request: Request,
     audio: UploadFile = File(...),
     conversation_id: str = Form(default="default"),
+    org_id: str = Depends(get_org_context),
 ):
     """Single endpoint: receive audio -> transcribe -> agent chat -> TTS -> return all."""
     settings = get_settings()
@@ -45,11 +49,13 @@ async def voice_chat(
 
     try:
         # 2. Whisper STT
+        stt_start = time.monotonic()
         with open(tmp_path, "rb") as f:
             transcription = await client.audio.transcriptions.create(
                 model=settings.stt_model,
                 file=f,
             )
+        log_stage_latency("stt", (time.monotonic() - stt_start) * 1000)
 
         transcribed_text = transcription.text.strip()
         if not transcribed_text:
@@ -62,32 +68,25 @@ async def voice_chat(
             }
 
         # 3. Agent chat (full agentic loop with tools)
+        agent_start = time.monotonic()
         chat_result = await agent_chat(
             message=transcribed_text,
             conversation_id=conversation_id,
+            org_id=org_id,
+            source="voice",
+            request_id=getattr(request.state, "request_id", None),
         )
+        log_stage_latency("agent", (time.monotonic() - agent_start) * 1000)
         response_text = chat_result.get("message", "")
 
-        # 3b. Voice safety check — if agent used unsafe tools, warn the user
-        tool_calls = chat_result.get("tool_calls") or []
-        blocked_tools = [
-            tc.get("name", tc.get("function", {}).get("name", ""))
-            for tc in (tool_calls if isinstance(tool_calls, list) else [])
-            if isinstance(tc, dict) and not is_voice_safe(
-                tc.get("name", tc.get("function", {}).get("name", ""))
-            )
-        ]
-        if blocked_tools:
-            blocked_names = ", ".join(blocked_tools)
-            response_text = voice_block_message(blocked_names)
-            logger.info("Voice safety blocked tools: %s", blocked_names)
-
         # 4. TTS — generate spoken response
+        tts_start = time.monotonic()
         tts_response = await client.audio.speech.create(
             model=settings.tts_model,
             voice=settings.tts_voice,
             input=response_text[:4096],  # TTS has a limit
         )
+        log_stage_latency("tts", (time.monotonic() - tts_start) * 1000)
 
         # Save TTS audio
         voice_dir = os.path.join(settings.upload_dir, "voice")

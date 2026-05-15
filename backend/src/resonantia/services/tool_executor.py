@@ -73,6 +73,10 @@ async def execute_tool_typed(
     tool_name: str,
     tool_input: dict[str, Any],
     org_id: str = "org_default",
+    *,
+    user_id: str = "anonymous",
+    source: str = "text",
+    request_id: str | None = None,
 ) -> ToolResult | ToolError:
     """Execute a tool and return a typed ``ToolResult`` or ``ToolError``.
 
@@ -109,10 +113,43 @@ async def execute_tool_typed(
                     return tenant_err
         except Exception:
             logger.exception("Tenant ref check failed for %s", tool_name)
-            # Don't block execution if DB check itself fails
-            pass
+            return ToolError(
+                tool_name=tool_name,
+                error_type="forbidden",
+                message="Could not verify tenant ownership for referenced entities",
+                retry_allowed=False,
+            )
 
-    # --- Step 3: Execute ---
+    # --- Step 3: Voice safety / approval gate ---
+    if source == "voice":
+        from resonantia.services.approval import create_pending, get_gate
+        from resonantia.services.voice_safety import is_voice_safe
+
+        if not is_voice_safe(tool_name):
+            pending = create_pending(
+                tool_name=tool_name,
+                tool_args=tool_input,
+                org_id=org_id,
+                user_id=user_id,
+                preview={
+                    "tool_name": tool_name,
+                    "tool_args": tool_input,
+                    "reason": "voice_pre_execution_gate",
+                    "request_id": request_id,
+                },
+            )
+            return ToolResult(
+                tool_name=tool_name,
+                data={
+                    "approval_required": True,
+                    "pending_approval": pending.model_dump(mode="json"),
+                    "gate_kind": get_gate(tool_name).value,
+                    "message": "This action requires text confirmation before execution.",
+                },
+                source_refs=_extract_source_refs(tool_input),
+            )
+
+    # --- Step 4: Execute ---
     try:
         result = await handler(tool_input, org_id)
         serialized = _serialize(result)
@@ -131,14 +168,29 @@ async def execute_tool_typed(
         )
 
 
-async def execute_tool(tool_name: str, tool_input: dict[str, Any], org_id: str = "org_default") -> str:
+async def execute_tool(
+    tool_name: str,
+    tool_input: dict[str, Any],
+    org_id: str = "org_default",
+    *,
+    user_id: str = "anonymous",
+    source: str = "text",
+    request_id: str | None = None,
+) -> str:
     """Execute a tool by name and return a JSON string result.
 
     This is the backward-compatible entry point for ``agent.py``.
     Internally delegates to :func:`execute_tool_typed` and serializes the
     typed envelope back to a JSON string.
     """
-    typed = await execute_tool_typed(tool_name, tool_input, org_id)
+    typed = await execute_tool_typed(
+        tool_name,
+        tool_input,
+        org_id,
+        user_id=user_id,
+        source=source,
+        request_id=request_id,
+    )
 
     if isinstance(typed, ToolResult):
         return json.dumps(typed.data, default=str)
@@ -457,7 +509,6 @@ async def _get_file_info(params: dict, org_id: str = "org_default") -> dict:
 async def _read_file_contents(params: dict, org_id: str = "org_default") -> dict:
     """Read the actual contents of an uploaded file (CSV, TSV, TXT)."""
     from resonantia.api.files import _file_registry
-    from resonantia.config import get_settings
     import os
 
     file_id = params.get("file_id", "")
@@ -482,15 +533,6 @@ async def _read_file_contents(params: dict, org_id: str = "org_default") -> dict
             if filename.lower() in f.get("filename", "").lower():
                 matched_file = f
                 path = f.get("path")
-                break
-
-    # Try constructing path from file_id
-    if not path and file_id:
-        settings = get_settings()
-        for ext in [".csv", ".txt", ".tsv", ".xlsx"]:
-            candidate = os.path.join(settings.upload_dir, "files", f"{file_id}{ext}")
-            if os.path.exists(candidate):
-                path = candidate
                 break
 
     if not path or not os.path.exists(path):
@@ -1554,7 +1596,6 @@ TOOL_HANDLERS: dict[str, Any] = {
     # Sample tools
     "lookup_sample": _lookup_sample,
     "check_inventory": _check_inventory,
-    "add_sample": _lookup_sample,
     "get_expiring_samples": _get_expiring_samples,
     "get_sample_stats": _get_sample_stats,
     # Experiment tools
@@ -1596,12 +1637,6 @@ TOOL_HANDLERS: dict[str, Any] = {
     "propose_follow_up_experiment": None,  # populated below
     # Worklist
     "generate_worklist": None,  # populated below
-    "create_plate_map": None,  # populated below via plate handlers
-    "cherry_pick": None,
-    "serial_dilution": None,
-    # Generic
-    "design_protocol": _query_experiments,
-    "search_literature": _query_experiments,
 }
 
 # Late import to avoid circular dependency

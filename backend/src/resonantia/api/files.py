@@ -14,9 +14,13 @@ from typing import Any
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from resonantia.config import get_settings
+from resonantia.db.session import get_db
 from resonantia.dependencies import get_org_context
+from resonantia.models.file_upload import FileUpload
 
 router = APIRouter()
 
@@ -241,6 +245,7 @@ async def upload_files(
 async def upload_and_parse(
     file: UploadFile = File(...),
     org_id: str = Depends(get_org_context),
+    db: AsyncSession = Depends(get_db),
 ) -> CSVParseResponse:
     filename = file.filename or "upload.csv"
     content_type = file.content_type or "text/csv"
@@ -261,40 +266,20 @@ async def upload_and_parse(
     # Parse CSV
     parsed = _parse_csv(contents, filename)
 
-    # Persist to FileUpload DB model (best-effort; DB may not be available in tests)
-    db_persisted = False
     try:
-        from resonantia.db.session import async_session_factory
-        from resonantia.models.file_upload import FileUpload
-
-        async with async_session_factory() as session:
-            upload_record = FileUpload(
-                id=uuid.UUID(file_id),
-                org_id=org_id,
-                filename=filename,
-                content_type=content_type,
-                size_bytes=len(contents),
-                storage_path=storage_path,
-                parsed_metadata=parsed,
-            )
-            session.add(upload_record)
-            await session.commit()
-            db_persisted = True
-    except Exception:
-        # In test/dev without DB, still keep the in-memory registry
-        pass
-
-    # Also track in legacy in-memory registry for backward compat
-    _file_registry[file_id] = {
-        "id": file_id,
-        "filename": filename,
-        "size": len(contents),
-        "content_type": content_type,
-        "uploaded_at": datetime.now(timezone.utc).isoformat(),
-        "download_url": _build_download_url(file_id),
-        "stored_path": str(Path(get_settings().upload_dir) / storage_path),
-        "org_id": org_id,
-    }
+        upload_record = FileUpload(
+            id=uuid.UUID(file_id),
+            org_id=org_id,
+            filename=filename,
+            content_type=content_type,
+            size_bytes=len(contents),
+            storage_path=storage_path,
+            parsed_metadata=parsed,
+        )
+        db.add(upload_record)
+        await db.flush()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Could not persist uploaded file metadata") from exc
 
     return CSVParseResponse(
         file_id=file_id,
@@ -360,12 +345,29 @@ def _get_meta_or_404(file_id: str, org_id: str) -> dict[str, Any]:
 @router.get("/", response_model=list[FileMetadata])
 async def list_files(
     org_id: str = Depends(get_org_context),
+    db: AsyncSession = Depends(get_db),
 ) -> list[FileMetadata]:
-    return [
+    registry_files = [
         FileMetadata(**_strip_internal(m))
         for m in _file_registry.values()
         if m.get("org_id") == org_id
     ]
+    result = await db.execute(
+        select(FileUpload).where(FileUpload.org_id == org_id).order_by(FileUpload.created_at.desc())
+    )
+    db_files = [
+        FileMetadata(
+            id=str(f.id),
+            filename=f.filename,
+            size=f.size_bytes,
+            content_type=f.content_type,
+            uploaded_at=f.created_at.isoformat() if f.created_at else "",
+            download_url=_build_download_url(str(f.id)),
+        )
+        for f in result.scalars().all()
+    ]
+    seen = {f.id for f in registry_files}
+    return registry_files + [f for f in db_files if f.id not in seen]
 
 
 # ---------------------------------------------------------------------------
@@ -375,9 +377,22 @@ async def list_files(
 async def get_file_metadata(
     file_id: str,
     org_id: str = Depends(get_org_context),
+    db: AsyncSession = Depends(get_db),
 ) -> FileMetadata:
-    meta = _get_meta_or_404(file_id, org_id)
-    return FileMetadata(**_strip_internal(meta))
+    meta = _file_registry.get(file_id)
+    if meta and meta.get("org_id") == org_id:
+        return FileMetadata(**_strip_internal(meta))
+    upload = await db.get(FileUpload, uuid.UUID(file_id))
+    if not upload or upload.org_id != org_id:
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileMetadata(
+        id=str(upload.id),
+        filename=upload.filename,
+        size=upload.size_bytes,
+        content_type=upload.content_type,
+        uploaded_at=upload.created_at.isoformat() if upload.created_at else "",
+        download_url=_build_download_url(str(upload.id)),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -387,16 +402,22 @@ async def get_file_metadata(
 async def download_file(
     file_id: str,
     org_id: str = Depends(get_org_context),
+    db: AsyncSession = Depends(get_db),
 ) -> FileResponse:
-    meta = _get_meta_or_404(file_id, org_id)
-    path = meta["stored_path"]
+    meta = _file_registry.get(file_id)
+    if meta and meta.get("org_id") == org_id:
+        path = meta["stored_path"]
+        if not os.path.exists(path):
+            raise HTTPException(status_code=404, detail="File missing from storage")
+        return FileResponse(path, media_type=meta["content_type"], filename=meta["filename"])
+
+    upload = await db.get(FileUpload, uuid.UUID(file_id))
+    if not upload or upload.org_id != org_id:
+        raise HTTPException(status_code=404, detail="File not found")
+    path = str(Path(get_settings().upload_dir) / upload.storage_path)
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="File missing from storage")
-    return FileResponse(
-        path,
-        media_type=meta["content_type"],
-        filename=meta["filename"],
-    )
+    return FileResponse(path, media_type=upload.content_type, filename=upload.filename)
 
 
 # ---------------------------------------------------------------------------

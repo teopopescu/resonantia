@@ -17,6 +17,7 @@ from typing import Any, AsyncGenerator
 from resonantia.config import get_settings
 from resonantia.db.session import async_session_factory
 from resonantia.models.conversation import Conversation, ConversationMessage
+from resonantia.middleware import log_stage_latency
 from resonantia.services.guardrails import GUARDRAIL_SYSTEM_PROMPT, check_guardrails
 from resonantia.services.llm import LLMProvider, ToolCall, get_provider
 from resonantia.services.multimodal import build_user_content
@@ -135,6 +136,8 @@ async def chat(
     clerk_user_id: str | None = None,
     org_id: str | None = None,
     attachments: list[str] | None = None,
+    source: str = "text",
+    request_id: str | None = None,
 ) -> dict[str, Any]:
     """Send a user message and return the assistant's response.
 
@@ -212,9 +215,11 @@ async def chat(
         messages = [{"role": "system", "content": SYSTEM_PROMPT}] + history
 
         try:
+            llm_start = time.monotonic()
             llm_response = await provider.completion(
                 messages, tools=tools if tools else None, max_tokens=4096,
             )
+            log_stage_latency("llm", (time.monotonic() - llm_start) * 1000)
         except Exception as exc:
             exc_name = exc.__class__.__name__
             if "auth" in exc_name.lower():
@@ -277,7 +282,16 @@ async def chat(
             all_tool_calls.append({"id": tc.id, "name": tool_name, "input": tool_input})
 
             # Execute the tool against the real database, scoped to org_id
-            tool_result = await execute_tool(tool_name, tool_input, org_id=org)
+            tool_start = time.monotonic()
+            tool_result = await execute_tool(
+                tool_name,
+                tool_input,
+                org_id=org,
+                user_id=user_id,
+                source=source,
+                request_id=request_id,
+            )
+            log_stage_latency("tool", (time.monotonic() - tool_start) * 1000, tool_name=tool_name)
 
             # Add tool result to history for the next LLM round
             history.append({
@@ -307,11 +321,12 @@ async def chat_stream(
     context: dict[str, Any] | None = None,
     clerk_user_id: str | None = None,
     org_id: str | None = None,
+    request_id: str | None = None,
 ) -> AsyncGenerator[str, None]:
     """Stream the assistant response. Falls back to non-streaming for tool calls."""
     result = await chat(
         message, conversation_id, context,
-        clerk_user_id=clerk_user_id, org_id=org_id,
+        clerk_user_id=clerk_user_id, org_id=org_id, request_id=request_id,
     )
     text = result.get("message", "")
 

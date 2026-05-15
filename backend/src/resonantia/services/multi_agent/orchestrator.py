@@ -234,6 +234,7 @@ async def chat(
     context: dict[str, Any] | None = None,
     clerk_user_id: str | None = None,
     org_id: str | None = None,
+    request_id: str | None = None,
 ) -> dict[str, Any]:
     """Multi-agent equivalent of ``services.agent.chat``.
 
