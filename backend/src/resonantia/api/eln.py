@@ -15,6 +15,8 @@ from resonantia.db.session import get_db
 from resonantia.dependencies import get_request_context
 from resonantia.models.eln_entry import ELNAppendix, ELNEntry
 from resonantia.models.experiment import Experiment
+from resonantia.models.file_upload import FileUpload
+from resonantia.models.processing_result import ProcessingResult
 from resonantia.models.request_context import RequestContext
 from resonantia.repositories.audit_log import append_audit_log
 from resonantia.schemas.eln_entry import (
@@ -25,6 +27,10 @@ from resonantia.schemas.eln_entry import (
     ELNEntryListResponse,
     ELNEntryResponse,
     ELNEntryUpdate,
+)
+from resonantia.services.eln_validator import (
+    render_draft_from_processing_result,
+    validate_numeric_claims,
 )
 
 router = APIRouter()
@@ -41,6 +47,110 @@ async def _next_entry_number(db: AsyncSession, org_id: str = "org_default") -> s
     )
     count = await db.scalar(stmt) or 0
     return f"{prefix}{count + 1:04d}"
+
+
+class ELNDraftFromResultRequest(ELNEntryCreate):
+    processing_result_id: uuid.UUID
+    title: str | None = None
+    experiment_id: uuid.UUID | None = None
+    file_id: uuid.UUID | None = None
+
+
+async def _get_org_scoped_or_404(
+    db: AsyncSession,
+    model: type,
+    record_id: uuid.UUID,
+    org_id: str,
+    detail: str,
+):
+    record = await db.get(model, record_id)
+    if not record or record.org_id != org_id:
+        raise HTTPException(status_code=404, detail=detail)
+    return record
+
+
+@router.post("/draft-from-result", response_model=ELNEntryResponse, status_code=201)
+async def draft_eln_from_result(
+    body: ELNDraftFromResultRequest,
+    ctx: RequestContext = Depends(get_request_context),
+    db: AsyncSession = Depends(get_db),
+) -> ELNEntry:
+    if not ctx.can_write():
+        raise HTTPException(status_code=403, detail="Member role required to create ELN entries")
+
+    org_id = ctx.org_id
+    processing_result = await _get_org_scoped_or_404(
+        db,
+        ProcessingResult,
+        body.processing_result_id,
+        org_id,
+        "Processing result not found",
+    )
+
+    experiment_id = body.experiment_id or processing_result.experiment_id
+    file_id = body.file_id or processing_result.file_upload_id
+
+    if experiment_id is not None:
+        await _get_org_scoped_or_404(db, Experiment, experiment_id, org_id, "Experiment not found")
+        if processing_result.experiment_id and processing_result.experiment_id != experiment_id:
+            raise HTTPException(status_code=400, detail="Experiment does not match processing result")
+
+    if file_id is not None:
+        await _get_org_scoped_or_404(db, FileUpload, file_id, org_id, "File not found")
+        if processing_result.file_upload_id and processing_result.file_upload_id != file_id:
+            raise HTTPException(status_code=400, detail="File does not match processing result")
+
+    title = body.title or f"ELN draft for {processing_result.analysis_type}"
+    initial_content = body.content_markdown or render_draft_from_processing_result(
+        title=title,
+        processing_result=processing_result.result,
+    )
+    validation = validate_numeric_claims(initial_content, processing_result.result)
+    content = body.content_markdown or render_draft_from_processing_result(
+        title=title,
+        processing_result=processing_result.result,
+        validation=validation,
+    )
+
+    linked_references = dict(body.linked_references or {})
+    linked_references.update({
+        "processing_results": [str(body.processing_result_id)],
+        "experiments": [str(experiment_id)] if experiment_id else [],
+        "files": [str(file_id)] if file_id else [],
+        "validation": validation,
+    })
+
+    entry_number = await _next_entry_number(db, org_id)
+    entry = ELNEntry(
+        title=title,
+        entry_number=entry_number,
+        content_markdown=content,
+        summary=body.summary or f"Draft generated from processing result {body.processing_result_id}",
+        status="draft",
+        experiment_id=experiment_id,
+        author_id=body.author_id or ctx.user_id,
+        embedded_figures=body.embedded_figures,
+        linked_references=linked_references,
+        tags=body.tags or ["from-processing-result"],
+        org_id=org_id,
+    )
+    db.add(entry)
+    await db.flush()
+    await append_audit_log(
+        db,
+        ctx=ctx,
+        action="eln.draft_from_result",
+        target_type="eln_entry",
+        target_id=str(entry.id),
+        metadata={
+            "processing_result_id": str(body.processing_result_id),
+            "experiment_id": str(experiment_id) if experiment_id else None,
+            "file_id": str(file_id) if file_id else None,
+            "validation_status": validation["status"],
+        },
+    )
+    await db.refresh(entry)
+    return entry
 
 
 @router.post("/", response_model=ELNEntryResponse, status_code=201)
