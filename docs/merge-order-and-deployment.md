@@ -165,11 +165,11 @@ Update backend config to use S3 instead of local filesystem (future — for now,
 #### 4.2 Environment Variables in Vercel
 ```
 NEXT_PUBLIC_API_URL=https://api.resonantia.io
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_live_...
-CLERK_SECRET_KEY=sk_live_...
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=<clerk-publishable-key>
+CLERK_SECRET_KEY=<clerk-secret-key>
 NEXT_PUBLIC_APP_URL=https://resonantia.io
-NEXT_PUBLIC_CONTENTFUL_SPACE_ID=gismnhbb3kki
-NEXT_PUBLIC_CONTENTFUL_ACCESS_TOKEN=e7if3JoufyZzs33-...
+NEXT_PUBLIC_CONTENTFUL_SPACE_ID=<contentful-space-id>
+NEXT_PUBLIC_CONTENTFUL_ACCESS_TOKEN=<contentful-access-token>
 ```
 
 #### 4.3 Deploy

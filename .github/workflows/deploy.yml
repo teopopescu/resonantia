@@ -52,7 +52,7 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          docker build -f ./backend/Dockerfile.worker -t $ECR_REGISTRY/$ECR_WORKER_REPO:$IMAGE_TAG -t $ECR_REGISTRY/$ECR_WORKER_REPO:latest ./backend
+          docker build -f ./backend/Dockerfile -t $ECR_REGISTRY/$ECR_WORKER_REPO:$IMAGE_TAG -t $ECR_REGISTRY/$ECR_WORKER_REPO:latest ./backend
           docker push $ECR_REGISTRY/$ECR_WORKER_REPO:$IMAGE_TAG
           docker push $ECR_REGISTRY/$ECR_WORKER_REPO:latest
 

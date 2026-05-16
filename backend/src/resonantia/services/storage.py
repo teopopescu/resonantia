@@ -130,8 +130,22 @@ class S3Storage(StorageBackend):
 # Factory
 # ---------------------------------------------------------------------------
 
-_storage_instance: StorageBackend | None = None
 _storage_instances: dict[str, StorageBackend] = {}
+_storage_instance: StorageBackend | None = None
+
+
+def _storage_cache_key(selected: str) -> str:
+    settings = get_settings()
+    if selected == "local":
+        return f"local:{Path(settings.upload_dir).resolve()}"
+    if selected == "s3":
+        return "s3:{bucket}:{region}:{prefix}:{expires}".format(
+            bucket=settings.s3_bucket,
+            region=settings.s3_region,
+            prefix=settings.s3_prefix,
+            expires=settings.s3_signed_url_expires_seconds,
+        )
+    return selected
 
 
 def get_storage(backend: str | None = None) -> StorageBackend:
@@ -141,11 +155,14 @@ def get_storage(backend: str | None = None) -> StorageBackend:
     selected = (backend or settings.storage_backend or "local").lower()
     if selected == "s3" and not settings.s3_bucket:
         selected = "local"
-    if selected not in _storage_instances:
-        _storage_instances[selected] = S3Storage() if selected == "s3" else LocalStorage()
+    if backend is None and _storage_instance is not None:
+        return _storage_instance
+    cache_key = _storage_cache_key(selected)
+    if cache_key not in _storage_instances:
+        _storage_instances[cache_key] = S3Storage() if selected == "s3" else LocalStorage()
     if backend is None:
-        _storage_instance = _storage_instances[selected]
-    return _storage_instances[selected]
+        _storage_instance = _storage_instances[cache_key]
+    return _storage_instances[cache_key]
 
 
 def choose_storage_backend(size_bytes: int) -> str:

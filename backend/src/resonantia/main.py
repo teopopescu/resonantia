@@ -23,20 +23,24 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Startup / shutdown lifecycle."""
     settings = get_settings()
     logger.info("Starting Resonantia backend (debug=%s)", settings.debug)
+    settings.validate_production()
     initialize_telemetry()
 
-    # Create tables for local dev; in production use Alembic migrations.
-    await init_db()
+    if settings.is_production():
+        logger.info("Skipping automatic table creation; production uses Alembic migrations.")
+    else:
+        await init_db()
 
     # Seed demo data on first run (empty database)
-    try:
-        from resonantia.db.session import async_session_factory
-        from resonantia.seed import seed_if_empty
+    if not settings.is_production():
+        try:
+            from resonantia.db.session import async_session_factory
+            from resonantia.seed import seed_if_empty
 
-        async with async_session_factory() as session:
-            await seed_if_empty(session)
-    except Exception as exc:
-        logger.warning("Could not seed demo data: %s", exc)
+            async with async_session_factory() as session:
+                await seed_if_empty(session)
+        except Exception as exc:
+            logger.warning("Could not seed demo data: %s", exc)
 
     # Seed default agentic tools into Redis
     try:

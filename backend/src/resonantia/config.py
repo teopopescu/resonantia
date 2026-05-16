@@ -7,6 +7,10 @@ from functools import lru_cache
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+class ProductionConfigError(RuntimeError):
+    """Raised when production starts without required configuration."""
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -16,6 +20,7 @@ class Settings(BaseSettings):
 
     # --- Application ---
     app_name: str = "Resonantia"
+    app_environment: str = "development"
     debug: bool = False
     demo_mode: bool = False
 
@@ -89,6 +94,40 @@ class Settings(BaseSettings):
         "http://localhost:3000",
         "http://127.0.0.1:3000",
     ]
+
+    def is_production(self) -> bool:
+        return self.app_environment.lower() == "production" or self.otel_environment.lower() == "production"
+
+    def validate_production(self) -> None:
+        """Fail fast when production is missing critical configuration."""
+        if not self.is_production():
+            return
+
+        missing: list[str] = []
+        if self.demo_mode:
+            missing.append("DEMO_MODE must be false in production")
+        if not self.database_url or self.database_url.startswith("sqlite"):
+            missing.append("DATABASE_URL")
+        if not self.redis_url:
+            missing.append("REDIS_URL")
+        if not self.temporal_host:
+            missing.append("TEMPORAL_HOST")
+        if not self.clerk_secret_key:
+            missing.append("CLERK_SECRET_KEY")
+
+        provider = self.default_provider.lower()
+        if provider == "openai" and not self.openai_api_key:
+            missing.append("OPENAI_API_KEY")
+        elif provider == "anthropic" and not self.anthropic_api_key:
+            missing.append("ANTHROPIC_API_KEY")
+        elif provider not in {"openai", "anthropic"}:
+            missing.append("DEFAULT_PROVIDER must be 'openai' or 'anthropic'")
+
+        if self.storage_backend.lower() == "s3" and not self.s3_bucket:
+            missing.append("S3_BUCKET")
+
+        if missing:
+            raise ProductionConfigError("Invalid production configuration: " + ", ".join(missing))
 
 
 @lru_cache
