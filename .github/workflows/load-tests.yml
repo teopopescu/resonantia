@@ -1,0 +1,50 @@
+name: Staging Load Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      host:
+        description: "Staging base URL"
+        required: true
+      users:
+        description: "Concurrent users"
+        required: false
+        default: "10"
+      spawn_rate:
+        description: "Users spawned per second"
+        required: false
+        default: "2"
+      run_time:
+        description: "Locust run time"
+        required: false
+        default: "5m"
+
+jobs:
+  locust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Run staging load tests
+        run: >
+          uvx locust
+          -f tests/load/locustfile.py
+          --headless
+          --host "${{ inputs.host }}"
+          -u "${{ inputs.users }}"
+          -r "${{ inputs.spawn_rate }}"
+          --run-time "${{ inputs.run_time }}"
+          --csv load-results
+          --html load-results.html
+
+      - name: Upload load-test artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: load-test-results
+          path: |
+            load-results*.csv
+            load-results.html
