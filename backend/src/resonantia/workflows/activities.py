@@ -105,6 +105,7 @@ async def execute_tool_activity(
 async def persist_conversation_activity(
     conversation_id: str,
     org_id: str,
+    user_id: str | None,
     messages: list[dict[str, Any]],
 ) -> None:
     """Persist conversation messages to the database.
@@ -121,10 +122,22 @@ async def persist_conversation_activity(
     )
 
     async with async_session_factory() as session:
-        conv = await session.get(Conversation, uuid.UUID(conversation_id))
+        conversation_uuid = uuid.UUID(conversation_id)
+        conv = await session.get(Conversation, conversation_uuid)
         if not conv:
-            logger.warning("Conversation %s not found, skipping persist", conversation_id)
-            return
+            first_user_message = next((msg for msg in messages if msg.get("role") == "user"), {})
+            first_content = first_user_message.get("content") or "New conversation"
+            title = str(first_content).strip().replace("\n", " ")[:80] or "New conversation"
+            conv = Conversation(
+                id=conversation_uuid,
+                clerk_user_id=user_id or "unknown",
+                org_id=org_id,
+                title=title,
+            )
+            session.add(conv)
+            await session.flush()
+        elif conv.org_id != org_id:
+            raise ValueError("Conversation does not belong to this org")
 
         # Only persist messages not already in the DB.  Count existing
         # messages and persist the tail.

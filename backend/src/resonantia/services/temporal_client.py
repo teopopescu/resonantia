@@ -10,15 +10,15 @@ from temporalio.client import Client, WorkflowHandle
 
 from resonantia.config import get_settings
 from resonantia.workflows.agent_workflow import AgentToolCallInput, AgentToolCallWorkflow
+from resonantia.workflows.data_processing_workflow import (
+    DataProcessingWorkflow,
+    FileProcessingInput,
+)
 from resonantia.workflows.plate_workflow import (
     DestinationPlate,
     PlateMapInput,
     PlateMapWorkflow,
     SourcePlate,
-)
-from resonantia.workflows.processing_workflow import (
-    DataProcessingWorkflow,
-    ProcessingInput,
 )
 
 logger = logging.getLogger(__name__)
@@ -69,6 +69,7 @@ async def start_agent_workflow(
             messages=messages,
             tools=tools,
             org_id=org_id,
+            user_id=user_id,
             request_context={
                 "user_id": user_id,
                 "org_id": org_id,
@@ -129,17 +130,42 @@ async def start_processing_workflow(
     processing_type: str,
     params: dict[str, Any] | None = None,
 ) -> WorkflowHandle:
-    """Start a DataProcessingWorkflow and return its handle."""
+    """Start a file-based DataProcessingWorkflow and return its handle."""
+    params = params or {}
+    file_upload_id = params.get("file_upload_id") or params.get("file_id") or experiment_id
+    org_id = params.get("org_id", "org_default")
+    user_id = params.get("user_id") or params.get("created_by")
+    return await start_file_processing_workflow(
+        file_upload_id=str(file_upload_id),
+        processing_type=processing_type,
+        org_id=str(org_id),
+        user_id=str(user_id) if user_id else None,
+        params=params,
+    )
+
+
+async def start_file_processing_workflow(
+    *,
+    file_upload_id: str,
+    processing_type: str,
+    org_id: str,
+    user_id: str | None = None,
+    params: dict[str, Any] | None = None,
+) -> WorkflowHandle:
+    """Start a durable upload -> parse -> process -> persist workflow."""
     client = await get_temporal_client()
     settings = get_settings()
+    params = params or {}
 
-    workflow_id = f"process-{experiment_id}-{uuid.uuid4().hex[:8]}"
+    workflow_id = f"process-{file_upload_id}-{uuid.uuid4().hex[:8]}"
     handle = await client.start_workflow(
         DataProcessingWorkflow.run,
-        ProcessingInput(
-            experiment_id=experiment_id,
+        FileProcessingInput(
+            file_upload_id=file_upload_id,
+            org_id=org_id,
+            user_id=user_id,
             processing_type=processing_type,
-            parameters=params or {},
+            parameters=params,
         ),
         id=workflow_id,
         task_queue=settings.temporal_task_queue,

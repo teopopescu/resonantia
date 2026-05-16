@@ -32,6 +32,7 @@ class AgentToolCallInput:
     messages: list[dict[str, Any]]
     tools: list[dict[str, Any]]
     org_id: str
+    user_id: str | None = None
     request_context: dict[str, Any] | None = None
     conversation_id: str | None = None
     max_iterations: int = 10
@@ -103,8 +104,13 @@ class AgentToolCallWorkflow:
 
                 tool_result: str = await workflow.execute_activity(
                     execute_tool_activity,
-                    args=[tc_name, tc_args, inp.org_id, inp.request_context],
-                    start_to_close_timeout=timedelta(seconds=30),
+                    args=[tc_name, tc_args, inp.org_id, inp.request_context or {
+                        "user_id": inp.user_id or "unknown",
+                        "org_id": inp.org_id,
+                        "roles": ["org:viewer"],
+                        "permissions": [],
+                    }],
+                    start_to_close_timeout=timedelta(seconds=60),
                     retry_policy=RETRY_POLICY,
                 )
 
@@ -136,7 +142,7 @@ class AgentToolCallWorkflow:
         if conversation_id:
             await workflow.execute_activity(
                 persist_conversation_activity,
-                args=[conversation_id, inp.org_id, messages],
+                args=[conversation_id, inp.org_id, inp.user_id, messages],
                 start_to_close_timeout=timedelta(seconds=10),
                 retry_policy=RETRY_POLICY,
             )

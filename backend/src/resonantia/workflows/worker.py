@@ -26,8 +26,14 @@ from resonantia.workflows.activities import (
     validate_source_plates,
 )
 from resonantia.workflows.agent_workflow import AgentToolCallWorkflow
+from resonantia.workflows.data_activities import (
+    load_uploaded_file_activity,
+    parse_uploaded_file_activity,
+    persist_file_processing_result_activity,
+    run_file_processing_activity,
+)
+from resonantia.workflows.data_processing_workflow import DataProcessingWorkflow
 from resonantia.workflows.plate_workflow import PlateMapWorkflow
-from resonantia.workflows.processing_workflow import DataProcessingWorkflow
 from resonantia.workflows.voice_activities import (
     complete_voice_turn_activity,
     create_voice_turn_activity,
@@ -61,6 +67,10 @@ ALL_ACTIVITIES = [
     generate_worklist,
     save_plate_map,
     # Data processing activities
+    load_uploaded_file_activity,
+    parse_uploaded_file_activity,
+    run_file_processing_activity,
+    persist_file_processing_result_activity,
     load_experiment_data,
     run_processing,
     generate_figures,

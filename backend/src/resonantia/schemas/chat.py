@@ -52,6 +52,8 @@ class ChatResponse(BaseModel):
     message: str
     conversation_id: str
     tool_calls: list[dict[str, Any]] | None = None
+    workflow_id: str | None = None
+    status: str | None = None
     routed_to: list[str] | None = Field(
         None,
         description="Names of specialist subagents that answered. "
