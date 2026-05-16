@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import (
 # ---------------------------------------------------------------------------
 os.environ["DATABASE_URL"] = "postgresql+asyncpg://test:test@localhost/test"
 os.environ["REDIS_URL"] = "redis://localhost:6379/0"
+os.environ["OPENAI_API_KEY"] = "test-key"
 os.environ["ANTHROPIC_API_KEY"] = "test-key"
 os.environ["CLERK_SECRET_KEY"] = "test-clerk"
 

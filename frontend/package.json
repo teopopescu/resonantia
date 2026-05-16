@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "test": "vitest",
     "lint": "eslint"
   },
   "dependencies": {
@@ -17,7 +18,7 @@
     "contentful": "^11.12.0",
     "framer-motion": "^12.38.0",
     "lucide-react": "^1.8.0",
-    "next": "16.2.3",
+    "next": "^16.2.6",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "tailwind-merge": "^3.5.0",
@@ -37,5 +38,8 @@
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^4.1.4"
+  },
+  "overrides": {
+    "postcss": "8.5.14"
   }
 }

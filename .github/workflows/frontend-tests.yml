@@ -26,9 +26,13 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      - name: Audit dependencies
+        working-directory: frontend
+        run: npm audit --audit-level=moderate
+
       - name: Run tests
         working-directory: frontend
-        run: npx vitest run
+        run: npm test -- --run
 
       - name: Build
         working-directory: frontend

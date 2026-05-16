@@ -15,7 +15,7 @@ describe('useSampleStore', () => {
     })
   })
 
-  it('initial state has demo samples loaded', () => {
+  it('initial state can be reset with demo samples for demo-mode tests', () => {
     const state = useSampleStore.getState()
     expect(state.samples).toHaveLength(DEMO_SAMPLES.length)
     expect(state.samples[0].id).toBe(DEMO_SAMPLES[0].id)

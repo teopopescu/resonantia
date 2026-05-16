@@ -175,21 +175,21 @@ The product has a complete UI, backend API structure, Temporal workflows, tool r
 # Backend
 DATABASE_URL=postgresql+asyncpg://user:pass@rds-host:5432/resonantia
 REDIS_URL=redis://elasticache-host:6379
-ANTHROPIC_API_KEY=sk-ant-...
-CLERK_SECRET_KEY=sk_live_...
+ANTHROPIC_API_KEY=<anthropic-api-key>
+CLERK_SECRET_KEY=<clerk-secret-key>
 TEMPORAL_HOST=temporal-cloud-host:7233
-LANGFUSE_PUBLIC_KEY=pk-lf-...
-LANGFUSE_SECRET_KEY=sk-lf-...
+LANGFUSE_PUBLIC_KEY=<langfuse-public-key>
+LANGFUSE_SECRET_KEY=<langfuse-secret-key>
 LANGFUSE_HOST=https://cloud.langfuse.com
 CORS_ORIGINS=["https://resonantia.vercel.app"]
 
 # Frontend (Vercel)
 NEXT_PUBLIC_API_URL=https://api.resonantia.io
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_live_...
-NEXT_PUBLIC_CONTENTFUL_SPACE_ID=gismnhbb3kki
-NEXT_PUBLIC_CONTENTFUL_ACCESS_TOKEN=e7if3JoufyZzs33-...
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=<clerk-publishable-key>
+NEXT_PUBLIC_CONTENTFUL_SPACE_ID=<contentful-space-id>
+NEXT_PUBLIC_CONTENTFUL_ACCESS_TOKEN=<contentful-access-token>
 NEXT_PUBLIC_APP_URL=https://resonantia.vercel.app
-CLERK_SECRET_KEY=sk_live_...
+CLERK_SECRET_KEY=<clerk-secret-key>
 ```
 
 #### 5.5 S3 integration for file storage

@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { DEMO_SAMPLES, type Sample, type SampleStatus, type SampleType } from "@/lib/demo-data";
 import { api } from "@/lib/api";
-import { isDemoMode, showErrorToast } from "@/lib/demo-mode";
+import { isDemoMode, shouldUseDemoData, showErrorToast } from "@/lib/demo-mode";
 
 export interface SampleFilters {
   type: SampleType | "all";
@@ -42,7 +42,7 @@ interface SampleState {
 export const useSampleStore = create<SampleState>()(
   persist(
     (set, get) => ({
-      samples: DEMO_SAMPLES,
+      samples: shouldUseDemoData() ? DEMO_SAMPLES : [],
       filters: { type: "all", status: "all", location: "", search: "" },
       selectedSamples: [],
       modalOpen: false,

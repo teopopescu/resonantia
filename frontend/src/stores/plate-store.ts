@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { WellData, WellType } from "@/lib/plate-utils";
 import { api, apiRaw } from "@/lib/api";
-import { showErrorToast } from "@/lib/demo-mode";
+import { isDemoMode, shouldUseDemoData, showErrorToast } from "@/lib/demo-mode";
 
 export type MappingMode =
   | "cherry-pick"
@@ -217,8 +217,8 @@ export const usePlateStore = create<PlateState>()(
   persist(
     (set, get) => ({
       // Initial data
-      plates: DEMO_PLATES,
-      plateMaps: DEMO_PLATE_MAPS,
+      plates: shouldUseDemoData() ? DEMO_PLATES : [],
+      plateMaps: shouldUseDemoData() ? DEMO_PLATE_MAPS : [],
       loading: false,
       synced: false,
 
@@ -246,8 +246,11 @@ export const usePlateStore = create<PlateState>()(
             set({ synced: false, loading: false });
           }
         } catch {
-          showErrorToast("backend unavailable — keep demo data");
-          // Backend unavailable — keep demo data
+          showErrorToast("load plate maps");
+          if (isDemoMode()) {
+            set({ plates: DEMO_PLATES, plateMaps: DEMO_PLATE_MAPS, synced: false, loading: false });
+            return;
+          }
           set({ synced: false, loading: false });
         }
       },
@@ -262,7 +265,10 @@ export const usePlateStore = create<PlateState>()(
           set((s) => ({ plateMaps: [...s.plateMaps, created], synced: true, loading: false }));
         } catch {
           showErrorToast("save changes");
-          // Fallback: add locally with generated id
+          if (!isDemoMode()) {
+            set({ loading: false });
+            return;
+          }
           const local: PlateMap = {
             id: `pm-local-${Date.now()}`,
             name: data.name || "Untitled Plate Map",

@@ -7,6 +7,10 @@ export function isDemoMode(): boolean {
   return false;
 }
 
+export function shouldUseDemoData(): boolean {
+  return process.env.NEXT_PUBLIC_DEMO_MODE === "true" || _isDemoMode === true;
+}
+
 export async function initDemoMode(): Promise<void> {
   if (process.env.NEXT_PUBLIC_DEMO_MODE === "true") {
     _isDemoMode = true;
@@ -21,9 +25,9 @@ export async function initDemoMode(): Promise<void> {
     const res = await fetch(`${apiUrl}/health`, {
       signal: AbortSignal.timeout(3000),
     });
-    _isDemoMode = !res.ok;
+    _isDemoMode = process.env.NEXT_PUBLIC_AUTO_DEMO_ON_API_FAILURE === "true" && !res.ok;
   } catch {
-    _isDemoMode = true;
+    _isDemoMode = process.env.NEXT_PUBLIC_AUTO_DEMO_ON_API_FAILURE === "true";
   }
 }
 

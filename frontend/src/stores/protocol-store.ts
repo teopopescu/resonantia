@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { api } from "@/lib/api";
-import { showErrorToast } from "@/lib/demo-mode";
+import { isDemoMode, shouldUseDemoData, showErrorToast } from "@/lib/demo-mode";
 
 export interface Reagent {
   name: string;
@@ -191,7 +191,7 @@ interface ProtocolState {
 export const useProtocolStore = create<ProtocolState>()(
   persist(
     (set, get) => ({
-      protocols: DEMO_PROTOCOLS,
+      protocols: shouldUseDemoData() ? DEMO_PROTOCOLS : [],
       activeProtocolId: null,
       loading: false,
       inventoryCheck: null,
@@ -201,7 +201,7 @@ export const useProtocolStore = create<ProtocolState>()(
         set({ loading: true });
         try {
           const data = await api<Protocol[]>("/api/v1/protocols");
-          set({ protocols: data.length > 0 ? data : DEMO_PROTOCOLS, loading: false });
+          set({ protocols: data.length > 0 ? data : (isDemoMode() ? DEMO_PROTOCOLS : []), loading: false });
         } catch {
           showErrorToast("save changes");
           set({ loading: false });
@@ -229,7 +229,11 @@ export const useProtocolStore = create<ProtocolState>()(
           set((s) => ({ protocols: [created, ...s.protocols], loading: false }));
         } catch {
           showErrorToast("save changes");
-          set((s) => ({ protocols: [protocol, ...s.protocols], loading: false }));
+          if (isDemoMode()) {
+            set((s) => ({ protocols: [protocol, ...s.protocols], loading: false }));
+          } else {
+            set({ loading: false });
+          }
         }
       },
 
@@ -314,12 +318,16 @@ export const useProtocolStore = create<ProtocolState>()(
           }));
         } catch {
           showErrorToast("save changes");
-          set((s) => ({
-            protocols: s.protocols.map((p) =>
-              p.id === id ? { ...p, status: "published" as const, updated_at: new Date().toISOString() } : p
-            ),
-            loading: false,
-          }));
+          if (isDemoMode()) {
+            set((s) => ({
+              protocols: s.protocols.map((p) =>
+                p.id === id ? { ...p, status: "published" as const, updated_at: new Date().toISOString() } : p
+              ),
+              loading: false,
+            }));
+          } else {
+            set({ loading: false });
+          }
         }
       },
 
@@ -340,8 +348,11 @@ export const useProtocolStore = create<ProtocolState>()(
           });
           set({ inventoryCheck: result, loading: false });
         } catch {
-          showErrorToast("generate mock inventory check from protocol reagents");
-          // Generate mock inventory check from protocol reagents
+          showErrorToast("check inventory");
+          if (!isDemoMode()) {
+            set({ loading: false });
+            return;
+          }
           const protocol = get().protocols.find((p) => p.id === id);
           if (protocol) {
             const mockCheck: InventoryCheckResult[] = protocol.steps.flatMap((step) =>

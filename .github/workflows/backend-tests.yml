@@ -52,6 +52,13 @@ jobs:
         working-directory: backend
         run: uv sync --frozen
 
+      - name: Run migrations
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql+asyncpg://resonantia:test@localhost:5432/resonantia_test
+          REDIS_URL: redis://localhost:6379/0
+        run: uv run alembic upgrade head
+
       - name: Run tests
         working-directory: backend
         env:

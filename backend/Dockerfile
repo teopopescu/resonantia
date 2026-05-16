@@ -4,11 +4,12 @@ WORKDIR /app
 
 RUN pip install --no-cache-dir uv
 
-COPY pyproject.toml uv.lock README.md ./
+COPY pyproject.toml uv.lock README.md alembic.ini ./
 
 RUN uv sync --frozen --no-dev
 
 COPY src/ ./src/
+COPY alembic/ ./alembic/
 
 RUN mkdir -p /app/uploads
 
