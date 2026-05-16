@@ -63,6 +63,11 @@ class Settings(BaseSettings):
     langfuse_secret_key: str = ""
     langfuse_host: str = "https://cloud.langfuse.com"
 
+    # --- OpenTelemetry ---
+    otel_service_name: str = "resonantia-backend"
+    otel_environment: str = "development"
+    otel_exporter_otlp_endpoint: str = ""
+
     # --- eLabFTW ---
     elabftw_url: str = ""
     elabftw_api_key: str = ""

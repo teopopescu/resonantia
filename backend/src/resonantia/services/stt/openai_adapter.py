@@ -9,6 +9,7 @@ from openai import AsyncOpenAI
 
 from resonantia.config import get_settings
 from resonantia.middleware import log_stage_latency
+from resonantia.telemetry import record_span_exception, set_span_attributes, start_span
 
 
 class OpenAISTTProvider:
@@ -19,11 +20,19 @@ class OpenAISTTProvider:
 
     async def transcribe(self, audio_file, *, model: str | None = None) -> str:
         start = time.monotonic()
-        result = await self._client.audio.transcriptions.create(
-            model=model or self._default_model,
-            file=audio_file,
-        )
-        log_stage_latency("stt", (time.monotonic() - start) * 1000, model=model or self._default_model)
+        selected_model = model or self._default_model
+        with start_span("voice.stt", {"stt.provider": "openai", "stt.model": selected_model}) as span:
+            try:
+                result = await self._client.audio.transcriptions.create(
+                    model=selected_model,
+                    file=audio_file,
+                )
+            except Exception as exc:
+                record_span_exception(span, exc)
+                raise
+        elapsed_ms = (time.monotonic() - start) * 1000
+        set_span_attributes(span, {"stt.latency_ms": round(elapsed_ms, 2)})
+        log_stage_latency("stt", elapsed_ms, model=selected_model)
         return result.text.strip()
 
     async def transcribe_stream(self, audio_file, *, model: str | None = None) -> AsyncIterator[str]:

@@ -13,6 +13,7 @@ from resonantia.api.router import api_router
 from resonantia.config import get_settings
 from resonantia.db.session import close_db, init_db
 from resonantia.middleware import RequestContextMiddleware
+from resonantia.telemetry import initialize_telemetry
 
 logger = logging.getLogger("resonantia")
 
@@ -22,6 +23,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Startup / shutdown lifecycle."""
     settings = get_settings()
     logger.info("Starting Resonantia backend (debug=%s)", settings.debug)
+    initialize_telemetry()
 
     # Create tables for local dev; in production use Alembic migrations.
     await init_db()

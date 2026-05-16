@@ -37,6 +37,7 @@ from resonantia.services.output_validator import (
     check_tenant_refs,
     validate_tool_args,
 )
+from resonantia.telemetry import record_span_exception, set_span_attributes, start_span
 
 logger = logging.getLogger(__name__)
 
@@ -252,41 +253,52 @@ async def execute_tool_typed(
             )
 
     # --- Step 4: Execute ---
-    try:
-        result = await handler(tool_input, org_id)
-        serialized = _serialize(result)
-        source_refs = _extract_source_refs(tool_input)
-        await _append_tool_audit(
-            tool_name=tool_name,
-            tool_input=tool_input,
-            org_id=org_id,
-            user_id=user_id,
-            request_id=request_id,
-            status="success",
-            source_refs=source_refs,
-        )
-        return ToolResult(
-            tool_name=tool_name,
-            data=serialized if isinstance(serialized, dict) else {"result": serialized},
-            source_refs=source_refs,
-        )
-    except Exception:
-        logger.exception("Tool execution failed: %s", tool_name)
-        await _append_tool_audit(
-            tool_name=tool_name,
-            tool_input=tool_input,
-            org_id=org_id,
-            user_id=user_id,
-            request_id=request_id,
-            status="error",
-            error_type="system",
-        )
-        return ToolError(
-            tool_name=tool_name,
-            error_type="system",
-            message="Internal error",
-            retry_allowed=False,
-        )
+    with start_span(
+        f"voice.agent.tool.{tool_name}",
+        {
+            "tool.name": tool_name,
+            "tool.source": source,
+            "org_id": org_id,
+            "request_id": request_id,
+        },
+    ) as span:
+        try:
+            result = await handler(tool_input, org_id)
+            serialized = _serialize(result)
+            source_refs = _extract_source_refs(tool_input)
+            set_span_attributes(span, {"tool.status": "success", "tool.source_ref_count": len(source_refs)})
+            await _append_tool_audit(
+                tool_name=tool_name,
+                tool_input=tool_input,
+                org_id=org_id,
+                user_id=user_id,
+                request_id=request_id,
+                status="success",
+                source_refs=source_refs,
+            )
+            return ToolResult(
+                tool_name=tool_name,
+                data=serialized if isinstance(serialized, dict) else {"result": serialized},
+                source_refs=source_refs,
+            )
+        except Exception as exc:
+            record_span_exception(span, exc)
+            logger.exception("Tool execution failed: %s", tool_name)
+            await _append_tool_audit(
+                tool_name=tool_name,
+                tool_input=tool_input,
+                org_id=org_id,
+                user_id=user_id,
+                request_id=request_id,
+                status="error",
+                error_type="system",
+            )
+            return ToolError(
+                tool_name=tool_name,
+                error_type="system",
+                message="Internal error",
+                retry_allowed=False,
+            )
 
 
 async def execute_tool(
