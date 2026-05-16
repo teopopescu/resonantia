@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from resonantia.config import get_settings
@@ -19,6 +19,7 @@ from resonantia.middleware import log_stage_latency
 from resonantia.models.request_context import RequestContext
 from resonantia.models.voice_turn import VoiceTurn
 from resonantia.services.agent import chat as agent_chat
+from resonantia.services.storage import get_storage, is_signed_url
 from resonantia.services.stt import OpenAISTTProvider
 from resonantia.services.tts import OpenAITTSProvider
 from resonantia.api.voice_events import router as voice_events_router
@@ -181,21 +182,21 @@ async def voice_chat(
         log_stage_latency("tts", (time.monotonic() - tts_start) * 1000)
 
         # Save TTS audio
-        voice_dir = os.path.join(settings.upload_dir, "voice")
-        os.makedirs(voice_dir, exist_ok=True)
         audio_id = uuid.uuid4().hex
-        audio_path = os.path.join(voice_dir, f"{audio_id}.mp3")
-        # Write audio bytes to file (stream_to_file may not work in async context)
-        with open(audio_path, "wb") as f:
-            f.write(audio_bytes)
-        logger.info("TTS audio saved: %s (%d bytes)", audio_path, len(audio_bytes))
+        storage_path = f"voice/{audio_id}.mp3"
+        storage = get_storage("s3" if settings.storage_backend.lower() == "s3" else "local")
+        await storage.save(storage_path, audio_bytes, "audio/mpeg")
+        logger.info("TTS audio saved: %s (%d bytes)", storage_path, len(audio_bytes))
 
-        _audio_registry[audio_id] = audio_path
+        _audio_registry[audio_id] = storage_path
+        audio_url = storage.url(storage_path)
+        if not is_signed_url(audio_url):
+            audio_url = f"/api/v1/voice/audio/{audio_id}"
 
         return {
             "transcription": transcribed_text,
             "response": response_text,
-            "audio_url": f"/api/v1/voice/audio/{audio_id}",
+            "audio_url": audio_url,
             "conversation_id": chat_result.get("conversation_id", conversation_id),
             "tool_calls": chat_result.get("tool_calls"),
         }
@@ -211,10 +212,16 @@ async def voice_chat(
 @router.get("/audio/{audio_id}")
 async def get_audio(audio_id: str):
     """Serve a generated TTS audio file."""
-    path = _audio_registry.get(audio_id)
-    if not path or not os.path.exists(path):
+    storage_path = _audio_registry.get(audio_id)
+    settings = get_settings()
+    storage = get_storage("s3" if settings.storage_backend.lower() == "s3" else "local")
+    if storage_path:
+        signed_url = storage.url(storage_path)
+        if is_signed_url(signed_url):
+            return RedirectResponse(signed_url, status_code=307)
+        path = os.path.join(settings.upload_dir, storage_path)
+    else:
         # Try finding it in the voice directory
-        settings = get_settings()
         path = os.path.join(settings.upload_dir, "voice", f"{audio_id}.mp3")
         if not os.path.exists(path):
             raise HTTPException(status_code=404, detail="Audio not found")
