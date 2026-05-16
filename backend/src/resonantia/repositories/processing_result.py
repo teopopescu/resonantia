@@ -8,6 +8,7 @@ import uuid
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from resonantia.models.processing_result import ProcessingResult
@@ -68,6 +69,10 @@ class ProcessingResultRepository:
         file_upload_id: str | uuid.UUID | None = None,
         experiment_id: str | uuid.UUID | None = None,
     ) -> ProcessingResult:
+        existing = await self.get_by_idempotency_key(org_id=org_id, idempotency_key=idempotency_key)
+        if existing:
+            return existing
+
         record = ProcessingResult(
             org_id=org_id,
             created_by=created_by,
@@ -78,6 +83,13 @@ class ProcessingResultRepository:
             file_upload_id=parse_optional_uuid(file_upload_id),
             experiment_id=parse_optional_uuid(experiment_id),
         )
-        self._session.add(record)
-        await self._session.flush()
+        try:
+            async with self._session.begin_nested():
+                self._session.add(record)
+                await self._session.flush()
+        except IntegrityError:
+            existing = await self.get_by_idempotency_key(org_id=org_id, idempotency_key=idempotency_key)
+            if existing:
+                return existing
+            raise
         return record

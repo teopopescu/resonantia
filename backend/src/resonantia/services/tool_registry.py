@@ -291,6 +291,7 @@ def _default_tools() -> list[ToolSchema]:
             parameters=[
                 ToolParameter(name="concentrations", type="array", description="Array of concentration values"),
                 ToolParameter(name="responses", type="array", description="Array of response/signal values"),
+                ToolParameter(name="file_upload_id", type="string", description="Uploaded CSV file ID for durable Temporal processing", required=False),
                 ToolParameter(name="model", type="string", description="Curve model to fit", enum=["4pl", "3pl"], required=False, default="4pl"),
             ],
         ),
@@ -300,6 +301,7 @@ def _default_tools() -> list[ToolSchema]:
             category="data_processing",
             parameters=[
                 ToolParameter(name="raw_data", type="array", description="Array of raw plate reader values (row-major)"),
+                ToolParameter(name="file_upload_id", type="string", description="Uploaded CSV file ID for durable Temporal processing", required=False),
                 ToolParameter(name="method", type="string", description="Normalization method", enum=["z-score", "percent-of-control", "robust-z"]),
                 ToolParameter(name="positive_control_wells", type="array", description="Well IDs of positive controls (e.g. ['A1','A2'])", required=False),
                 ToolParameter(name="negative_control_wells", type="array", description="Well IDs of negative controls", required=False),
