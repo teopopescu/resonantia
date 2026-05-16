@@ -8,9 +8,12 @@ from typing import Any, AsyncIterator
 
 from anthropic import AsyncAnthropic
 
+from resonantia.services.circuit_breaker import CircuitBreaker
 from resonantia.services.llm.provider import LLMProvider, LLMResponse, ToolCall
+from resonantia.telemetry import record_span_exception, set_span_attributes, start_span
 
 logger = logging.getLogger(__name__)
+_ANTHROPIC_BREAKER = CircuitBreaker("anthropic_llm")
 
 
 def _to_anthropic_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -204,7 +207,23 @@ class AnthropicAdapter(LLMProvider):
                 for tool in _to_anthropic_tools(tools)
             ]
 
-        response = await self._client.messages.create(**kwargs)
+        with start_span(
+            "voice.agent.llm",
+            {
+                "llm.provider": self.provider_name,
+                "llm.model": model,
+                "llm.tool_count": len(tools or []),
+                "llm.streaming": False,
+            },
+        ) as span:
+            try:
+                response = await _ANTHROPIC_BREAKER.call(
+                    lambda: self._client.messages.create(**kwargs),
+                    timeout_seconds=30.0,
+                )
+            except Exception as exc:
+                record_span_exception(span, exc)
+                raise
 
         # Extract text content.
         text_parts: list[str] = []
@@ -219,6 +238,15 @@ class AnthropicAdapter(LLMProvider):
             cache_read,
             response.usage.input_tokens,
             response.usage.output_tokens,
+        )
+        set_span_attributes(
+            span,
+            {
+                "llm.input_tokens": response.usage.input_tokens,
+                "llm.output_tokens": response.usage.output_tokens,
+                "llm.cache_read_input_tokens": cache_read,
+                "llm.tool_calls": len(tool_calls),
+            },
         )
 
         return LLMResponse(
@@ -258,34 +286,47 @@ class AnthropicAdapter(LLMProvider):
         # Accumulate tool_use blocks.
         current_tool: dict[str, Any] | None = None
 
-        async with self._client.messages.stream(**kwargs) as stream:
-            async for event in stream:
-                if event.type == "content_block_start":
-                    block = event.content_block
-                    if getattr(block, "type", None) == "tool_use":
-                        current_tool = {
-                            "id": block.id,
-                            "name": block.name,
-                            "arguments": "",
-                        }
+        with start_span(
+            "voice.agent.llm",
+            {
+                "llm.provider": self.provider_name,
+                "llm.model": model,
+                "llm.tool_count": len(tools or []),
+                "llm.streaming": True,
+            },
+        ) as span:
+            try:
+                async with self._client.messages.stream(**kwargs) as stream:
+                    async for event in stream:
+                        if event.type == "content_block_start":
+                            block = event.content_block
+                            if getattr(block, "type", None) == "tool_use":
+                                current_tool = {
+                                    "id": block.id,
+                                    "name": block.name,
+                                    "arguments": "",
+                                }
 
-                elif event.type == "content_block_delta":
-                    delta = event.delta
-                    if getattr(delta, "type", None) == "text_delta":
-                        yield delta.text
-                    elif getattr(delta, "type", None) == "input_json_delta":
-                        if current_tool is not None:
-                            current_tool["arguments"] += delta.partial_json
+                        elif event.type == "content_block_delta":
+                            delta = event.delta
+                            if getattr(delta, "type", None) == "text_delta":
+                                yield delta.text
+                            elif getattr(delta, "type", None) == "input_json_delta":
+                                if current_tool is not None:
+                                    current_tool["arguments"] += delta.partial_json
 
-                elif event.type == "content_block_stop":
-                    if current_tool is not None:
-                        try:
-                            args = json.loads(current_tool["arguments"]) if current_tool["arguments"] else {}
-                        except json.JSONDecodeError:
-                            args = {}
-                        yield ToolCall(
-                            id=current_tool["id"],
-                            name=current_tool["name"],
-                            arguments=args,
-                        )
-                        current_tool = None
+                        elif event.type == "content_block_stop":
+                            if current_tool is not None:
+                                try:
+                                    args = json.loads(current_tool["arguments"]) if current_tool["arguments"] else {}
+                                except json.JSONDecodeError:
+                                    args = {}
+                                yield ToolCall(
+                                    id=current_tool["id"],
+                                    name=current_tool["name"],
+                                    arguments=args,
+                                )
+                                current_tool = None
+            except Exception as exc:
+                record_span_exception(span, exc)
+                raise

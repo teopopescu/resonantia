@@ -1,0 +1,46 @@
+{
+  "title": "Resonantia Voice Pipeline",
+  "tags": ["resonantia", "voice"],
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "15s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Voice turn latency breakdown",
+      "gridPos": {"h": 8, "w": 16, "x": 0, "y": 0},
+      "targets": [
+        {"legendFormat": "STT p95", "expr": "histogram_quantile(0.95, sum(rate(voice_stt_duration_milliseconds_bucket[5m])) by (le))"},
+        {"legendFormat": "Agent p95", "expr": "histogram_quantile(0.95, sum(rate(voice_agent_duration_milliseconds_bucket[5m])) by (le))"},
+        {"legendFormat": "TTS p95", "expr": "histogram_quantile(0.95, sum(rate(voice_tts_duration_milliseconds_bucket[5m])) by (le))"},
+        {"legendFormat": "Total p95", "expr": "histogram_quantile(0.95, sum(rate(voice_total_duration_milliseconds_bucket[5m])) by (le))"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "ms"}}
+    },
+    {
+      "type": "stat",
+      "title": "Active voice sessions",
+      "gridPos": {"h": 4, "w": 8, "x": 16, "y": 0},
+      "targets": [
+        {"legendFormat": "active", "expr": "sum(voice_turns_active)"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}}
+    },
+    {
+      "type": "timeseries",
+      "title": "Voice errors by stage",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8},
+      "targets": [
+        {
+          "legendFormat": "{{stage}}",
+          "expr": "sum(rate(voice_turn_errors_total[5m])) by (stage)"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "eps"}}
+    }
+  ]
+}

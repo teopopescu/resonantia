@@ -49,9 +49,14 @@ class Settings(BaseSettings):
     clerk_authorized_parties: list[str] = []
 
     # --- Storage ---
+    storage_backend: str = "local"
     upload_dir: str = "./uploads"
     microscopy_dir: str = "./uploads/microscopy"
     thumbnail_size: tuple[int, int] = (256, 256)
+    s3_bucket: str = ""
+    s3_region: str = "us-east-1"
+    s3_prefix: str = "resonantia"
+    s3_signed_url_expires_seconds: int = 3600
 
     # --- Temporal ---
     temporal_host: str = "localhost:7233"
@@ -63,6 +68,11 @@ class Settings(BaseSettings):
     langfuse_secret_key: str = ""
     langfuse_host: str = "https://cloud.langfuse.com"
 
+    # --- OpenTelemetry ---
+    otel_service_name: str = "resonantia-backend"
+    otel_environment: str = "development"
+    otel_exporter_otlp_endpoint: str = ""
+
     # --- eLabFTW ---
     elabftw_url: str = ""
     elabftw_api_key: str = ""
@@ -71,6 +81,8 @@ class Settings(BaseSettings):
     tts_voice: str = "nova"
     tts_model: str = "gpt-4o-mini-tts"
     stt_model: str = "gpt-4o-transcribe"
+    voice_input_retention_days: int = 30
+    voice_output_retention_days: int = 7
 
     # --- CORS ---
     cors_origins: list[str] = [

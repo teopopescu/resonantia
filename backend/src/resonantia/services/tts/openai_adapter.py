@@ -9,6 +9,11 @@ from openai import AsyncOpenAI
 
 from resonantia.config import get_settings
 from resonantia.middleware import log_stage_latency
+from resonantia.services.circuit_breaker import CircuitBreaker
+from resonantia.telemetry import record_span_exception, set_span_attributes, start_span
+
+
+_TTS_BREAKER = CircuitBreaker("openai_tts")
 
 
 class OpenAITTSProvider:
@@ -20,16 +25,36 @@ class OpenAITTSProvider:
 
     async def synthesize(self, text: str, *, model: str | None = None, voice: str | None = None) -> bytes:
         start = time.monotonic()
-        response = await self._client.audio.speech.create(
-            model=model or self._default_model,
-            voice=voice or self._default_voice,
-            input=text,
-        )
+        selected_model = model or self._default_model
+        selected_voice = voice or self._default_voice
+        with start_span(
+            "voice.tts",
+            {
+                "tts.provider": "openai",
+                "tts.model": selected_model,
+                "tts.voice": selected_voice,
+                "tts.input_chars": len(text),
+            },
+        ) as span:
+            try:
+                response = await _TTS_BREAKER.call(
+                    lambda: self._client.audio.speech.create(
+                        model=selected_model,
+                        voice=selected_voice,
+                        input=text,
+                    ),
+                    timeout_seconds=10.0,
+                )
+            except Exception as exc:
+                record_span_exception(span, exc)
+                raise
         audio = response.content
+        elapsed_ms = (time.monotonic() - start) * 1000
+        set_span_attributes(span, {"tts.bytes": len(audio), "tts.latency_ms": round(elapsed_ms, 2)})
         log_stage_latency(
             "tts",
-            (time.monotonic() - start) * 1000,
-            model=model or self._default_model,
+            elapsed_ms,
+            model=selected_model,
             bytes=len(audio),
         )
         return audio
@@ -38,4 +63,6 @@ class OpenAITTSProvider:
         self, text: str, *, model: str | None = None, voice: str | None = None
     ) -> AsyncIterator[bytes]:
         audio = await self.synthesize(text, model=model, voice=voice)
+        with start_span("voice.tts.first_chunk", {"tts.first_chunk_bytes": len(audio)}):
+            pass
         yield audio

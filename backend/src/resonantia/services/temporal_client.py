@@ -9,6 +9,7 @@ from typing import Any
 from temporalio.client import Client, WorkflowHandle
 
 from resonantia.config import get_settings
+from resonantia.telemetry import current_trace_context
 from resonantia.workflows.agent_workflow import AgentToolCallInput, AgentToolCallWorkflow
 from resonantia.workflows.data_processing_workflow import (
     DataProcessingWorkflow,
@@ -75,6 +76,7 @@ async def start_agent_workflow(
                 "org_id": org_id,
                 "roles": roles or ["org:viewer"],
                 "permissions": permissions or [],
+                "_trace_context": current_trace_context(),
             },
             conversation_id=conversation_id,
         ),

@@ -14,6 +14,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from resonantia.config import get_settings
+from resonantia.telemetry import record_span_exception, set_span_attributes, start_span
 
 logger = logging.getLogger("resonantia.request")
 
@@ -67,13 +68,33 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         latency_token = latency_fields_var.set(request.state.latency_fields)
         start = time.monotonic()
 
-        try:
-            response = await call_next(request)
-        finally:
-            request_id_var.reset(token)
-            latency_fields_var.reset(latency_token)
+        span_name = "voice.total" if request.url.path.startswith("/api/v1/voice") else "http.request"
+        with start_span(
+            span_name,
+            {
+                "http.method": request.method,
+                "http.route": request.url.path,
+                "request_id": request_id,
+            },
+        ) as span:
+            try:
+                response = await call_next(request)
+            except Exception as exc:
+                record_span_exception(span, exc)
+                raise
+            finally:
+                request_id_var.reset(token)
+                latency_fields_var.reset(latency_token)
 
-        total_ms = (time.monotonic() - start) * 1000
+            total_ms = (time.monotonic() - start) * 1000
+            set_span_attributes(
+                span,
+                {
+                    "http.status_code": response.status_code,
+                    "latency.total_ms": round(total_ms, 2),
+                },
+            )
+
         response.headers["X-Request-Id"] = request_id
 
         settings = get_settings()
