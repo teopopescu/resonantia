@@ -81,6 +81,8 @@ class Settings(BaseSettings):
     tts_voice: str = "nova"
     tts_model: str = "gpt-4o-mini-tts"
     stt_model: str = "gpt-4o-transcribe"
+    voice_input_retention_days: int = 30
+    voice_output_retention_days: int = 7
 
     # --- CORS ---
     cors_origins: list[str] = [

@@ -1,0 +1,26 @@
+name: Staging Integration Regression
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Staging base URL"
+        required: true
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Run integration regression tests
+        working-directory: backend
+        env:
+          RESONANTIA_BASE_URL: ${{ inputs.base_url }}
+          RESONANTIA_AUTH_TOKEN: ${{ secrets.RESONANTIA_STAGING_AUTH_TOKEN }}
+          RESONANTIA_ORG_ID: ${{ secrets.RESONANTIA_STAGING_ORG_ID }}
+          RESONANTIA_DATABASE_URL: ${{ secrets.RESONANTIA_STAGING_DATABASE_URL }}
+        run: uv run pytest ../tests/integration -v --tb=short
