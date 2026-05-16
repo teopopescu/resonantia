@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from sqlalchemy import Integer, String, Text, UniqueConstraint
+from sqlalchemy import Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.sql import text
 
 from resonantia.models.base import Base, TimestampMixin, UUIDPrimaryKey
 
@@ -12,12 +13,19 @@ from resonantia.models.base import Base, TimestampMixin, UUIDPrimaryKey
 class VoiceTurn(Base, UUIDPrimaryKey, TimestampMixin):
     __tablename__ = "voice_turns"
     __table_args__ = (
-        UniqueConstraint("org_id", "idempotency_key", name="uq_voice_turns_org_idempotency"),
+        Index(
+            "uq_voice_turns_org_idempotency",
+            "org_id",
+            "idempotency_key",
+            unique=True,
+            postgresql_where=text("idempotency_key IS NOT NULL"),
+            sqlite_where=text("idempotency_key IS NOT NULL"),
+        ),
     )
 
     org_id: Mapped[str] = mapped_column(String(255), index=True, nullable=False)
     created_by: Mapped[str | None] = mapped_column(String(255), index=True, nullable=True)
-    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    idempotency_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
     status: Mapped[str] = mapped_column(String(50), index=True, nullable=False, default="processing")
     workflow_id: Mapped[str | None] = mapped_column(String(255), index=True, nullable=True)
     conversation_id: Mapped[str | None] = mapped_column(String(255), index=True, nullable=True)
