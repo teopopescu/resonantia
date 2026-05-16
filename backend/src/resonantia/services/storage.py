@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import Any
 
 from resonantia.config import get_settings
 
@@ -69,16 +70,91 @@ class LocalStorage(StorageBackend):
         return f"/api/v1/files/serve/{path}"
 
 
+class S3Storage(StorageBackend):
+    """Store files in S3 and serve them through pre-signed URLs."""
+
+    def __init__(
+        self,
+        *,
+        bucket: str | None = None,
+        region: str | None = None,
+        prefix: str | None = None,
+        expires_seconds: int | None = None,
+        client: Any | None = None,
+    ) -> None:
+        settings = get_settings()
+        self.bucket = bucket or settings.s3_bucket
+        self.region = region or settings.s3_region
+        self.prefix = (prefix if prefix is not None else settings.s3_prefix).strip("/")
+        self.expires_seconds = expires_seconds or settings.s3_signed_url_expires_seconds
+        if not self.bucket:
+            raise RuntimeError("S3 storage requires S3_BUCKET")
+        if client is None:
+            try:
+                import boto3
+            except ImportError as exc:
+                raise RuntimeError("S3 storage requires boto3") from exc
+            client = boto3.client("s3", region_name=self.region)
+        self._client = client
+
+    def _key(self, path: str) -> str:
+        clean = path.lstrip("/")
+        return f"{self.prefix}/{clean}" if self.prefix else clean
+
+    async def save(self, path: str, content: bytes, content_type: str) -> str:
+        self._client.put_object(
+            Bucket=self.bucket,
+            Key=self._key(path),
+            Body=content,
+            ContentType=content_type,
+            ServerSideEncryption="AES256",
+        )
+        return self.url(path)
+
+    async def load(self, path: str) -> bytes:
+        response = self._client.get_object(Bucket=self.bucket, Key=self._key(path))
+        return response["Body"].read()
+
+    async def delete(self, path: str) -> None:
+        self._client.delete_object(Bucket=self.bucket, Key=self._key(path))
+
+    def url(self, path: str) -> str:
+        return self._client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": self.bucket, "Key": self._key(path)},
+            ExpiresIn=self.expires_seconds,
+        )
+
+
 # ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------
 
 _storage_instance: StorageBackend | None = None
+_storage_instances: dict[str, StorageBackend] = {}
 
 
-def get_storage() -> StorageBackend:
-    """Return the singleton storage backend (``LocalStorage`` for now)."""
+def get_storage(backend: str | None = None) -> StorageBackend:
+    """Return a singleton storage backend."""
     global _storage_instance
-    if _storage_instance is None:
-        _storage_instance = LocalStorage()
-    return _storage_instance
+    settings = get_settings()
+    selected = (backend or settings.storage_backend or "local").lower()
+    if selected == "s3" and not settings.s3_bucket:
+        selected = "local"
+    if selected not in _storage_instances:
+        _storage_instances[selected] = S3Storage() if selected == "s3" else LocalStorage()
+    if backend is None:
+        _storage_instance = _storage_instances[selected]
+    return _storage_instances[selected]
+
+
+def choose_storage_backend(size_bytes: int) -> str:
+    """Use S3 for large files when S3 storage is configured."""
+    settings = get_settings()
+    if settings.storage_backend.lower() == "s3" and settings.s3_bucket and size_bytes >= 5 * 1024 * 1024:
+        return "s3"
+    return "local"
+
+
+def is_signed_url(url: str) -> bool:
+    return url.startswith(("http://", "https://"))
