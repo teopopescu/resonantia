@@ -183,7 +183,7 @@ async def voice_chat(
 
         # Save TTS audio
         audio_id = uuid.uuid4().hex
-        storage_path = f"voice/{audio_id}.mp3"
+        storage_path = f"voice/output/{audio_id}.mp3"
         storage = get_storage("s3" if settings.storage_backend.lower() == "s3" else "local")
         await storage.save(storage_path, audio_bytes, "audio/mpeg")
         logger.info("TTS audio saved: %s (%d bytes)", storage_path, len(audio_bytes))

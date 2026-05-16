@@ -103,3 +103,15 @@ variable "tf_state_lock_table" {
   type        = string
   default     = "resonantia-terraform-locks"
 }
+
+variable "voice_input_retention_days" {
+  description = "Retention window for uploaded voice input audio"
+  type        = number
+  default     = 30
+}
+
+variable "voice_output_retention_days" {
+  description = "Retention window for generated voice output audio"
+  type        = number
+  default     = 7
+}
