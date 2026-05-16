@@ -1432,6 +1432,25 @@ async def _fit_dose_response_tool(params: dict, org_id: str = "org_default") -> 
 
     concentrations = params.get("concentrations", [])
     responses = params.get("responses", [])
+    if params.get("file_upload_id") and not concentrations and not responses:
+        try:
+            from resonantia.services.temporal_client import start_file_processing_workflow
+
+            handle = await start_file_processing_workflow(
+                file_upload_id=str(params["file_upload_id"]),
+                processing_type="dose_response",
+                org_id=org_id,
+                user_id=params.get("created_by") or params.get("user_id"),
+                params=_processing_parameters(params),
+            )
+            return {
+                "status": "processing",
+                "workflow_id": handle.id,
+                "file_upload_id": str(params["file_upload_id"]),
+                "processing_type": "dose_response",
+            }
+        except Exception as exc:
+            return {"error": f"Could not start data processing workflow: {exc}"}
     compound_name = params.get("compound_name", "Compound")
     positive_controls = params.get("positive_controls")
     negative_controls = params.get("negative_controls")
@@ -1509,6 +1528,25 @@ async def _normalize_plate_tool(params: dict, org_id: str = "org_default") -> di
         return cached
 
     raw_data = params.get("raw_data", [])
+    if params.get("file_upload_id") and not raw_data:
+        try:
+            from resonantia.services.temporal_client import start_file_processing_workflow
+
+            handle = await start_file_processing_workflow(
+                file_upload_id=str(params["file_upload_id"]),
+                processing_type="plate_normalization",
+                org_id=org_id,
+                user_id=params.get("created_by") or params.get("user_id"),
+                params=_processing_parameters(params),
+            )
+            return {
+                "status": "processing",
+                "workflow_id": handle.id,
+                "file_upload_id": str(params["file_upload_id"]),
+                "processing_type": "plate_normalization",
+            }
+        except Exception as exc:
+            return {"error": f"Could not start data processing workflow: {exc}"}
     method = params.get("method", "z-score")
     if not raw_data:
         return {"error": "'raw_data' array is required."}

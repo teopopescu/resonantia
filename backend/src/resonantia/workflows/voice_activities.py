@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from temporalio import activity
 
 from resonantia.config import get_settings
@@ -93,8 +94,23 @@ async def create_voice_turn_activity(
             tool_calls=[],
         )
         session.add(turn)
-        await session.commit()
-        await session.refresh(turn)
+        try:
+            await session.commit()
+            await session.refresh(turn)
+        except IntegrityError:
+            await session.rollback()
+            existing = await session.scalar(
+                select(VoiceTurn).where(
+                    VoiceTurn.org_id == org_id,
+                    VoiceTurn.idempotency_key == idempotency_key,
+                )
+            )
+            if existing:
+                existing.status = "processing"
+                existing.error_message = None
+                await session.commit()
+                return {"turn_id": str(existing.id), "reused": True}
+            raise
         return {"turn_id": str(turn.id), "reused": False}
 
 
