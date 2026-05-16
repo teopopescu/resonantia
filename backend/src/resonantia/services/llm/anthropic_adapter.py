@@ -8,10 +8,12 @@ from typing import Any, AsyncIterator
 
 from anthropic import AsyncAnthropic
 
+from resonantia.services.circuit_breaker import CircuitBreaker
 from resonantia.services.llm.provider import LLMProvider, LLMResponse, ToolCall
 from resonantia.telemetry import record_span_exception, set_span_attributes, start_span
 
 logger = logging.getLogger(__name__)
+_ANTHROPIC_BREAKER = CircuitBreaker("anthropic_llm")
 
 
 def _to_anthropic_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -215,7 +217,10 @@ class AnthropicAdapter(LLMProvider):
             },
         ) as span:
             try:
-                response = await self._client.messages.create(**kwargs)
+                response = await _ANTHROPIC_BREAKER.call(
+                    lambda: self._client.messages.create(**kwargs),
+                    timeout_seconds=30.0,
+                )
             except Exception as exc:
                 record_span_exception(span, exc)
                 raise
