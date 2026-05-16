@@ -9,7 +9,11 @@ from openai import AsyncOpenAI
 
 from resonantia.config import get_settings
 from resonantia.middleware import log_stage_latency
+from resonantia.services.circuit_breaker import CircuitBreaker
 from resonantia.telemetry import record_span_exception, set_span_attributes, start_span
+
+
+_TTS_BREAKER = CircuitBreaker("openai_tts")
 
 
 class OpenAITTSProvider:
@@ -33,10 +37,13 @@ class OpenAITTSProvider:
             },
         ) as span:
             try:
-                response = await self._client.audio.speech.create(
-                    model=selected_model,
-                    voice=selected_voice,
-                    input=text,
+                response = await _TTS_BREAKER.call(
+                    lambda: self._client.audio.speech.create(
+                        model=selected_model,
+                        voice=selected_voice,
+                        input=text,
+                    ),
+                    timeout_seconds=10.0,
                 )
             except Exception as exc:
                 record_span_exception(span, exc)
