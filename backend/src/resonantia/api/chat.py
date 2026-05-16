@@ -48,7 +48,7 @@ router = APIRouter()
 class WorkflowStartResponse(BaseModel):
     workflow_id: str
     conversation_id: str
-    status: str = "RUNNING"
+    status: str = "processing"
 
 
 class WorkflowStatusResponse(BaseModel):
@@ -98,6 +98,8 @@ async def send_message(
             message=result.response,
             conversation_id=result.conversation_id,
             tool_calls=None,
+            workflow_id=handle.id,
+            status="completed",
         )
 
     except asyncio.TimeoutError:
@@ -107,6 +109,8 @@ async def send_message(
             message="Processing is taking longer than expected. Check back shortly.",
             conversation_id=conversation_id,
             tool_calls=None,
+            workflow_id=handle.id,
+            status="processing",
         )
 
     except (RPCError, ServiceError) as exc:

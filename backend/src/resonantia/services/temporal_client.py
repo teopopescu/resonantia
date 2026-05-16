@@ -69,6 +69,7 @@ async def start_agent_workflow(
             messages=messages,
             tools=tools,
             org_id=org_id,
+            user_id=user_id,
             request_context={
                 "user_id": user_id,
                 "org_id": org_id,
