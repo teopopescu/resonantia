@@ -1,0 +1,53 @@
+{
+  "title": "Resonantia LLM Cost and Cache",
+  "tags": ["resonantia", "cost", "llm"],
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Token usage by model",
+      "gridPos": {"h": 8, "w": 16, "x": 0, "y": 0},
+      "targets": [
+        {
+          "legendFormat": "input {{model}}",
+          "expr": "sum(rate(llm_input_tokens_total[5m])) by (model)"
+        },
+        {
+          "legendFormat": "output {{model}}",
+          "expr": "sum(rate(llm_output_tokens_total[5m])) by (model)"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}}
+    },
+    {
+      "type": "timeseries",
+      "title": "Estimated LLM cost",
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 0},
+      "targets": [
+        {
+          "legendFormat": "{{provider}} {{model}}",
+          "expr": "sum(rate(llm_cost_usd_total[5m])) by (provider, model)"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "currencyUSD"}}
+    },
+    {
+      "type": "timeseries",
+      "title": "Prompt cache hit rate",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8},
+      "targets": [
+        {
+          "legendFormat": "{{model}} cache hit rate",
+          "expr": "sum(rate(llm_cache_read_input_tokens_total[5m])) by (model) / clamp_min(sum(rate(llm_input_tokens_total[5m])) by (model), 1)"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "percentunit"}}
+    }
+  ]
+}

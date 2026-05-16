@@ -1,0 +1,78 @@
+{
+  "title": "Resonantia API Latency",
+  "tags": ["resonantia", "latency"],
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "endpoint",
+        "type": "query",
+        "label": "Endpoint",
+        "query": "label_values(http_server_duration_milliseconds_bucket, http_route)",
+        "refresh": 1
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Endpoint latency p50/p95/p99",
+      "gridPos": {"h": 8, "w": 16, "x": 0, "y": 0},
+      "targets": [
+        {
+          "legendFormat": "p50 {{http_route}}",
+          "expr": "histogram_quantile(0.50, sum(rate(http_server_duration_milliseconds_bucket{http_route=~\"$endpoint\"}[5m])) by (le, http_route))"
+        },
+        {
+          "legendFormat": "p95 {{http_route}}",
+          "expr": "histogram_quantile(0.95, sum(rate(http_server_duration_milliseconds_bucket{http_route=~\"$endpoint\"}[5m])) by (le, http_route))"
+        },
+        {
+          "legendFormat": "p99 {{http_route}}",
+          "expr": "histogram_quantile(0.99, sum(rate(http_server_duration_milliseconds_bucket{http_route=~\"$endpoint\"}[5m])) by (le, http_route))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "ms"}
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Error rate by endpoint",
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 0},
+      "targets": [
+        {
+          "legendFormat": "{{http_route}} {{http_status_code}}",
+          "expr": "sum(rate(http_server_requests_total{http_status_code=~\"5..\"}[5m])) by (http_route, http_status_code)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "reqps"}
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Chat and processing latency budgets",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8},
+      "targets": [
+        {
+          "legendFormat": "chat p95",
+          "expr": "histogram_quantile(0.95, sum(rate(http_server_duration_milliseconds_bucket{http_route=\"/api/v1/chat/message\"}[5m])) by (le))"
+        },
+        {
+          "legendFormat": "processing p95",
+          "expr": "histogram_quantile(0.95, sum(rate(http_server_duration_milliseconds_bucket{http_route=~\"/api/v1/processing/.*\"}[5m])) by (le))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "ms"}
+      }
+    }
+  ]
+}
