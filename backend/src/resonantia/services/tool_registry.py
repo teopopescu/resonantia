@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -19,6 +20,12 @@ from resonantia.config import get_settings
 logger = logging.getLogger(__name__)
 
 REDIS_KEY = "resonantia:tools"
+INVALIDATION_CHANNEL = "resonantia:tools:invalidate"
+CACHE_TTL_SECONDS = 60.0
+
+_schema_cache: dict[str, tuple[float, Any]] = {}
+_cache_hits = 0
+_cache_misses = 0
 
 
 # ---------------------------------------------------------------------------
@@ -108,6 +115,50 @@ async def close_redis() -> None:
         _pool = None
 
 
+def invalidate_tool_schema_cache() -> None:
+    """Clear local tool schema cache."""
+    _schema_cache.clear()
+    logger.info("tool_schema_cache invalidated")
+
+
+def _cache_get(key: str) -> Any | None:
+    global _cache_hits, _cache_misses
+    now = time.monotonic()
+    item = _schema_cache.get(key)
+    if item is None:
+        _cache_misses += 1
+        logger.debug("tool_schema_cache miss key=%s hits=%d misses=%d", key, _cache_hits, _cache_misses)
+        return None
+    expires_at, value = item
+    if expires_at <= now:
+        _schema_cache.pop(key, None)
+        _cache_misses += 1
+        logger.debug("tool_schema_cache expired key=%s hits=%d misses=%d", key, _cache_hits, _cache_misses)
+        return None
+    _cache_hits += 1
+    logger.debug("tool_schema_cache hit key=%s hits=%d misses=%d", key, _cache_hits, _cache_misses)
+    return value
+
+
+def _cache_set(key: str, value: Any) -> Any:
+    _schema_cache[key] = (time.monotonic() + CACHE_TTL_SECONDS, value)
+    return value
+
+
+def tool_schema_cache_metrics() -> dict[str, int]:
+    return {"hits": _cache_hits, "misses": _cache_misses, "entries": len(_schema_cache)}
+
+
+async def listen_for_tool_schema_invalidations() -> None:
+    """Listen for Redis invalidation messages and clear local cache."""
+    r = await _get_redis()
+    pubsub = r.pubsub()
+    await pubsub.subscribe(INVALIDATION_CHANNEL)
+    async for message in pubsub.listen():
+        if message.get("type") == "message":
+            invalidate_tool_schema_cache()
+
+
 # ---------------------------------------------------------------------------
 # Registry CRUD
 # ---------------------------------------------------------------------------
@@ -116,32 +167,45 @@ async def register_tool(tool: ToolSchema) -> None:
     """Store a tool schema in Redis."""
     r = await _get_redis()
     await r.hset(REDIS_KEY, tool.name, _serialize(tool))
+    invalidate_tool_schema_cache()
+    await r.publish(INVALIDATION_CHANNEL, tool.name)
     logger.info("Registered tool %s (category=%s)", tool.name, tool.category)
 
 
 async def get_tool(name: str) -> ToolSchema | None:
     """Retrieve a single tool schema by name."""
+    cache_key = f"tool:{name}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
     r = await _get_redis()
     raw = await r.hget(REDIS_KEY, name)
     if raw is None:
         return None
-    return _deserialize(raw)
+    return _cache_set(cache_key, _deserialize(raw))
 
 
 async def list_tools(category: str | None = None) -> list[ToolSchema]:
     """List all registered tools, optionally filtered by category."""
+    cache_key = f"list:{category or '*'}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
     r = await _get_redis()
     all_raw = await r.hvals(REDIS_KEY)
     tools = [_deserialize(v) for v in all_raw]
     if category:
         tools = [t for t in tools if t.category == category]
-    return sorted(tools, key=lambda t: (t.category, t.name))
+    return _cache_set(cache_key, sorted(tools, key=lambda t: (t.category, t.name)))
 
 
 async def remove_tool(name: str) -> bool:
     """Remove a tool from the registry. Returns True if it existed."""
     r = await _get_redis()
     removed = await r.hdel(REDIS_KEY, name)
+    if removed:
+        invalidate_tool_schema_cache()
+        await r.publish(INVALIDATION_CHANNEL, name)
     return removed > 0
 
 
@@ -158,8 +222,12 @@ async def search_tools(query: str) -> list[ToolSchema]:
 
 async def get_tools_as_anthropic(category: str | None = None) -> list[dict[str, Any]]:
     """Return all enabled tools in Anthropic API format."""
+    cache_key = f"anthropic:{category or '*'}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
     tools = await list_tools(category)
-    return [tool_schema_to_anthropic(t) for t in tools if t.enabled]
+    return _cache_set(cache_key, [tool_schema_to_anthropic(t) for t in tools if t.enabled])
 
 
 # ---------------------------------------------------------------------------

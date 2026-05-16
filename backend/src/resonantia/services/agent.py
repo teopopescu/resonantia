@@ -13,6 +13,7 @@ import json
 import logging
 import time
 import uuid
+from contextlib import suppress
 from typing import Any, AsyncGenerator
 
 from resonantia.config import get_settings
@@ -22,6 +23,7 @@ from resonantia.models.request_context import RequestContext
 from resonantia.middleware import log_stage_latency
 from resonantia.repositories.audit_log import append_audit_log
 from resonantia.services.guardrails import GUARDRAIL_SYSTEM_PROMPT, check_guardrails
+from resonantia.services.intent_classifier import classify_intent
 from resonantia.services.llm import LLMProvider, ToolCall, get_provider
 from resonantia.services.multimodal import build_user_content
 from resonantia.services.tool_executor import execute_tool
@@ -31,6 +33,16 @@ SYSTEM_PROMPT = GUARDRAIL_SYSTEM_PROMPT
 
 MAX_TOOL_ROUNDS = 5  # prevent infinite loops
 logger = logging.getLogger(__name__)
+
+_FAST_PATH_TOOLS = {
+    "lookup_sample",
+    "check_inventory",
+    "get_expiring_samples",
+    "query_experiments",
+    "get_ic50_values",
+    "list_files",
+    "read_file_contents",
+}
 
 
 async def _load_tools() -> list[dict[str, Any]]:
@@ -115,6 +127,30 @@ def _approval_message_from_tool_result(tool_result: str) -> str | None:
         f"Approval required for `{tool_name}` ({gate_kind}). "
         f"Use approval token `{token}` to approve or reject this action."
     )
+
+
+def _fast_path_args(tool_name: str, message: str) -> dict[str, Any]:
+    if tool_name in {"lookup_sample", "check_inventory"}:
+        return {"query": message}
+    if tool_name == "query_experiments":
+        return {"query": message}
+    if tool_name == "get_ic50_values":
+        return {"compound": message}
+    if tool_name == "read_file_contents":
+        return {"filename": message}
+    return {}
+
+
+def _fast_path_summary(tool_name: str, tool_result: str) -> str:
+    try:
+        payload = json.loads(tool_result)
+    except json.JSONDecodeError:
+        return tool_result
+    if "error" in payload:
+        return str(payload["error"])
+    if tool_name == "lookup_sample" and payload.get("found") is False:
+        return "I couldn't find a matching sample."
+    return json.dumps(payload, default=str)
 
 
 def _stage_message(
@@ -239,6 +275,68 @@ async def chat(
     # of truth for image bytes. Tracing below also receives the text-only
     # form so image bytes don't egress to Langfuse.
     _stage_message(staged_messages, "user", content=text_content)
+
+    try:
+        intent = await classify_intent(text_content, turn_id=request_id, context=context)
+    except Exception:
+        logger.exception("Intent classification failed unexpectedly")
+        intent = None
+
+    if intent and intent.route == "single_tool" and intent.recommended_tool in _FAST_PATH_TOOLS:
+        tool_name = intent.recommended_tool
+        tool_input = _fast_path_args(tool_name, message)
+        tool_result = await execute_tool(
+            tool_name,
+            tool_input,
+            org_id=org,
+            user_id=user_id,
+            source=source,
+            request_id=request_id,
+            request_context=request_context,
+        )
+        tool_call_id = f"intent-{uuid.uuid4().hex[:8]}"
+        tool_calls = [{"id": tool_call_id, "name": tool_name, "input": tool_input}]
+        _stage_message(
+            staged_messages,
+            "assistant",
+            content="",
+            tool_calls=[
+                {
+                    "id": tool_call_id,
+                    "type": "function",
+                    "function": {"name": tool_name, "arguments": json.dumps(tool_input)},
+                }
+            ],
+        )
+        _stage_message(staged_messages, "tool", content=tool_result, tool_call_id=tool_call_id)
+        assistant_text = _fast_path_summary(tool_name, tool_result)
+        _stage_message(staged_messages, "assistant", content=assistant_text)
+        committed = await _commit_agent_turn(
+            conversation_id=conv_uuid,
+            org_id=org,
+            user_id=user_id,
+            request_id=request_id,
+            staged_messages=staged_messages,
+            title_source=title_source,
+            audit_metadata={
+                "status": "completed",
+                "route": "single_tool",
+                "intent_class": intent.intent_class.value,
+                "intent_confidence": intent.confidence,
+                "tools_used": [tool_name],
+                "tool_call_count": 1,
+            },
+        )
+        if not committed:
+            return {"message": "Could not persist this chat turn. Please retry.", "conversation_id": cid, "tool_calls": None}
+        return {
+            "message": assistant_text,
+            "conversation_id": cid,
+            "tool_calls": tool_calls,
+            "intent_class": intent.intent_class.value,
+            "intent_confidence": intent.confidence,
+            "routed_to": ["single_tool"],
+        }
 
     settings = get_settings()
 
@@ -446,19 +544,207 @@ async def chat_stream(
     request_id: str | None = None,
     request_context: RequestContext | None = None,
 ) -> AsyncGenerator[str, None]:
-    """Stream the assistant response. Falls back to non-streaming for tool calls."""
-    result = await chat(
-        message, conversation_id, context,
-        clerk_user_id=clerk_user_id, org_id=org_id, request_id=request_id,
-        request_context=request_context,
+    """Stream real provider token deltas and execute streamed tool calls."""
+    user_id = request_context.user_id if request_context else (clerk_user_id or "anonymous")
+    org = request_context.org_id if request_context else (org_id or "org_default")
+    request_id = request_id or (request_context.request_id if request_context else None)
+
+    def sse(payload: dict[str, Any]) -> str:
+        return f"data: {json.dumps(payload, default=str)}\n\n"
+
+    conv_uuid, history = await _get_or_create_conversation(conversation_id, user_id, org)
+    cid = str(conv_uuid)
+
+    guardrail_result = check_guardrails(message)
+    if not guardrail_result[0]:
+        yield sse({"text": guardrail_result[1]})
+        yield sse({"done": True, "conversation_id": cid})
+        return
+
+    text_content = message
+    if context:
+        text_content = f"[Context: {json.dumps(context)}]\n\n{message}"
+
+    user_content = await build_user_content(
+        text_content, attachments=None, org_id=org,
     )
-    text = result.get("message", "")
+    staged_messages: list[dict[str, Any]] = []
+    title_source = message if len(history) == 0 else None
+    history.append({"role": "user", "content": user_content})
+    _stage_message(staged_messages, "user", content=text_content)
 
-    chunk_size = 8
-    for i in range(0, len(text), chunk_size):
-        yield f"data: {json.dumps({'text': text[i:i+chunk_size]})}\n\n"
+    settings = get_settings()
+    provider_name = settings.default_provider
+    has_key = (
+        (provider_name == "openai" and settings.openai_api_key)
+        or (provider_name == "anthropic" and settings.anthropic_api_key)
+        or settings.openai_api_key
+    )
+    if not has_key:
+        no_key_msg = (
+            "I'm Resonantia Lab Assistant. The LLM API key is not configured yet. "
+            "You can still use all lab tools directly via the sidebar tabs.\n\n"
+            f"To enable AI chat, set the API key for the '{provider_name}' provider."
+        )
+        _stage_message(staged_messages, "assistant", content=no_key_msg)
+        await _commit_agent_turn(
+            conversation_id=conv_uuid,
+            org_id=org,
+            user_id=user_id,
+            request_id=request_id,
+            staged_messages=staged_messages,
+            title_source=title_source,
+            audit_metadata={"status": "completed", "reason": "missing_api_key", "tool_calls": []},
+        )
+        yield sse({"text": no_key_msg})
+        yield sse({"done": True, "conversation_id": cid})
+        return
 
-    yield f"data: {json.dumps({'done': True, 'conversation_id': result.get('conversation_id')})}\n\n"
+    provider = _get_provider()
+    tools = await _load_tools()
+    all_tool_calls: list[dict[str, Any]] = []
+    final_text = ""
+    start_time = time.monotonic()
+
+    for round_num in range(MAX_TOOL_ROUNDS):
+        stream_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + history
+        assistant_text = ""
+        streamed_tool_calls: list[ToolCall] = []
+
+        try:
+            async for item in provider.completion_stream(
+                stream_messages,
+                tools=tools if tools else None,
+                max_tokens=4096,
+            ):
+                if isinstance(item, str):
+                    assistant_text += item
+                    final_text += item
+                    yield sse({"text": item})
+                elif isinstance(item, ToolCall):
+                    streamed_tool_calls.append(item)
+        except (AttributeError, NotImplementedError):
+            logger.warning("Provider %s does not support streaming; falling back to chunked chat()", provider_name)
+            result = await chat(
+                message,
+                conversation_id,
+                context,
+                clerk_user_id=clerk_user_id,
+                org_id=org_id,
+                request_id=request_id,
+                request_context=request_context,
+            )
+            text = result.get("message", "")
+            for i in range(0, len(text), 8):
+                yield sse({"text": text[i:i + 8]})
+            yield sse({"done": True, "conversation_id": result.get("conversation_id")})
+            return
+
+        if not streamed_tool_calls:
+            _stage_message(staged_messages, "assistant", content=assistant_text)
+            committed = await _commit_agent_turn(
+                conversation_id=conv_uuid,
+                org_id=org,
+                user_id=user_id,
+                request_id=request_id,
+                staged_messages=staged_messages,
+                title_source=title_source,
+                audit_metadata={
+                    "status": "completed",
+                    "rounds": round_num + 1,
+                    "tools_used": [tc["name"] for tc in all_tool_calls],
+                    "tool_call_count": len(all_tool_calls),
+                },
+            )
+            if not committed:
+                yield sse({"error": "Could not persist this chat turn. Please retry."})
+            else:
+                with suppress(Exception):
+                    trace_llm_call(
+                        user_message=message,
+                        system_prompt=SYSTEM_PROMPT,
+                        response=final_text,
+                        model=getattr(provider, "_default_model", settings.llm_model),
+                        conversation_id=cid,
+                        tools_used=[tc["name"] for tc in all_tool_calls],
+                        guardrail_result=guardrail_result,
+                        latency_ms=(time.monotonic() - start_time) * 1000,
+                        token_usage=None,
+                        metadata={"provider": provider.provider_name},
+                    )
+            yield sse({"done": True, "conversation_id": cid, "tool_calls": all_tool_calls or None})
+            return
+
+        tool_calls_data = [
+            {
+                "id": tc.id,
+                "type": "function",
+                "function": {"name": tc.name, "arguments": json.dumps(tc.arguments)},
+            }
+            for tc in streamed_tool_calls
+        ]
+        history.append({"role": "assistant", "content": assistant_text, "tool_calls": tool_calls_data})
+        _stage_message(staged_messages, "assistant", content=assistant_text, tool_calls=tool_calls_data)
+
+        for tc in streamed_tool_calls:
+            tool_input = tc.arguments
+            all_tool_calls.append({"id": tc.id, "name": tc.name, "input": tool_input})
+            yield sse({"tool_call": {"id": tc.id, "name": tc.name, "input": tool_input}})
+
+            tool_start = time.monotonic()
+            tool_result = await execute_tool(
+                tc.name,
+                tool_input,
+                org_id=org,
+                user_id=user_id,
+                source="text",
+                request_id=request_id,
+                request_context=request_context,
+            )
+            log_stage_latency("tool", (time.monotonic() - tool_start) * 1000, tool_name=tc.name)
+            yield sse({"tool_result": {"id": tc.id, "name": tc.name, "result": tool_result}})
+
+            history.append({"role": "tool", "tool_call_id": tc.id, "content": tool_result})
+            _stage_message(staged_messages, "tool", content=tool_result, tool_call_id=tc.id)
+
+            approval_message = _approval_message_from_tool_result(tool_result)
+            if approval_message:
+                _stage_message(staged_messages, "assistant", content=approval_message)
+                await _commit_agent_turn(
+                    conversation_id=conv_uuid,
+                    org_id=org,
+                    user_id=user_id,
+                    request_id=request_id,
+                    staged_messages=staged_messages,
+                    title_source=title_source,
+                    audit_metadata={
+                        "status": "approval_required",
+                        "tools_used": [call["name"] for call in all_tool_calls],
+                        "tool_call_count": len(all_tool_calls),
+                    },
+                )
+                yield sse({"approval_required": True, "text": approval_message})
+                yield sse({"done": True, "conversation_id": cid, "tool_calls": all_tool_calls})
+                return
+
+    max_rounds_message = "I've gathered the data but reached the processing limit. Please try a more specific query."
+    _stage_message(staged_messages, "assistant", content=max_rounds_message)
+    await _commit_agent_turn(
+        conversation_id=conv_uuid,
+        org_id=org,
+        user_id=user_id,
+        request_id=request_id,
+        staged_messages=staged_messages,
+        title_source=title_source,
+        audit_metadata={
+            "status": "max_rounds",
+            "rounds": MAX_TOOL_ROUNDS,
+            "tools_used": [tc["name"] for tc in all_tool_calls],
+            "tool_call_count": len(all_tool_calls),
+        },
+    )
+    yield sse({"text": max_rounds_message})
+    yield sse({"done": True, "conversation_id": cid, "tool_calls": all_tool_calls})
 
 
 def get_history(conversation_id: str) -> list[dict[str, Any]]:
