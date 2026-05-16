@@ -174,7 +174,22 @@ async def synthesize_voice_turn_activity(turn_id: str, response_text: str) -> di
     start = time.monotonic()
     settings = get_settings()
     provider = _get_tts_provider()
-    audio_bytes = await provider.synthesize(response_text[:4096], voice=settings.tts_voice)
+    try:
+        audio_bytes = await provider.synthesize(response_text[:4096], voice=settings.tts_voice)
+    except Exception as exc:
+        latency_ms = int((time.monotonic() - start) * 1000)
+        async with async_session_factory() as session:
+            turn = await session.get(VoiceTurn, uuid.UUID(turn_id))
+            if turn:
+                turn.tts_latency_ms = latency_ms
+                turn.error_message = f"TTS unavailable, returned text-only response: {exc.__class__.__name__}"
+                await session.commit()
+        return {
+            "audio_id": None,
+            "audio_path": None,
+            "tts_latency_ms": latency_ms,
+            "text_only": True,
+        }
     latency_ms = int((time.monotonic() - start) * 1000)
 
     audio_id = uuid.uuid4().hex
@@ -226,7 +241,8 @@ async def complete_voice_turn_activity(
         turn.agent_latency_ms = agent_latency_ms
         turn.tts_latency_ms = tts_latency_ms
         turn.total_latency_ms = total_latency_ms
-        turn.error_message = None
+        if audio_id:
+            turn.error_message = None
         await session.commit()
         return {
             "turn_id": str(turn.id),

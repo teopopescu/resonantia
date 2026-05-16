@@ -79,3 +79,41 @@ resource "aws_s3_bucket_cors_configuration" "uploads" {
     max_age_seconds = 3600
   }
 }
+
+resource "aws_s3_bucket_lifecycle_configuration" "uploads" {
+  bucket = aws_s3_bucket.uploads.id
+
+  rule {
+    id     = "expire-voice-input-audio"
+    status = "Enabled"
+
+    filter {
+      prefix = "resonantia/voice/input/"
+    }
+
+    expiration {
+      days = var.voice_input_retention_days
+    }
+
+    noncurrent_version_expiration {
+      noncurrent_days = var.voice_input_retention_days
+    }
+  }
+
+  rule {
+    id     = "expire-voice-output-audio"
+    status = "Enabled"
+
+    filter {
+      prefix = "resonantia/voice/output/"
+    }
+
+    expiration {
+      days = var.voice_output_retention_days
+    }
+
+    noncurrent_version_expiration {
+      noncurrent_days = var.voice_output_retention_days
+    }
+  }
+}

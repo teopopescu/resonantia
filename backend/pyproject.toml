@@ -33,6 +33,7 @@ dependencies = [
     "opentelemetry-api>=1.39.1",
     "opentelemetry-sdk>=1.39.1",
     "opentelemetry-exporter-otlp>=1.39.1",
+    "boto3>=1.42.0",
 ]
 
 [tool.uv]

@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from fastapi.responses import Response
+from fastapi.responses import RedirectResponse, Response
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,7 +22,7 @@ from resonantia.dependencies import get_request_context
 from resonantia.models.file_upload import FileUpload
 from resonantia.models.request_context import RequestContext
 from resonantia.repositories.audit_log import append_audit_log
-from resonantia.services.storage import get_storage
+from resonantia.services.storage import choose_storage_backend, get_storage, is_signed_url
 
 router = APIRouter()
 
@@ -32,7 +32,6 @@ router = APIRouter()
 _SAFE_EXT_RE = re.compile(r"^\.[A-Za-z0-9]{1,8}$")
 
 INLINE_CONTENT_MAX_BYTES = 5 * 1024 * 1024
-STORAGE_BACKEND = "local"
 
 
 class FileMetadata(BaseModel):
@@ -220,7 +219,6 @@ async def upload_files(
     if not ctx.can_write():
         raise HTTPException(status_code=403, detail="Member role required to upload files")
 
-    storage = get_storage()
     results: list[FileMetadata] = []
 
     for f in files:
@@ -230,6 +228,8 @@ async def upload_files(
         storage_path = f"files/{file_id}{ext}"
         contents = await f.read()
         content_type = f.content_type or "application/octet-stream"
+        storage_backend = choose_storage_backend(len(contents))
+        storage = get_storage(storage_backend)
         await storage.save(storage_path, contents, content_type)
 
         upload_record = FileUpload(
@@ -241,8 +241,8 @@ async def upload_files(
             size_bytes=len(contents),
             storage_path=storage_path,
             checksum_sha256=hashlib.sha256(contents).hexdigest(),
-            storage_backend=STORAGE_BACKEND,
-            content_bytes=contents if len(contents) <= INLINE_CONTENT_MAX_BYTES else None,
+            storage_backend=storage_backend,
+            content_bytes=contents if storage_backend == "local" and len(contents) <= INLINE_CONTENT_MAX_BYTES else None,
         )
         db.add(upload_record)
         await db.flush()
@@ -285,7 +285,8 @@ async def upload_and_parse(
 
     contents = await file.read()
 
-    storage = get_storage()
+    storage_backend = choose_storage_backend(len(contents))
+    storage = get_storage(storage_backend)
     file_id = str(uuid.uuid4())
     storage_path = f"csv/{file_id}.csv"
     await storage.save(storage_path, contents, content_type)
@@ -303,8 +304,8 @@ async def upload_and_parse(
             size_bytes=len(contents),
             storage_path=storage_path,
             checksum_sha256=hashlib.sha256(contents).hexdigest(),
-            storage_backend=STORAGE_BACKEND,
-            content_bytes=contents if len(contents) <= INLINE_CONTENT_MAX_BYTES else None,
+            storage_backend=storage_backend,
+            content_bytes=contents if storage_backend == "local" and len(contents) <= INLINE_CONTENT_MAX_BYTES else None,
             detected_format=parsed["detected_format"],
             parsed_metadata=parsed,
         )
@@ -358,6 +359,9 @@ async def upload_and_parse(
 async def serve_file(path: str) -> Response:
     """Serve a file from the storage backend."""
     storage = get_storage()
+    signed_url = storage.url(path)
+    if is_signed_url(signed_url):
+        return RedirectResponse(signed_url, status_code=307)
     try:
         content = await storage.load(path)
     except FileNotFoundError:
@@ -416,7 +420,10 @@ async def download_file(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     upload = await _get_upload_or_404(db, file_id, ctx.org_id)
-    storage = get_storage()
+    storage = get_storage(upload.storage_backend)
+    signed_url = storage.url(upload.storage_path)
+    if upload.storage_backend == "s3" and is_signed_url(signed_url):
+        return RedirectResponse(signed_url, status_code=307)
     try:
         content = upload.content_bytes
         if content is None:
@@ -443,7 +450,7 @@ async def delete_file(
         raise HTTPException(status_code=403, detail="Member role required to delete files")
     upload = await _get_upload_or_404(db, file_id, ctx.org_id)
     try:
-        await get_storage().delete(upload.storage_path)
+        await get_storage(upload.storage_backend).delete(upload.storage_path)
     except FileNotFoundError:
         pass
     await db.delete(upload)
