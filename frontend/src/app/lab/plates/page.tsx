@@ -2,11 +2,17 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Grid3X3, X } from "lucide-react";
+import { Plus, Grid3X3, X, Upload } from "lucide-react";
 import PlateMapper from "@/components/lab/plate-mapper";
 import PlateMapList from "@/components/lab/plate-map-list";
 import WorklistGenerator from "@/components/lab/worklist-generator";
-import { usePlateStore, type Plate, type PlateMap } from "@/stores/plate-store";
+import {
+  usePlateStore,
+  type InstrumentTarget,
+  type MappingMode,
+  type Plate,
+  type PlateMap,
+} from "@/stores/plate-store";
 import { generateWellLabels, PLATE_CONFIGS } from "@/lib/plate-utils";
 import type { WellData } from "@/lib/plate-utils";
 import {
@@ -48,6 +54,11 @@ export default function PlatesPage() {
 
   const [showNewDialog, setShowNewDialog] = useState(false);
   const [newMapName, setNewMapName] = useState("");
+  const [newInstrument, setNewInstrument] = useState<InstrumentTarget>("echo");
+  const [newTransferMode, setNewTransferMode] = useState<MappingMode>("cherry-pick");
+  const [newControls, setNewControls] = useState("");
+  const [newReplicates, setNewReplicates] = useState(3);
+  const [newSourceFile, setNewSourceFile] = useState<File | null>(null);
 
   const activeMap = plateMaps.find((m) => m.id === activePlateMapId);
   const draftCount = plateMaps.filter((m) => m.status === "draft").length;
@@ -63,6 +74,13 @@ export default function PlatesPage() {
       destinationPlateId: destPlate.id,
       mappings: [],
       status: "draft",
+      runConfig: {
+        instrument: newInstrument,
+        transferMode: newTransferMode,
+        controls: newControls.trim() || "Controls not specified",
+        replicates: newReplicates,
+        sourceFileName: newSourceFile?.name,
+      },
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -70,6 +88,11 @@ export default function PlatesPage() {
     setActivePlateMap(pm.id);
     setShowNewDialog(false);
     setNewMapName("");
+    setNewInstrument("echo");
+    setNewTransferMode("cherry-pick");
+    setNewControls("");
+    setNewReplicates(3);
+    setNewSourceFile(null);
   };
 
   return (
@@ -115,9 +138,51 @@ export default function PlatesPage() {
           </aside>
 
           <div className="space-y-6">
-            {activePlateMapId ? (
+            {activeMap ? (
               <>
                 <section className="bg-surface border border-line rounded-md p-6">
+                  <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-6">
+                    <div className="rounded-[4px] border border-line bg-bg px-3 py-2">
+                      <div className="font-mono text-[10px] uppercase tracking-[0.06em] text-ink-subtle">
+                        instrument
+                      </div>
+                      <div className="mt-1 text-[13px] font-medium text-ink uppercase">
+                        {activeMap.runConfig?.instrument || "echo"}
+                      </div>
+                    </div>
+                    <div className="rounded-[4px] border border-line bg-bg px-3 py-2">
+                      <div className="font-mono text-[10px] uppercase tracking-[0.06em] text-ink-subtle">
+                        mode
+                      </div>
+                      <div className="mt-1 text-[13px] font-medium text-ink">
+                        {(activeMap.runConfig?.transferMode || "cherry-pick").replace("-", " ")}
+                      </div>
+                    </div>
+                    <div className="rounded-[4px] border border-line bg-bg px-3 py-2">
+                      <div className="font-mono text-[10px] uppercase tracking-[0.06em] text-ink-subtle">
+                        replicates
+                      </div>
+                      <div className="mt-1 text-[13px] font-medium text-ink">
+                        {activeMap.runConfig?.replicates || 1}
+                      </div>
+                    </div>
+                    <div className="rounded-[4px] border border-line bg-bg px-3 py-2">
+                      <div className="font-mono text-[10px] uppercase tracking-[0.06em] text-ink-subtle">
+                        controls
+                      </div>
+                      <div className="mt-1 text-[13px] font-medium text-ink truncate">
+                        {activeMap.runConfig?.controls || "not specified"}
+                      </div>
+                    </div>
+                    <div className="rounded-[4px] border border-line bg-bg px-3 py-2">
+                      <div className="font-mono text-[10px] uppercase tracking-[0.06em] text-ink-subtle">
+                        source
+                      </div>
+                      <div className="mt-1 text-[13px] font-medium text-ink truncate">
+                        {activeMap.runConfig?.sourceFileName || "manual"}
+                      </div>
+                    </div>
+                  </div>
                   <PlateMapper />
                 </section>
                 <section className="bg-surface border border-line rounded-md p-6">
@@ -165,7 +230,7 @@ export default function PlatesPage() {
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.97, opacity: 0 }}
               transition={{ type: "spring", damping: 25, stiffness: 400 }}
-              className="bg-surface border border-line rounded-md shadow-xl p-6 w-full max-w-sm"
+              className="bg-surface border border-line rounded-md shadow-xl p-6 w-full max-w-lg"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between mb-5">
@@ -180,22 +245,99 @@ export default function PlatesPage() {
                 </button>
               </div>
 
-              <label className="block font-mono text-[10.5px] font-medium text-ink-subtle uppercase tracking-[0.06em] mb-2">
-                Name
-              </label>
-              <input
-                type="text"
-                value={newMapName}
-                onChange={(e) => setNewMapName(e.target.value)}
-                placeholder="e.g. HTS Screen Round 2"
-                className="w-full text-sm px-3 py-2 rounded-[3px] border border-line bg-bg text-ink placeholder:text-ink-subtle focus:outline-none focus:border-brand/40 transition-colors mb-5"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleCreatePlateMap();
-                }}
-                autoFocus
-              />
+              <div className="space-y-4">
+                <div>
+                  <label className="block font-mono text-[10.5px] font-medium text-ink-subtle uppercase tracking-[0.06em] mb-2">
+                    Name
+                  </label>
+                  <input
+                    type="text"
+                    value={newMapName}
+                    onChange={(e) => setNewMapName(e.target.value)}
+                    placeholder="e.g. HTS Screen Round 2"
+                    className="w-full text-sm px-3 py-2 rounded-[3px] border border-line bg-bg text-ink placeholder:text-ink-subtle focus:outline-none focus:border-brand/40 transition-colors"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleCreatePlateMap();
+                    }}
+                    autoFocus
+                  />
+                </div>
 
-              <div className="flex gap-2 justify-end">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-mono text-[10.5px] font-medium text-ink-subtle uppercase tracking-[0.06em] mb-2">
+                      Instrument
+                    </label>
+                    <select
+                      value={newInstrument}
+                      onChange={(e) => setNewInstrument(e.target.value as InstrumentTarget)}
+                      className="w-full text-sm px-3 py-2 rounded-[3px] border border-line bg-bg text-ink focus:outline-none focus:border-brand/40 transition-colors"
+                    >
+                      <option value="echo">Echo</option>
+                      <option value="hamilton">Hamilton</option>
+                      <option value="opentrons">Opentrons</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block font-mono text-[10.5px] font-medium text-ink-subtle uppercase tracking-[0.06em] mb-2">
+                      Transfer mode
+                    </label>
+                    <select
+                      value={newTransferMode}
+                      onChange={(e) => setNewTransferMode(e.target.value as MappingMode)}
+                      className="w-full text-sm px-3 py-2 rounded-[3px] border border-line bg-bg text-ink focus:outline-none focus:border-brand/40 transition-colors"
+                    >
+                      <option value="cherry-pick">Cherry-pick</option>
+                      <option value="serial-dilution">Serial dilution</option>
+                      <option value="replicate">Replicate</option>
+                      <option value="randomize">Randomize</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-[1fr_110px] gap-3">
+                  <div>
+                    <label className="block font-mono text-[10.5px] font-medium text-ink-subtle uppercase tracking-[0.06em] mb-2">
+                      Controls
+                    </label>
+                    <input
+                      type="text"
+                      value={newControls}
+                      onChange={(e) => setNewControls(e.target.value)}
+                      placeholder="e.g. DMSO vehicle, staurosporine positive"
+                      className="w-full text-sm px-3 py-2 rounded-[3px] border border-line bg-bg text-ink placeholder:text-ink-subtle focus:outline-none focus:border-brand/40 transition-colors"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-mono text-[10.5px] font-medium text-ink-subtle uppercase tracking-[0.06em] mb-2">
+                      Replicates
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={12}
+                      value={newReplicates}
+                      onChange={(e) => setNewReplicates(Number(e.target.value))}
+                      className="w-full text-sm px-3 py-2 rounded-[3px] border border-line bg-bg text-ink focus:outline-none focus:border-brand/40 transition-colors"
+                    />
+                  </div>
+                </div>
+
+                <label className="flex items-center justify-center gap-2 w-full px-3 py-3 rounded-[3px] border border-dashed border-line-strong bg-bg text-ink-muted hover:border-brand/40 hover:text-ink transition-colors cursor-pointer">
+                  <Upload size={14} />
+                  <span className="font-mono text-[11.5px] uppercase tracking-[0.04em]">
+                    {newSourceFile ? newSourceFile.name : "Attach source plate CSV"}
+                  </span>
+                  <input
+                    type="file"
+                    accept=".csv,.xlsx,.tsv"
+                    className="hidden"
+                    onChange={(e) => setNewSourceFile(e.target.files?.[0] ?? null)}
+                  />
+                </label>
+              </div>
+
+              <div className="flex gap-2 justify-end mt-5">
                 <button
                   onClick={() => setShowNewDialog(false)}
                   className="px-3 py-1.5 text-[13px] text-ink-muted hover:text-ink transition-colors"

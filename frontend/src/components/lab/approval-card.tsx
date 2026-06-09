@@ -23,6 +23,11 @@ export function ApprovalCard({
   const [loading, setLoading] = useState(false);
 
   const isHardApproval = gateKind === "hard_approval";
+  const isWorklistApproval = toolName === "generate_worklist";
+  const instrument = String(
+    preview.instrument || preview.format || preview.target || "liquid handler"
+  );
+  const transferCount = preview.transfer_count || preview.transfers || preview.row_count;
 
   async function handleApprove() {
     setLoading(true);
@@ -73,13 +78,36 @@ export function ApprovalCard({
       {isHardApproval && (
         <div className="flex items-center gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
           <AlertTriangle size={14} />
-          This action will be sent to an instrument. Please verify before confirming.
+          {isWorklistApproval
+            ? `This exports an executable ${instrument} worklist. Verify the run constraints before confirming.`
+            : "This action will be sent to an instrument. Please verify before confirming."}
         </div>
       )}
 
       <div className="text-xs font-mono text-ink-subtle uppercase tracking-wider">
         {toolName}
       </div>
+
+      {isWorklistApproval && (
+        <div className="grid grid-cols-2 gap-2">
+          <div className="rounded border border-line bg-bg px-3 py-2">
+            <div className="font-mono text-[10px] uppercase tracking-[0.06em] text-ink-subtle">
+              instrument
+            </div>
+            <div className="mt-1 text-[13px] font-medium text-ink">
+              {instrument}
+            </div>
+          </div>
+          <div className="rounded border border-line bg-bg px-3 py-2">
+            <div className="font-mono text-[10px] uppercase tracking-[0.06em] text-ink-subtle">
+              transfers
+            </div>
+            <div className="mt-1 text-[13px] font-medium text-ink">
+              {transferCount ? String(transferCount) : "review preview"}
+            </div>
+          </div>
+        </div>
+      )}
 
       <pre className="text-sm text-ink-muted bg-bg-sunk rounded p-3 overflow-x-auto max-h-48 overflow-y-auto">
         {JSON.stringify(preview, null, 2)}
