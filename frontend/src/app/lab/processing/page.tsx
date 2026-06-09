@@ -4,6 +4,7 @@ import { useState, useRef } from "react";
 import {
   Activity,
   BarChart3,
+  BookOpen,
   Dna,
   Play,
   CheckCircle2,
@@ -13,6 +14,8 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { API_URL } from "@/lib/api";
+import { useELNStore } from "@/stores/eln-store";
+import { usePlateStore } from "@/stores/plate-store";
 import {
   PageHeader,
 } from "@/components/lab/primitives/page-header";
@@ -61,6 +64,8 @@ interface ProcessingRun {
   status: RunStatus;
   startedAt: string;
   duration: string;
+  plateMapId?: string;
+  runRecordDrafted?: boolean;
   error?: string;
   result?: Record<string, unknown>;
 }
@@ -111,6 +116,17 @@ const STATUS_ICON: Record<RunStatus | "running", React.ReactNode> = {
   running: <Loader2 size={11} className="animate-spin" />,
   failed: <AlertCircle size={11} />,
 };
+
+function summarizeResult(result: Record<string, unknown> | undefined): string {
+  if (!result) return "No detailed result available.";
+  const parts: string[] = [];
+  if (result.ec50 !== undefined) parts.push(`EC50 ${String(result.ec50)}`);
+  if (result.ic50 !== undefined) parts.push(`IC50 ${String(result.ic50)}`);
+  if (result.r_squared !== undefined) parts.push(`R2 ${Number(result.r_squared).toFixed(4)}`);
+  if (result.z_prime !== undefined) parts.push(`Z-prime ${Number(result.z_prime).toFixed(3)}`);
+  if (parts.length > 0) return parts.join(" · ");
+  return JSON.stringify(result).slice(0, 160);
+}
 
 /* ------------------------------------------------------------------ */
 /* Validation helpers                                                  */
@@ -467,15 +483,66 @@ function QpcrForm({
 /* ------------------------------------------------------------------ */
 
 export default function ProcessingPage() {
+  const { plateMaps, updatePlateMap } = usePlateStore();
+  const createEntry = useELNStore((s) => s.createEntry);
   const [expandedCard, setExpandedCard] = useState<string | null>(null);
   const [runningAnalysis, setRunningAnalysis] = useState<string | null>(null);
   const [runs, setRuns] = useState<ProcessingRun[]>(INITIAL_RUNS);
   const [expandedRun, setExpandedRun] = useState<string | null>(null);
+  const [selectedPlateMapId, setSelectedPlateMapId] = useState<string>("");
   const runCounterRef = useRef(INITIAL_RUNS.length);
 
   const completedCount = runs.filter((r) => r.status === "completed").length;
   const failedCount = runs.filter((r) => r.status === "failed").length;
   const lastRun = runs[0];
+  const selectedPlateMap = plateMaps.find((pm) => pm.id === selectedPlateMapId);
+
+  const draftRunRecord = async (run: ProcessingRun) => {
+    if (!run.result) return;
+    const linkedRun = plateMaps.find((pm) => pm.id === run.plateMapId);
+    const summary = summarizeResult(run.result);
+    const title = `${run.name} — ${linkedRun?.name || "Run"} result`;
+    const content = [
+      "## Objective",
+      `Record analysis output for ${linkedRun?.name || "an unlinked run"}.`,
+      "",
+      "## Run Context",
+      `- Run: ${linkedRun?.name || "unlinked"}`,
+      `- Instrument: ${linkedRun?.runConfig?.instrument || "not specified"}`,
+      `- Transfer mode: ${linkedRun?.runConfig?.transferMode || "not specified"}`,
+      `- Controls: ${linkedRun?.runConfig?.controls || "not specified"}`,
+      `- Replicates: ${linkedRun?.runConfig?.replicates || "not specified"}`,
+      "",
+      "## Result Summary",
+      summary,
+      "",
+      "## Structured Result",
+      "```json",
+      JSON.stringify(run.result, null, 2),
+      "```",
+      "",
+      "## Audit",
+      `- Analysis run: ${run.id}`,
+      `- Started: ${run.startedAt}`,
+      `- Duration: ${run.duration}`,
+      `- Status: ${run.status}`,
+    ].join("\n");
+
+    await createEntry({
+      title,
+      content,
+      experiment_title: linkedRun?.name,
+      tags: ["run-record", "results", run.type],
+    });
+    setRuns((prev) =>
+      prev.map((item) =>
+        item.id === run.id ? { ...item, runRecordDrafted: true } : item
+      )
+    );
+    if (linkedRun) {
+      updatePlateMap(linkedRun.id, { runRecordId: `drafted-${run.id}` });
+    }
+  };
 
   const handleRunAnalysis = async (
     typeId: string,
@@ -567,18 +634,30 @@ export default function ProcessingPage() {
       runCounterRef.current += 1;
 
       if (res.ok) {
+        const newRun: ProcessingRun = {
+          id: `r${runCounterRef.current}`,
+          type: typeId,
+          name: `${PROCESSING_TYPES.find((p) => p.id === typeId)?.title}`,
+          status: "completed",
+          startedAt: new Date().toLocaleString(),
+          duration: `${elapsed}s`,
+          result: data,
+          plateMapId: selectedPlateMapId || undefined,
+        };
         setRuns((prev) => [
-          {
-            id: `r${runCounterRef.current}`,
-            type: typeId,
-            name: `${PROCESSING_TYPES.find((p) => p.id === typeId)?.title}`,
-            status: "completed",
-            startedAt: new Date().toLocaleString(),
-            duration: `${elapsed}s`,
-            result: data,
-          },
+          newRun,
           ...prev,
         ]);
+        if (selectedPlateMapId) {
+          updatePlateMap(selectedPlateMapId, {
+            linkedResult: {
+              analysisType: typeId,
+              summary: summarizeResult(data),
+              result: data,
+              linkedAt: new Date().toISOString(),
+            },
+          });
+        }
       } else {
         const detail =
           data?.detail || data?.message || `Server returned HTTP ${res.status}`;
@@ -657,6 +736,38 @@ export default function ProcessingPage() {
 
       <div className="flex-1 overflow-auto px-6 py-8 min-h-0">
         <div className="max-w-4xl mx-auto space-y-8">
+          <section className="rounded-[5px] border border-line bg-surface p-4">
+            <div className="flex flex-col md:flex-row md:items-end gap-4">
+              <div className="flex-1">
+                <div className="font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-subtle mb-2">
+                  <span className="text-brand">›</span> link result to run
+                </div>
+                <select
+                  value={selectedPlateMapId}
+                  onChange={(e) => setSelectedPlateMapId(e.target.value)}
+                  className="w-full px-3 py-2 rounded-[3px] border border-line bg-bg text-[13px] text-ink focus:outline-none focus:border-brand/40 transition-colors"
+                >
+                  <option value="">No linked run</option>
+                  {plateMaps.map((pm) => (
+                    <option key={pm.id} value={pm.id}>
+                      {pm.name} · {pm.runConfig?.instrument || "instrument not set"} · {pm.mappings.length} transfers
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="md:w-72 rounded-[4px] border border-line bg-bg px-3 py-2">
+                <div className="font-mono text-[10px] uppercase tracking-[0.06em] text-ink-subtle">
+                  selected context
+                </div>
+                <div className="mt-1 text-[13px] text-ink truncate">
+                  {selectedPlateMap
+                    ? `${selectedPlateMap.runConfig?.transferMode || "run"} · ${selectedPlateMap.runConfig?.controls || "controls not specified"}`
+                    : "analysis will remain unlinked"}
+                </div>
+              </div>
+            </div>
+          </section>
+
           {/* Pipeline cards */}
           <section>
             <div className="font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-subtle mb-3">
@@ -767,6 +878,11 @@ export default function ProcessingPage() {
                         <div className="font-mono text-[10.5px] uppercase tracking-[0.04em] text-ink-subtle mt-0.5">
                           {PROCESSING_TYPES.find((p) => p.id === run.type)?.code} ·{" "}
                           {run.startedAt} · {run.duration}
+                          {run.plateMapId && (
+                            <>
+                              {" "}· linked run
+                            </>
+                          )}
                         </div>
                       </div>
 
@@ -821,6 +937,16 @@ export default function ProcessingPage() {
                                 <span>{JSON.stringify(run.result).slice(0, 200)}</span>
                               )}
                           </div>
+                        )}
+                        {run.status === "completed" && run.result && (
+                          <button
+                            onClick={() => void draftRunRecord(run)}
+                            disabled={run.runRecordDrafted}
+                            className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium text-ink border border-line-strong rounded-[3px] hover:border-ink hover:bg-surface transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                          >
+                            <BookOpen size={12} />
+                            {run.runRecordDrafted ? "Run record drafted" : "Draft run record"}
+                          </button>
                         )}
                         {run.status === "completed" && !run.result && (
                           <p className="font-mono text-[11px] text-ink-subtle">

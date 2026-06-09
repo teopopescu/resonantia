@@ -182,6 +182,14 @@ export default function PlatesPage() {
                         {activeMap.runConfig?.sourceFileName || "manual"}
                       </div>
                     </div>
+                    <div className="rounded-[4px] border border-line bg-bg px-3 py-2">
+                      <div className="font-mono text-[10px] uppercase tracking-[0.06em] text-ink-subtle">
+                        result
+                      </div>
+                      <div className="mt-1 text-[13px] font-medium text-ink truncate">
+                        {activeMap.linkedResult?.summary || "not ingested"}
+                      </div>
+                    </div>
                   </div>
                   <PlateMapper />
                 </section>
