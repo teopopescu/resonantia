@@ -104,6 +104,35 @@ async def test_generate_worklist_hamilton(client: AsyncClient):
     assert resp.text.startswith("A;")
 
 
+@pytest.mark.asyncio
+async def test_generate_worklist_rejects_duplicate_destination(client: AsyncClient):
+    created = await _create_plate(
+        client,
+        well_mappings=[
+            {
+                "source_plate": "SRC-1",
+                "source_well": "A1",
+                "destination_well": "A1",
+                "volume": 100.0,
+            },
+            {
+                "source_plate": "SRC-1",
+                "source_well": "A2",
+                "destination_well": "A1",
+                "volume": 100.0,
+            },
+        ],
+    )
+    resp = await client.post(
+        f"/api/v1/plates/{created['id']}/worklist",
+        json={"format": "echo"},
+    )
+    assert resp.status_code == 400
+    detail = resp.json()["detail"]
+    assert detail["message"] == "Worklist validation failed"
+    assert any("duplicate destination well A1" in error for error in detail["errors"])
+
+
 # ---------------------------------------------------------------------------
 # Stateless mapping endpoints
 # ---------------------------------------------------------------------------
