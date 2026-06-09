@@ -8,12 +8,15 @@ import io
 import pytest
 
 from resonantia.services.plate_mapper import (
+    INSTRUMENT_PROFILES,
+    WorklistValidationError,
     _wells_for_plate,
     cherry_pick,
     generate_plate_map,
     generate_worklist,
     serial_dilution,
     validate_mapping,
+    validate_worklist,
 )
 
 
@@ -156,6 +159,23 @@ class TestWorklistEcho:
         row = next(reader)
         assert row[-1] == "100"  # default volume
 
+    def test_echo_volume_below_minimum_fails_closed(self):
+        mappings = [
+            {"source_plate": "S", "source_well": "A1", "destination_well": "A1", "volume": 1}
+        ]
+        with pytest.raises(WorklistValidationError) as exc:
+            generate_worklist(mappings, fmt="echo")
+        assert "outside Echo acoustic dispenser range" in str(exc.value)
+
+    def test_echo_duplicate_destination_fails_closed(self):
+        mappings = [
+            {"source_plate": "S", "source_well": "A1", "destination_well": "B1", "volume": 100},
+            {"source_plate": "S", "source_well": "A2", "destination_well": "B1", "volume": 100},
+        ]
+        with pytest.raises(WorklistValidationError) as exc:
+            generate_worklist(mappings, fmt="echo")
+        assert "duplicate destination well B1" in str(exc.value)
+
 
 # ---------------------------------------------------------------------------
 # Worklist generation — Hamilton GWL
@@ -211,6 +231,33 @@ class TestValidateMapping:
         errors = validate_mapping(mappings)
         assert len(errors) == 1
         assert "missing" in errors[0].lower()
+
+
+class TestValidateWorklist:
+    def test_instrument_profiles_are_declared(self):
+        assert INSTRUMENT_PROFILES["echo"].min_volume_nl == 2.5
+        assert INSTRUMENT_PROFILES["echo"].max_volume_nl == 1000
+        assert "hamilton" in INSTRUMENT_PROFILES
+        assert "opentrons" in INSTRUMENT_PROFILES
+
+    def test_valid_echo_worklist_returns_checks(self):
+        mappings = [
+            {"source_plate": "S", "source_well": "A1", "destination_well": "B1", "volume": 100},
+            {"source_plate": "S", "source_well": "A2", "destination_well": "B2", "volume": 100},
+        ]
+        result = validate_worklist(mappings, fmt="echo")
+        assert result["ok"] is True
+        assert result["errors"] == []
+        assert result["transfer_count"] == 2
+        assert any("Echo acoustic dispenser" in check for check in result["checks"])
+
+    def test_invalid_well_label_returns_error(self):
+        mappings = [
+            {"source_plate": "S", "source_well": "Z99", "destination_well": "B1", "volume": 100},
+        ]
+        result = validate_worklist(mappings, fmt="echo")
+        assert result["ok"] is False
+        assert "invalid source well Z99" in result["errors"][0]
 
 
 # ---------------------------------------------------------------------------

@@ -136,7 +136,20 @@ async def generate_worklist(
     if not pm.well_mappings:
         raise HTTPException(status_code=400, detail="Plate map has no well mappings")
 
-    content = plate_mapper.generate_worklist(pm.well_mappings, fmt=body.format.value)
+    try:
+        content = plate_mapper.generate_worklist(
+            pm.well_mappings,
+            fmt=body.format.value,
+            plate_type=pm.plate_type,
+        )
+    except plate_mapper.WorklistValidationError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "Worklist validation failed",
+                "errors": exc.errors,
+            },
+        ) from exc
 
     ext_map = {
         WorklistFormat.ECHO: "csv",

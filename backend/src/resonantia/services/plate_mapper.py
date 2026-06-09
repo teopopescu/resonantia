@@ -5,7 +5,9 @@ from __future__ import annotations
 import csv
 import io
 import itertools
+import re
 import string
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -17,11 +19,88 @@ ROWS_96 = list(string.ascii_uppercase[:8])   # A-H
 COLS_96 = list(range(1, 13))                 # 1-12
 ROWS_384 = list(string.ascii_uppercase[:16]) # A-P
 COLS_384 = list(range(1, 25))                # 1-24
+WELL_RE = re.compile(r"^([A-P])([1-9]\d?)$")
+
+
+@dataclass(frozen=True)
+class InstrumentProfile:
+    """Validation constraints for a worklist target."""
+
+    name: str
+    min_volume_nl: float
+    max_volume_nl: float
+    allowed_plate_types: tuple[str, ...] = ("96", "384")
+    require_unique_destination_wells: bool = True
+
+
+INSTRUMENT_PROFILES: dict[str, InstrumentProfile] = {
+    "echo": InstrumentProfile(
+        name="Echo acoustic dispenser",
+        min_volume_nl=2.5,
+        max_volume_nl=1000.0,
+    ),
+    "hamilton": InstrumentProfile(
+        name="Hamilton liquid handler",
+        min_volume_nl=1.0,
+        max_volume_nl=300000.0,
+    ),
+    "opentrons": InstrumentProfile(
+        name="Opentrons OT-2",
+        min_volume_nl=1.0,
+        max_volume_nl=300000.0,
+    ),
+}
+
+
+class WorklistValidationError(ValueError):
+    """Raised when a worklist would be unsafe or invalid to export."""
+
+    def __init__(self, errors: list[str]):
+        super().__init__("Invalid worklist: " + "; ".join(errors))
+        self.errors = errors
 
 
 def _wells_for_plate(plate_type: str) -> list[str]:
     rows, cols = (ROWS_384, COLS_384) if plate_type == "384" else (ROWS_96, COLS_96)
     return [f"{r}{c}" for r, c in itertools.product(rows, cols)]
+
+
+def _normalise_format(fmt: str) -> str:
+    aliases = {
+        "echo-csv": "echo",
+        "hamilton-gwl": "hamilton",
+        "opentrons-python": "opentrons",
+    }
+    normalised = aliases.get(fmt.lower(), fmt.lower())
+    if normalised not in INSTRUMENT_PROFILES:
+        raise ValueError(f"Unknown worklist format: {fmt}")
+    return normalised
+
+
+def _is_valid_well_label(well: str, plate_type: str) -> bool:
+    match = WELL_RE.match(well)
+    if not match:
+        return False
+    row, raw_col = match.groups()
+    col = int(raw_col)
+    rows, cols = (ROWS_384, COLS_384) if plate_type == "384" else (ROWS_96, COLS_96)
+    return row in rows and col in cols
+
+
+def _infer_plate_type(well_mappings: list[dict[str, Any]]) -> str:
+    """Infer the smallest plate type that can hold all referenced wells."""
+    for mapping in well_mappings:
+        for key in ("source_well", "destination_well"):
+            raw_well = mapping.get(key)
+            if not raw_well:
+                continue
+            match = WELL_RE.match(str(raw_well))
+            if not match:
+                continue
+            row, raw_col = match.groups()
+            if row not in ROWS_96 or int(raw_col) not in COLS_96:
+                return "384"
+    return "96"
 
 
 # ---------------------------------------------------------------------------
@@ -158,8 +237,14 @@ def serial_dilution(
 def generate_worklist(
     well_mappings: list[dict[str, Any]],
     fmt: str = "echo",
+    plate_type: str | None = None,
 ) -> str:
     """Produce a worklist string for the given liquid-handler format."""
+    fmt = _normalise_format(fmt)
+    validation = validate_worklist(well_mappings, fmt=fmt, plate_type=plate_type)
+    if validation["errors"]:
+        raise WorklistValidationError(validation["errors"])
+
     if fmt == "echo":
         return _worklist_echo(well_mappings)
     elif fmt == "hamilton":
@@ -242,3 +327,86 @@ def validate_mapping(well_mappings: list[dict[str, Any]]) -> list[str]:
             errors.append(f"Mapping {idx}: duplicate destination well {dw}")
         dest_wells_used.add(dw)
     return errors
+
+
+def validate_worklist(
+    well_mappings: list[dict[str, Any]],
+    fmt: str = "echo",
+    plate_type: str | None = None,
+) -> dict[str, Any]:
+    """Validate a worklist against target instrument and plate constraints."""
+    fmt = _normalise_format(fmt)
+    profile = INSTRUMENT_PROFILES[fmt]
+    plate_type = plate_type or _infer_plate_type(well_mappings)
+    errors: list[str] = []
+    checks: list[str] = []
+
+    if plate_type not in profile.allowed_plate_types:
+        errors.append(f"{profile.name} does not support {plate_type}-well plates")
+
+    if not well_mappings:
+        errors.append("Worklist has no transfers")
+        return {
+            "ok": False,
+            "instrument": profile.name,
+            "format": fmt,
+            "errors": errors,
+            "checks": checks,
+        }
+
+    destination_wells_seen: set[str] = set()
+    source_wells_seen: set[str] = set()
+    total_volume_by_source: dict[str, float] = {}
+    min_volume = float("inf")
+    max_volume = 0.0
+
+    for idx, mapping in enumerate(well_mappings):
+        source_plate = str(mapping.get("source_plate") or "SRC")
+        source_well = str(mapping.get("source_well") or "")
+        dest_well = str(mapping.get("destination_well") or "")
+        volume = float(mapping.get("volume") or 100)
+
+        if not source_well:
+            errors.append(f"Transfer {idx}: missing source_well")
+        elif not _is_valid_well_label(source_well, plate_type):
+            errors.append(f"Transfer {idx}: invalid source well {source_well} for {plate_type}-well plate")
+
+        if not dest_well:
+            errors.append(f"Transfer {idx}: missing destination_well")
+        elif not _is_valid_well_label(dest_well, plate_type):
+            errors.append(f"Transfer {idx}: invalid destination well {dest_well} for {plate_type}-well plate")
+
+        if profile.require_unique_destination_wells and dest_well in destination_wells_seen:
+            errors.append(f"Transfer {idx}: duplicate destination well {dest_well}")
+        destination_wells_seen.add(dest_well)
+        source_wells_seen.add(f"{source_plate}:{source_well}")
+
+        if volume < profile.min_volume_nl or volume > profile.max_volume_nl:
+            errors.append(
+                f"Transfer {idx}: volume {volume:g} nL outside {profile.name} range "
+                f"{profile.min_volume_nl:g}-{profile.max_volume_nl:g} nL"
+            )
+        min_volume = min(min_volume, volume)
+        max_volume = max(max_volume, volume)
+        total_volume_by_source[source_plate] = total_volume_by_source.get(source_plate, 0.0) + volume
+
+    if not errors:
+        checks = [
+            f"{len(well_mappings)} transfers",
+            f"{len(source_wells_seen)} source wells",
+            f"{len(destination_wells_seen)} unique destination wells",
+            f"volume range {min_volume:g}-{max_volume:g} nL",
+            f"{profile.name} constraints passed",
+        ]
+
+    return {
+        "ok": not errors,
+        "instrument": profile.name,
+        "format": fmt,
+        "transfer_count": len(well_mappings),
+        "min_volume_nl": None if min_volume == float("inf") else min_volume,
+        "max_volume_nl": max_volume,
+        "total_volume_by_source_plate_nl": total_volume_by_source,
+        "errors": errors,
+        "checks": checks,
+    }
