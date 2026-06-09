@@ -1,17 +1,32 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Download, FileText, Code, FileSpreadsheet, Copy, Check } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  AlertCircle,
+  Check,
+  CheckCircle2,
+  Code,
+  Copy,
+  Download,
+  FileSpreadsheet,
+  FileText,
+} from "lucide-react";
 import { usePlateStore } from "@/stores/plate-store";
 import {
   generateEchoCSV,
   generateHamiltonGWL,
   generateOpentronsPython,
 } from "@/lib/plate-utils";
-import { API_URL } from "@/lib/api";
+import { apiRaw } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 type WorklistFormat = "echo" | "hamilton" | "opentrons";
+
+const VOLUME_RANGES: Record<WorklistFormat, { min: number; max: number; label: string }> = {
+  echo: { min: 2.5, max: 1000, label: "Echo acoustic dispenser" },
+  hamilton: { min: 1, max: 300000, label: "Hamilton liquid handler" },
+  opentrons: { min: 1, max: 300000, label: "Opentrons OT-2" },
+};
 
 const FORMATS: Record<
   WorklistFormat,
@@ -38,11 +53,16 @@ const FORMATS: Record<
 };
 
 export default function WorklistGenerator() {
-  const { plateMaps, activePlateMapId } = usePlateStore();
+  const { plateMaps, activePlateMapId, updatePlateMap } = usePlateStore();
   const [format, setFormat] = useState<WorklistFormat>("echo");
   const [copied, setCopied] = useState(false);
 
   const activeMap = plateMaps.find((pm) => pm.id === activePlateMapId);
+
+  useEffect(() => {
+    const instrument = activeMap?.runConfig?.instrument;
+    if (instrument) setFormat(instrument);
+  }, [activeMap?.id, activeMap?.runConfig?.instrument]);
 
   const generated = useMemo(() => {
     if (!activeMap || activeMap.mappings.length === 0) return "";
@@ -67,39 +87,74 @@ export default function WorklistGenerator() {
   const previewLines = generated.split("\n").slice(0, 20);
   const totalLines = generated.split("\n").length;
 
+  const validation = useMemo(() => {
+    if (!activeMap || activeMap.mappings.length === 0) {
+      return { issues: [] as string[], checks: [] as string[] };
+    }
+
+    const range = VOLUME_RANGES[format];
+    const issues: string[] = [];
+    const checks: string[] = [];
+    const destinationWells = new Set<string>();
+    const sourceWells = new Set<string>();
+    let duplicateDestination = false;
+    let minVolume = Number.POSITIVE_INFINITY;
+    let maxVolume = 0;
+
+    for (const mapping of activeMap.mappings) {
+      if (!mapping.sourceWell || !mapping.destWell) {
+        issues.push("All transfers need source and destination wells.");
+        break;
+      }
+      if (destinationWells.has(mapping.destWell)) duplicateDestination = true;
+      destinationWells.add(mapping.destWell);
+      sourceWells.add(`${mapping.sourcePlateId}:${mapping.sourceWell}`);
+      if (mapping.volume < range.min || mapping.volume > range.max) {
+        issues.push(
+          `${range.label} supports ${range.min}-${range.max} nL; ${mapping.destWell} is ${mapping.volume} nL.`
+        );
+        break;
+      }
+      minVolume = Math.min(minVolume, mapping.volume);
+      maxVolume = Math.max(maxVolume, mapping.volume);
+    }
+
+    if (duplicateDestination) {
+      issues.push("Destination wells contain duplicates.");
+    }
+
+    if (issues.length === 0) {
+      checks.push(`${activeMap.mappings.length} transfers`);
+      checks.push(`${sourceWells.size} source wells`);
+      checks.push(`${destinationWells.size} unique destinations`);
+      checks.push(`${minVolume}-${maxVolume} nL transfer range`);
+      checks.push(`${range.label} constraints passed`);
+      if (activeMap.runConfig?.controls) checks.push("controls documented");
+      if (activeMap.runConfig?.replicates) checks.push(`${activeMap.runConfig.replicates} replicates configured`);
+    }
+
+    return { issues, checks };
+  }, [activeMap, format]);
+
   const handleDownload = async () => {
-    if (!activeMap) return;
+    if (!activeMap || validation.issues.length > 0) return;
     try {
-      const backendFormat =
-        format === "echo"
-          ? "echo-csv"
-          : format === "hamilton"
-          ? "hamilton-gwl"
-          : "opentrons-python";
-      const res = await fetch(
-        `${API_URL}/api/v1/plates/${activeMap.id}/worklist`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            format: backendFormat,
-            volume: activeMap.mappings[0]?.volume ?? 100,
-          }),
-        }
-      );
+      const res = await apiRaw(`/api/v1/plates/${activeMap.id}/worklist`, {
+        method: "POST",
+        body: JSON.stringify({ format }),
+      });
       if (res.ok) {
-        const data = await res.json();
-        if (data.worklist) {
-          const ext = FORMATS[format].ext;
-          const blob = new Blob([data.worklist], { type: "text/plain" });
-          const blobUrl = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = blobUrl;
-          a.download = `${activeMap.name.replace(/\s+/g, "_")}_worklist${ext}`;
-          a.click();
-          URL.revokeObjectURL(blobUrl);
-          return;
-        }
+        const content = await res.text();
+        const ext = FORMATS[format].ext;
+        const blob = new Blob([content], { type: "text/plain" });
+        const blobUrl = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = blobUrl;
+        a.download = `${activeMap.name.replace(/\s+/g, "_")}_worklist${ext}`;
+        a.click();
+        URL.revokeObjectURL(blobUrl);
+        updatePlateMap(activeMap.id, { status: "exported" });
+        return;
       }
     } catch {
       // fall through to client-side
@@ -113,6 +168,7 @@ export default function WorklistGenerator() {
     a.download = `${activeMap.name.replace(/\s+/g, "_")}_worklist${FORMATS[format].ext}`;
     a.click();
     URL.revokeObjectURL(blobUrl);
+    updatePlateMap(activeMap.id, { status: "exported" });
   };
 
   const handleExportPlateMap = (type: "csv" | "json") => {
@@ -156,7 +212,7 @@ export default function WorklistGenerator() {
   if (!activeMap) {
     return (
       <div className="text-center py-8 font-mono text-[11.5px] tracking-[0.02em] uppercase text-ink-subtle">
-        select or create a plate map to generate worklists
+        select or create a run to generate worklists
       </div>
     );
   }
@@ -166,10 +222,10 @@ export default function WorklistGenerator() {
       <div className="flex flex-wrap items-center justify-between gap-3 pb-1">
         <div>
           <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-ink">
-            Worklist generator
+            Worklist export
           </h3>
           <p className="font-mono text-[10.5px] uppercase tracking-[0.04em] text-ink-subtle mt-1">
-            export to liquid handlers
+            validate · approve · download instrument file
           </p>
         </div>
 
@@ -224,7 +280,52 @@ export default function WorklistGenerator() {
           no mappings yet · create some to preview the worklist
         </div>
       ) : (
-        <div className="bg-ink rounded-[5px] overflow-hidden border border-line-strong">
+        <>
+          <div
+            className={cn(
+              "rounded-[5px] border p-3",
+              validation.issues.length > 0
+                ? "bg-mch-soft border-mch/30"
+                : "bg-brand-soft/35 border-brand/30"
+            )}
+          >
+            <div className="flex items-center gap-2 mb-2">
+              {validation.issues.length > 0 ? (
+                <AlertCircle size={14} className="text-mch shrink-0" />
+              ) : (
+                <CheckCircle2 size={14} className="text-brand shrink-0" />
+              )}
+              <h4 className="font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink">
+                validation summary
+              </h4>
+            </div>
+            {validation.issues.length > 0 ? (
+              <div className="space-y-1">
+                {validation.issues.map((issue) => (
+                  <p
+                    key={issue}
+                    className="font-mono text-[11.5px] tracking-[0.02em] text-mch"
+                  >
+                    {issue}
+                  </p>
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {validation.checks.map((check) => (
+                  <span
+                    key={check}
+                    className="inline-flex items-center gap-1 rounded-[2px] border border-brand/30 bg-surface px-1.5 py-0.5 font-mono text-[10.5px] uppercase tracking-[0.04em] text-brand"
+                  >
+                    <Check size={10} />
+                    {check}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="bg-ink rounded-[5px] overflow-hidden border border-line-strong">
           <div className="flex items-center justify-between px-3 py-2 border-b border-white/10 bg-ink/95">
             <span className="font-mono text-[10.5px] uppercase tracking-[0.04em] text-bg/50">
               {FORMATS[format].label} · preview {Math.min(20, totalLines)}/{totalLines}
@@ -255,18 +356,20 @@ export default function WorklistGenerator() {
               </span>
             )}
           </pre>
-        </div>
+          </div>
+        </>
       )}
 
       {/* Download button */}
       {activeMap.mappings.length > 0 && (
         <button
           onClick={handleDownload}
-          className="inline-flex items-center gap-2 bg-brand text-white px-3.5 py-2 rounded-[3px] text-[13px] font-semibold hover:bg-brand-strong transition-colors"
+          disabled={validation.issues.length > 0}
+          className="inline-flex items-center gap-2 bg-brand text-white px-3.5 py-2 rounded-[3px] text-[13px] font-semibold hover:bg-brand-strong transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
           style={{ boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.06)" }}
         >
           <Download size={14} />
-          Download worklist
+          Approve and download worklist
           <span className="font-mono text-[11px] opacity-70">
             ({FORMATS[format].ext})
           </span>

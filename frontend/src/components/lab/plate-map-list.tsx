@@ -32,7 +32,7 @@ export default function PlateMapList() {
     return (
       <div className="text-center py-10 bg-surface border border-line rounded-md">
         <FileText size={28} className="mx-auto mb-3 text-ink-subtle" />
-        <p className="text-[13px] text-ink-muted">No plate maps yet</p>
+        <p className="text-[13px] text-ink-muted">No runs yet</p>
         <p className="font-mono text-[11px] text-ink-subtle mt-1.5 tracking-[0.02em]">
           create one to get started
         </p>
@@ -81,6 +81,12 @@ export default function PlateMapList() {
                 <span>{relTime(pm.updatedAt)}</span>
                 <span className="text-line-strong">·</span>
                 <span>{pm.mappings.length} transfers</span>
+                {pm.runConfig?.instrument && (
+                  <>
+                    <span className="text-line-strong">·</span>
+                    <span>{pm.runConfig.instrument}</span>
+                  </>
+                )}
               </div>
             </div>
 

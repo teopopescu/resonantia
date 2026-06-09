@@ -10,6 +10,8 @@ export type MappingMode =
   | "replicate"
   | "randomize";
 
+export type InstrumentTarget = "echo" | "hamilton" | "opentrons";
+
 export interface WellMapping {
   sourceWell: string;
   destWell: string;
@@ -34,6 +36,13 @@ export interface PlateMap {
   destinationPlateId: string;
   mappings: WellMapping[];
   status: "draft" | "complete" | "exported";
+  runConfig?: {
+    instrument: InstrumentTarget;
+    transferMode: MappingMode;
+    controls: string;
+    replicates: number;
+    sourceFileName?: string;
+  };
   createdAt: string;
   updatedAt: string;
 }
@@ -188,6 +197,12 @@ const DEMO_PLATE_MAPS: PlateMap[] = [
       { sourceWell: "B3", destWell: "B2", compound: "Rapamycin", concentration: 50, volume: 100, sourcePlateId: "src-1" },
     ],
     status: "draft",
+    runConfig: {
+      instrument: "echo",
+      transferMode: "cherry-pick",
+      controls: "DMSO vehicle and staurosporine positive controls",
+      replicates: 3,
+    },
     createdAt: "2026-04-10T10:00:00Z",
     updatedAt: "2026-04-10T14:30:00Z",
   },
@@ -198,6 +213,12 @@ const DEMO_PLATE_MAPS: PlateMap[] = [
     destinationPlateId: "dest-demo-2",
     mappings: [],
     status: "draft",
+    runConfig: {
+      instrument: "echo",
+      transferMode: "serial-dilution",
+      controls: "Column 1 vehicle controls",
+      replicates: 3,
+    },
     createdAt: "2026-04-09T16:00:00Z",
     updatedAt: "2026-04-09T16:00:00Z",
   },
@@ -208,6 +229,12 @@ const DEMO_PLATE_MAPS: PlateMap[] = [
     destinationPlateId: "dest-demo-3",
     mappings: [],
     status: "complete",
+    runConfig: {
+      instrument: "hamilton",
+      transferMode: "replicate",
+      controls: "Replicate QC controls",
+      replicates: 2,
+    },
     createdAt: "2026-04-07T11:00:00Z",
     updatedAt: "2026-04-08T09:15:00Z",
   },
@@ -276,6 +303,7 @@ export const usePlateStore = create<PlateState>()(
             destinationPlateId: data.destinationPlateId || "",
             mappings: data.mappings || [],
             status: data.status || "draft",
+            runConfig: data.runConfig,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           };
