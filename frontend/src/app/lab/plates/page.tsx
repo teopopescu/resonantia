@@ -76,8 +76,8 @@ export default function PlatesPage() {
     <div className="flex flex-col h-full bg-bg">
       <PageHeader
         marker="03"
-        markerLabel="Plates · designer"
-        title="Plate Map Designer"
+        markerLabel="Run Builder · plate maps & worklists"
+        title="Run Builder"
         meta={
           activeMap ? (
             <>
@@ -86,7 +86,7 @@ export default function PlatesPage() {
             </>
           ) : (
             <>
-              {plateMaps.length} maps · {draftCount} draft · {plateType}-well default
+              {plateMaps.length} runs · {draftCount} draft · {plateType}-well default
             </>
           )
         }
@@ -101,7 +101,7 @@ export default function PlatesPage() {
         />
         <PageHeaderPrimary onClick={() => setShowNewDialog(true)}>
           <Plus size={14} />
-          New plate map
+          New run
         </PageHeaderPrimary>
       </PageHeader>
 
@@ -109,7 +109,7 @@ export default function PlatesPage() {
         <div className="max-w-[1440px] mx-auto grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-8">
           <aside>
             <h2 className="font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-subtle mb-3">
-              Plate Maps
+              Runs
             </h2>
             <PlateMapList />
           </aside>
@@ -130,11 +130,11 @@ export default function PlatesPage() {
                   <Grid3X3 size={22} className="text-brand" />
                 </div>
                 <h3 className="text-[15px] font-semibold text-ink mb-1">
-                  No plate map selected
+                  No run selected
                 </h3>
                 <p className="text-[13px] text-ink-muted max-w-xs">
-                  Select an existing plate map from the sidebar or create a new
-                  one to start designing.
+                  Select an existing run from the sidebar or create a new one
+                  to design the plate map and export an approved worklist.
                 </p>
                 <button
                   onClick={() => setShowNewDialog(true)}
@@ -142,7 +142,7 @@ export default function PlatesPage() {
                   style={{ boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.06)" }}
                 >
                   <Plus size={14} />
-                  New plate map
+                  New run
                 </button>
               </div>
             )}
@@ -170,7 +170,7 @@ export default function PlatesPage() {
             >
               <div className="flex items-center justify-between mb-5">
                 <h3 className="text-[15px] font-semibold text-ink">
-                  New plate map
+                  New run
                 </h3>
                 <button
                   onClick={() => setShowNewDialog(false)}
@@ -207,7 +207,7 @@ export default function PlatesPage() {
                   className="inline-flex items-center gap-2 px-3.5 py-2 bg-brand text-white text-[13px] font-medium rounded-[3px] hover:bg-brand-strong transition-colors"
                   style={{ boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.06)" }}
                 >
-                  Create
+                  Create run
                 </button>
               </div>
             </motion.div>

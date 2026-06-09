@@ -48,8 +48,8 @@ export function Footer() {
               </span>
             </Link>
             <p className="text-sm text-muted leading-relaxed max-w-xs mb-6">
-              AI-powered plate mapping, dose-response fitting, microscopy
-              browsing, and sample tracking. Built by scientists, for scientists.
+              Execution layer for validated plate maps, liquid-handler
+              worklists, result ingestion, and auditable run records.
             </p>
             <p className="text-xs text-muted/60">
               &copy; {new Date().getFullYear()} Resonantia. All rights reserved.

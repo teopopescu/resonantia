@@ -17,12 +17,12 @@ export function CtaSection() {
         <div className="w-12 h-px bg-brand mx-auto mb-10" />
 
         <h2 className="text-3xl sm:text-4xl lg:text-5xl font-semibold leading-[1.05] tracking-[-0.03em] mb-6">
-          Run the bench<br />from one console.
+          Generate the worklist<br />scientists trust to run.
         </h2>
 
         <p className="text-lg text-ink-muted leading-relaxed max-w-xl mx-auto mb-10">
-          Design plate maps, fit dose-response curves, browse microscopy, and
-          track samples — all from one agent-native surface.
+          Turn assay intent into validated, approval-gated worklists for Echo,
+          Hamilton, and Opentrons, then connect results back to your records.
         </p>
 
         <div className="flex flex-col sm:flex-row items-center justify-center gap-3">

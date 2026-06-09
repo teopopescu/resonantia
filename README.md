@@ -1,7 +1,8 @@
 # Resonantia
 
-Agentic OS for lab informatics: plate mapping, sample tracking, ELN workflows,
-data processing, multimodal/voice chat, and Temporal-backed agent workflows.
+Execution layer for lab automation: Resonantia turns experiment intent into
+validated plate maps, liquid-handler worklists, assay results, and auditable
+run records.
 
 ## Architecture
 

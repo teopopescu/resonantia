@@ -100,9 +100,8 @@ export default function EmailTemplate({
           >
             A colleague has invited you to join{" "}
             <strong style={{ color: "#2D2A26" }}>Resonantia Lab</strong> — the
-            agentic OS for lab informatics. Automate plate mapping, analyze
-            microscopy images, manage sample inventories, and accelerate your
-            research with AI-powered workflows.
+            execution layer for validated plate maps, liquid-handler worklists,
+            result analysis, and auditable run records.
           </p>
 
           {/* CTA Button */}

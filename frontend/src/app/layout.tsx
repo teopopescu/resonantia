@@ -18,13 +18,14 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Resonantia — Agentic OS for Lab Informatics",
+  title: "Resonantia — Execution Layer for Lab Automation",
   description:
-    "AI-powered plate mapping, dose-response analysis, and sample tracking for lab scientists. Design worklists for Echo, Hamilton, and Opentrons. Fit IC50 curves, normalize plates, browse microscopy images, and manage reagent inventory.",
+    "Generate validated plate maps and liquid-handler worklists from experiment intent. Export Echo, Hamilton, and Opentrons files, ingest results, and preserve auditable run records.",
   keywords: [
     "lab informatics",
+    "lab automation",
+    "liquid handler worklists",
     "LIMS",
-    "laboratory automation",
     "AI agents",
     "plate mapping",
     "microscopy",

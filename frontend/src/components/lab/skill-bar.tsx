@@ -13,12 +13,12 @@ import {
 } from "lucide-react";
 
 const skills = [
-  { id: "plate-mapping", label: "Plate Mapping", icon: LayoutGrid, prompt: "Help me design a plate map for " },
-  { id: "data-analysis", label: "Data Analysis", icon: BarChart3, prompt: "Analyze the following experimental data: " },
+  { id: "worklist-run", label: "Worklist Run", icon: LayoutGrid, prompt: "Build a validated liquid-handler run for " },
+  { id: "data-analysis", label: "Results Analysis", icon: BarChart3, prompt: "Analyze the following run result data: " },
   { id: "microscopy", label: "Microscopy", icon: Eye, prompt: "Help me analyze microscopy images from " },
   { id: "sample-tracking", label: "Sample Tracking", icon: FlaskConical, prompt: "Look up information about sample " },
   { id: "protocol-design", label: "Protocol Design", icon: FileText, prompt: "Design an experimental protocol for " },
-  { id: "eln-entry", label: "Notebook", icon: BookOpen, prompt: "Create an ELN entry for " },
+  { id: "run-record", label: "Run Record", icon: BookOpen, prompt: "Draft a run record for " },
   { id: "explore", label: "Explore", icon: Compass, prompt: "What can you help me with?" },
 ];
 
