@@ -173,17 +173,17 @@ const mentionItems: Array<{ category: string; label: string; icon?: React.ReactN
   { category: "Integrations", label: "eLabFTW", icon: <ElabFTWLogo size={16} /> },
   { category: "Integrations", label: "Benchling", icon: <BenchlingLogo size={16} />, comingSoon: true },
   { category: "Integrations", label: "Dotmatics", icon: <DotmaticsLogo size={16} />, comingSoon: true },
-  { category: "Resources", label: "Plate Maps" },
-  { category: "Resources", label: "Sample Inventory" },
+  { category: "Resources", label: "Run Builder" },
+  { category: "Resources", label: "Inventory" },
   { category: "Resources", label: "Microscopy Images" },
-  { category: "Resources", label: "ELN Notebook" },
+  { category: "Resources", label: "Run Records" },
   { category: "Resources", label: "Protocols" },
-  { category: "Resources", label: "Processing Results" },
+  { category: "Resources", label: "Results Analysis" },
 ];
 
 /* ---------- Skills for the dropdown ---------- */
 const agentSkills = [
-  { label: "Plate Mapping", desc: "Design and configure plate layouts", prompt: "Design a plate map: ", icon: LayoutGrid },
+  { label: "Worklist Run", desc: "Design, validate, and export a worklist", prompt: "Build a liquid-handler run for: ", icon: LayoutGrid },
   { label: "Dose-Response Analysis", desc: "Fit curves and compute IC50/EC50", prompt: "Analyze dose-response data: ", icon: BarChart3 },
   { label: "Sample Lookup", desc: "Find sample info across inventories", prompt: "Look up sample: ", icon: Search },
   { label: "Plate Normalization", desc: "Normalize plate data with controls", prompt: "Normalize plate data: ", icon: Crosshair },
@@ -194,10 +194,10 @@ const agentSkills = [
 /* ---------- Resource items ---------- */
 const resourceItems = [
   { label: "Upload Data File", icon: Upload, action: "upload" as const },
-  { label: "Plate Maps", icon: LayoutGrid, href: "/lab/plates" },
-  { label: "Sample Inventory", icon: FlaskConical, href: "/lab/samples" },
+  { label: "Run Builder", icon: LayoutGrid, href: "/lab/plates" },
+  { label: "Inventory", icon: FlaskConical, href: "/lab/samples" },
   { label: "Microscopy Images", icon: Eye, href: "/lab/microscopy" },
-  { label: "Processing Results", icon: Cog, href: "/lab/processing" },
+  { label: "Results Analysis", icon: Cog, href: "/lab/processing" },
 ];
 
 /* ---------- Render message content with clickable file links ---------- */
@@ -684,8 +684,7 @@ export default function ChatInterface() {
               transition={{ delay: 0.1, duration: 0.4 }}
               className="font-mono text-[11px] uppercase tracking-[0.06em] text-ink-subtle mb-3"
             >
-              <span className="text-brand">›</span> agent · ready · 30+ tools
-              wired
+              <span className="text-brand">›</span> execution console · ready
             </motion.div>
 
             <motion.h1
@@ -694,8 +693,8 @@ export default function ChatInterface() {
               transition={{ delay: 0.15, duration: 0.4 }}
               className="text-[32px] font-semibold tracking-[-0.025em] leading-[1.1] text-ink mb-3"
             >
-              What would you like to{" "}
-              <span className="text-brand">run</span> on the bench?
+              What worklist should we{" "}
+              <span className="text-brand">build</span> today?
             </motion.h1>
 
             <motion.p
@@ -704,9 +703,9 @@ export default function ChatInterface() {
               transition={{ delay: 0.25, duration: 0.4 }}
               className="text-[15px] text-ink-muted leading-relaxed max-w-lg"
             >
-              Design plate maps, fit dose-response curves, look up samples,
-              browse microscopy. Every action is cited and written back to your
-              notebook.
+              Describe the assay, upload source data, or ask for an Echo,
+              Hamilton, or Opentrons worklist. Resonantia validates constraints,
+              captures approval, and records the run.
             </motion.p>
           </div>
         </div>

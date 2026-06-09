@@ -22,9 +22,9 @@ const modules: Array<{
 }> = [
   {
     code: "PLT/01",
-    title: "Plate Mapping",
+    title: "Run Builder",
     desc:
-      "Source-destination layouts with cherry-pick, serial dilution, and replicate modes. Worklists exported in one click.",
+      "Source-destination layouts with cherry-pick, serial dilution, and replicate modes. Export worklists only after validation and approval.",
     status: "GA",
     ver: "v1.2",
     specs: ["96 / 384", "Echo · Hamilton · OT-2", "5 tools"],
@@ -32,9 +32,9 @@ const modules: Array<{
   },
   {
     code: "DAT/03",
-    title: "Data Processing",
+    title: "Results Analysis",
     desc:
-      "4PL dose-response fits, Z-prime QC, plate normalization, ΔΔCt qPCR — all written back to the ELN with provenance.",
+      "Ingest plate-reader and qPCR outputs, fit results, flag issues, and attach provenance back to the run record.",
     status: "GA",
     ver: "v1.1",
     specs: ["4PL · ΔΔCt · Z-prime", "Z′ = 0.71", "5 tools"],
@@ -42,9 +42,9 @@ const modules: Array<{
   },
   {
     code: "INV/04",
-    title: "Sample & Reagent Tracker",
+    title: "Source Inventory",
     desc:
-      "Every lot, every aliquot, every freeze-thaw. Barcode lookup, expiry alerts routed to the right scientist.",
+      "Source plates, lots, aliquots, and dead-volume checks. Barcode lookup, expiry alerts, and stock constraints for executable runs.",
     status: "GA",
     ver: "v1.0",
     specs: ["Barcode · RFID", "Expiry · lot · location", "3 tools"],
@@ -52,9 +52,9 @@ const modules: Array<{
   },
   {
     code: "AGT/05",
-    title: "Agent Console",
+    title: "Intent Console",
     desc:
-      "Natural-language instructions over 30+ tools. Cites every call. Voice mode and a persistent right-rail across the lab.",
+      "Natural-language and voice setup for worklist runs. The agent asks clarifying questions instead of guessing at ambiguous execution details.",
     status: "BETA",
     ver: "v0.9",
     specs: ["30+ tools · 7 categories", "Voice · plan mode", "Cited traces"],
@@ -62,9 +62,9 @@ const modules: Array<{
   },
   {
     code: "AUD/06",
-    title: "Activity Log",
+    title: "Run Audit Trail",
     desc:
-      "Every action, parameter, and tool call timestamped and cited. Full audit export, immutable submitted entries.",
+      "Every input, validation, approval, export, result, and write-back timestamped and reproducible from saved artifacts.",
     status: "PREVIEW",
     ver: "v0.4",
     specs: ["Timestamped trace", "CSV / JSON export", "Immutable on submit"],
@@ -154,17 +154,17 @@ export function Features() {
               <span className="font-semibold text-brand bg-brand-soft border border-brand/40 rounded-[2px] px-1.5 py-0.5">
                 03
               </span>
-              <span>Modules · system manifest</span>
+              <span>Execution workflow · system manifest</span>
             </div>
             <h2 className="text-3xl sm:text-4xl lg:text-5xl font-semibold leading-[1.05] tracking-[-0.03em] text-ink">
-              Five modules.<br />
-              One <span className="text-brand">surface.</span>
+              One workflow.<br />
+              Validated <span className="text-brand">execution.</span>
             </h2>
           </div>
           <p className="text-[15.5px] text-ink-muted leading-relaxed max-w-[42ch] md:justify-self-end">
-            Each module is wired into the agent and into the others — your plate
-            map knows the inventory; the curve fitter writes back to the ELN;
-            every action is logged, cited, and exportable.
+            The surfaces support one operational path: build the run, check
+            constraints, approve the worklist, ingest results, and write the
+            record back to the system of record.
           </p>
         </motion.div>
       </div>

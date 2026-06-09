@@ -39,11 +39,11 @@ const examples: Example[] = [
       </>
     ),
     stages: [
-      { label: "plan", done: true },
-      { label: "run", done: true },
-      { label: "image", done: true },
-      { label: "analyze", done: true },
-      { label: "notebook", done: false },
+      { label: "intent", done: true },
+      { label: "validate", done: true },
+      { label: "approve", done: true },
+      { label: "export", done: true },
+      { label: "record", done: false },
     ],
     turns: [
       {
@@ -57,8 +57,9 @@ const examples: Example[] = [
         time: "14:32:08",
         text: (
           <>
-            24 compounds in <em className="not-italic text-brand">Lib-A</em>. Standard
-            layout — three replicates, 100 nL transfers, two controls per row?
+            24 compounds in <em className="not-italic text-brand">Lib-A</em>.
+            I can build an Echo worklist with three replicates, 100 nL
+            transfers, and two controls per row.
           </>
         ),
       },
@@ -73,44 +74,46 @@ const examples: Example[] = [
         time: "14:33:04",
         text: (
           <>
-            Done. <em className="not-italic text-brand">88 wells</em> used. Z′ should hit
-            ~0.78 with the added titration.
+            Draft ready. <em className="not-italic text-brand">88 wells</em>{" "}
+            used. Echo volume range passed. Dead-volume check passed.
           </>
         ),
-        chips: ["PLT/01 · cherry-pick", "echo-550 · 100 nL"],
+        chips: ["RUN/01 · validated", "echo-550 · 100 nL"],
       },
       {
         role: "user",
         mode: "voice",
         time: "14:34",
-        text: "Run it Wednesday night, image at 06:00.",
+        text: "Export the Echo CSV after approval.",
       },
       {
         role: "agent",
         time: "14:34:02",
         text: (
           <>
-            Scheduled. I&apos;ll fit IC₅₀ and draft an ELN entry by Thursday morning.
+            Approval recorded. Echo CSV exported, and the run record is ready
+            for result ingestion.
           </>
         ),
-        chips: ["WL/01 · scheduled WED", "MIC/02 · 06:00"],
+        chips: ["WL/01 · exported", "AUD/02 · approved"],
       },
       {
         role: "user",
         mode: "chat",
         time: "thu · 09:14",
-        text: "How did round 1 go?",
+        text: "Ingest the plate-reader output and summarize the run.",
       },
       {
         role: "agent",
         time: "09:14:11",
         text: (
           <>
-            IC₅₀ <em className="not-italic text-brand">42.3 nM</em> · Hill −1.18 · Z′ 0.71. One
-            outlier in C4 flagged. Draft is ready for review.
+            IC₅₀ <em className="not-italic text-brand">42.3 nM</em> · Hill
+            -1.18 · Z′ 0.71. One outlier in C4 flagged. Benchling-ready
+            summary is ready for review.
           </>
         ),
-        chips: ["DAT/03 · fit done", "ELN-2026-0428"],
+        chips: ["RES/03 · analyzed", "REC/04 · write-back"],
       },
     ],
   },
@@ -486,7 +489,7 @@ function LifecyclePanel() {
           chat ·
           <span className="text-ink-muted">⌘ K</span>
         </span>
-        <span>30+ tools · cited traces</span>
+      <span>validated worklists · approval trail</span>
       </div>
     </motion.div>
   );
@@ -513,7 +516,7 @@ export function Hero() {
               <span className="font-semibold text-brand bg-brand-soft border border-brand/40 rounded-[2px] px-1.5 py-0.5">
                 01
               </span>
-              <span>Built for screening labs and biotech R&amp;D</span>
+              <span>Execution layer for screening labs</span>
             </motion.div>
 
             <motion.h1
@@ -522,12 +525,12 @@ export function Hero() {
               transition={{ duration: 0.65, delay: 0.2 }}
               className="text-[48px] sm:text-[64px] lg:text-[80px] xl:text-[88px] leading-[0.98] tracking-[-0.04em] text-ink"
             >
-              <span className="font-light">An agentic</span>
+              <span className="font-light">Intent to</span>
               <br />
-              <span className="font-light">co-scientist</span>
+              <span className="font-light">validated worklists</span>
               <br />
               <span className="relative inline-block font-bold text-brand">
-                <span className="relative z-10">for the wet lab.</span>
+                <span className="relative z-10">for lab automation.</span>
                 <span
                   aria-hidden="true"
                   className="absolute left-0 right-0 bottom-[2px] h-[6px] bg-brand-soft -z-0"
@@ -541,10 +544,10 @@ export function Hero() {
               transition={{ duration: 0.65, delay: 0.35 }}
               className="mt-8 max-w-xl text-[16.5px] leading-[1.55] text-ink-muted"
             >
-              Resonantia plans your experiments, designs your plate maps, fits
-              your curves, and drafts your notebook entries. Talk to it by{" "}
-              <strong className="text-ink font-medium">chat or voice</strong> —
-              every action cited, every decision yours to approve.
+              Resonantia converts assay intent into validated plate maps and
+              liquid-handler worklists. Export Echo, Hamilton, and Opentrons
+              files with constraints checked, approvals captured, and run
+              records ready for ELN/LIMS write-back.
             </motion.p>
 
             <motion.div
@@ -578,7 +581,7 @@ export function Hero() {
             >
               <HeroStat k="Plate formats" v="96 · 384" />
               <HeroStat k="Worklists" v="Echo · Hamilton · OT-2" />
-              <HeroStat k="Modes" v="chat · voice · plan" />
+              <HeroStat k="Checks" v="volume · controls · dead volume" />
               <HeroStat
                 k="Design partners"
                 v="accepting applications"

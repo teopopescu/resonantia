@@ -19,11 +19,11 @@ import {
 
 const navItems = [
   { icon: MessageSquare, label: "Console",    href: "/lab",            tool: "chat" },
-  { icon: LayoutGrid,    label: "Plates",     href: "/lab/plates",     tool: "plates" },
+  { icon: LayoutGrid,    label: "Run Builder", href: "/lab/plates",    tool: "plates" },
   { icon: FlaskConical,  label: "Inventory",  href: "/lab/samples",    tool: "samples" },
-  { icon: BookOpen,      label: "Notebook",   href: "/lab/eln",        tool: "eln" },
+  { icon: BookOpen,      label: "Run Records", href: "/lab/eln",       tool: "eln" },
   { icon: ClipboardList, label: "Protocols",  href: "/lab/protocols",  tool: "protocols" },
-  { icon: BarChart3,     label: "Processing", href: "/lab/processing", tool: "processing" },
+  { icon: BarChart3,     label: "Results",    href: "/lab/processing", tool: "processing" },
 ];
 
 /** 4-cell illuminated brand mark — same as marketing nav. */

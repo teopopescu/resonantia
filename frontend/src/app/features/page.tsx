@@ -27,18 +27,18 @@ interface Feature {
 const features: Feature[] = [
   {
     code: "PLT/01",
-    marker: "01 · plate map · designer",
+    marker: "01 · run builder · worklists",
     title: (
       <>
-        Design plate maps in seconds,
+        Build worklists in seconds,
         <br />
         not <span className="text-brand">afternoons.</span>
       </>
     ),
     body: (
       <>
-        Cherry-pick, serial dilute, replicate, randomize. Build the layout once
-        and the worklist drops out — formatted for{" "}
+        Cherry-pick, serial dilute, replicate, randomize. Build the layout once,
+        validate the constraints, and export the worklist — formatted for{" "}
         <strong className="text-ink font-medium">
           Echo, Hamilton STAR, or Opentrons OT-2
         </strong>{" "}
@@ -74,10 +74,10 @@ const features: Feature[] = [
   },
   {
     code: "DAT/03",
-    marker: "03 · data processing · pipelines",
+    marker: "03 · results · analysis pipelines",
     title: (
       <>
-        Raw reads in. <span className="text-brand">Publication-ready</span>
+        Run results in. <span className="text-brand">Auditable</span>
         <br />
         figures out.
       </>
@@ -89,7 +89,7 @@ const features: Feature[] = [
         <strong className="text-ink font-medium">
           Cited results write back to the ELN
         </strong>{" "}
-        with full provenance.
+        with full run provenance.
       </>
     ),
     specs: ["4PL · ΔΔCt · Z-prime", "IC₅₀ · EC₅₀ · Hill", "Cited tool calls"],
@@ -110,7 +110,7 @@ const features: Feature[] = [
         Every lot, every aliquot, every freeze-thaw — barcode-first. Expiry
         alerts route to the right scientist;{" "}
         <strong className="text-ink font-medium">
-          lineage written back to the ELN
+          source lineage attached to the run record
         </strong>{" "}
         on every transfer.
       </>
@@ -131,8 +131,8 @@ const features: Feature[] = [
     ),
     body: (
       <>
-        30+ tools across plate mapping, microscopy, processing, and inventory —
-        all wired into a chat-and-voice console. Every reply{" "}
+        30+ tools across worklist generation, inventory, results analysis, and
+        records — all wired into a chat-and-voice console. Every reply{" "}
         <strong className="text-ink font-medium">
           cites the tool calls it made
         </strong>{" "}

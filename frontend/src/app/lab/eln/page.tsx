@@ -126,8 +126,8 @@ export default function ELNPage() {
     <div className="flex flex-col h-full bg-bg">
       <PageHeader
         marker="07"
-        markerLabel="ELN · electronic lab notebook"
-        title="Electronic Lab Notebook"
+        markerLabel="Run Records · ELN write-back"
+        title="Run Records"
         meta={
           <>
             {entries.length} entries ·{" "}
@@ -143,7 +143,7 @@ export default function ELNPage() {
       >
         <PageHeaderGhost onClick={() => setShowAutoGen(true)}>
           <Sparkles size={14} />
-          Auto-generate
+          Draft from result
         </PageHeaderGhost>
         <PageHeaderPrimary onClick={() => setShowNewForm(true)}>
           <Plus size={14} />
@@ -179,12 +179,12 @@ export default function ELNPage() {
       {showAutoGen && (
         <CardPanel
           marker="AGEN"
-          title="Auto-generate from experiment"
+          title="Draft run record from experiment"
           onClose={() => setShowAutoGen(false)}
         >
           <p className="font-mono text-[11px] tracking-[0.02em] text-ink-muted mb-3">
             <span className="text-brand">›</span> enter the experiment id to
-            generate an entry with objectives, protocol, plate maps, and results
+            generate a run record with objectives, protocol, plate maps, approvals, and results
           </p>
           <input
             type="text"
@@ -216,7 +216,7 @@ export default function ELNPage() {
             </button>
           </div>
           <p className="font-mono text-[10.5px] uppercase tracking-[0.04em] text-ink-subtle mt-3">
-            tip · ask the agent to “create an eln entry for [experiment]”
+            tip · ask the agent to “draft a run record for [experiment]”
           </p>
         </CardPanel>
       )}
@@ -225,7 +225,7 @@ export default function ELNPage() {
       {showNewForm && (
         <CardPanel
           marker="NEW"
-          title="New notebook entry"
+          title="New run record"
           onClose={() => setShowNewForm(false)}
         >
           <div className="space-y-3">

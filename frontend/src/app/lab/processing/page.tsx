@@ -623,8 +623,8 @@ export default function ProcessingPage() {
     <div className="flex flex-col h-full bg-bg">
       <PageHeader
         marker="06"
-        markerLabel="Processing · pipelines"
-        title="Data Processing"
+        markerLabel="Results · analysis pipelines"
+        title="Results Analysis"
         meta={
           <>
             {runs.length} runs · <em className="not-italic text-brand">{completedCount} completed</em>{" "}
@@ -634,7 +634,7 @@ export default function ProcessingPage() {
       />
 
       <KpiStrip columns={4}>
-        <Kpi label="total runs" value={runs.length} delta="all pipelines" />
+        <Kpi label="total analyses" value={runs.length} delta="all pipelines" />
         <Kpi
           label="completed"
           value={String(completedCount).padStart(2, "0")}
@@ -648,7 +648,7 @@ export default function ProcessingPage() {
           tone="mch"
         />
         <Kpi
-          label="pipelines"
+          label="analysis types"
           value="03"
           delta="dose-response · norm · qpcr"
           tone="dapi"
@@ -660,7 +660,7 @@ export default function ProcessingPage() {
           {/* Pipeline cards */}
           <section>
             <div className="font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-subtle mb-3">
-              <span className="text-brand">›</span> available pipelines
+              <span className="text-brand">›</span> available analyses
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               {PROCESSING_TYPES.map((pt) => {
@@ -740,7 +740,7 @@ export default function ProcessingPage() {
                 <span className="text-brand">›</span> recent runs
               </div>
               <span className="font-mono text-[11px] uppercase tracking-[0.02em] text-ink-subtle">
-                {runs.length} runs
+                {runs.length} analyses
               </span>
             </div>
 
@@ -834,7 +834,7 @@ export default function ProcessingPage() {
               })}
 
               <div className="px-4 py-2.5 border-t border-line bg-bg font-mono text-[11.5px] tracking-[0.02em] text-ink-subtle">
-                showing {runs.length} runs
+                showing {runs.length} analyses
               </div>
             </div>
           </section>
