@@ -43,6 +43,13 @@ export interface PlateMap {
     replicates: number;
     sourceFileName?: string;
   };
+  linkedResult?: {
+    analysisType: string;
+    summary: string;
+    result: Record<string, unknown>;
+    linkedAt: string;
+  };
+  runRecordId?: string;
   createdAt: string;
   updatedAt: string;
 }
